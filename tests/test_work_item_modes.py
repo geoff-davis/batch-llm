@@ -1,16 +1,17 @@
-"""Tests for the three LLMWorkItem processing modes."""
+"""Tests for different LLMCallStrategy implementations and patterns."""
 
 import asyncio
 from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
 
 from batch_llm import (
+    LLMCallStrategy,
     LLMWorkItem,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
 )
 from batch_llm.testing import MockAgent
 
@@ -23,8 +24,8 @@ class TestOutput(BaseModel):
 
 
 @pytest.mark.asyncio
-async def test_agent_mode():
-    """Test using a PydanticAI Agent directly."""
+async def test_pydantic_ai_strategy():
+    """Test using PydanticAIStrategy with a MockAgent."""
 
     def mock_response(prompt: str) -> TestOutput:
         return TestOutput(value=f"Response: {prompt}", temperature=0.0)
@@ -34,10 +35,10 @@ async def test_agent_mode():
     config = ProcessorConfig(max_workers=2, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
-    # Test with agent mode
+    # Test with PydanticAIStrategy
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test prompt",
         context=None,
     )
@@ -50,33 +51,40 @@ async def test_agent_mode():
 
 
 @pytest.mark.asyncio
-async def test_agent_factory_mode():
-    """Test using an agent factory for progressive temperature."""
+async def test_custom_strategy_with_progressive_temperature():
+    """Test using a custom strategy that adjusts temperature based on attempt."""
 
     call_log = []
 
-    def create_agent_with_temp(attempt: int) -> Agent:
-        """Create agent with temperature based on attempt."""
-        # Temperatures: 0.0, 0.25, 0.5
-        temps = [0.0, 0.25, 0.5]
-        temp = temps[min(attempt - 1, len(temps) - 1)]
+    class ProgressiveTempStrategy(LLMCallStrategy[TestOutput]):
+        """Strategy that increases temperature with each retry attempt."""
 
-        def response_with_temp(prompt: str) -> TestOutput:
+        def __init__(self):
+            self.temps = [0.0, 0.25, 0.5]
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
             call_log.append({"attempt": attempt, "temp": temp})
-            # Fail first two attempts
+
+            # Fail first two attempts to test retry logic
             if len(call_log) < 3:
                 raise Exception(f"Failed attempt {len(call_log)}")
-            return TestOutput(value="Success", temperature=temp)
 
-        return MockAgent(response_factory=response_with_temp, latency=0.01)
+            return TestOutput(value="Success", temperature=temp), {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            }
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
-    # Test with agent_factory mode
+    # Test with custom strategy
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent_factory=create_agent_with_temp,
+        strategy=ProgressiveTempStrategy(),
         prompt="Test prompt",
         context=None,
     )
@@ -93,37 +101,39 @@ async def test_agent_factory_mode():
 
 
 @pytest.mark.asyncio
-async def test_direct_call_mode():
-    """Test using direct_call for custom API calls."""
+async def test_custom_strategy_with_simulated_api_call():
+    """Test a custom strategy that simulates direct API calls."""
 
     call_log = []
 
-    async def custom_llm_call(
-        attempt: int, timeout: float
-    ) -> tuple[TestOutput, dict[str, int]]:
-        """Direct LLM API call with custom temperature."""
-        temps = [0.0, 0.25, 0.5]
-        temp = temps[min(attempt - 1, len(temps) - 1)]
+    class DirectAPIStrategy(LLMCallStrategy[TestOutput]):
+        """Strategy that simulates calling an API directly."""
 
-        call_log.append({"attempt": attempt, "temp": temp, "timeout": timeout})
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            temps = [0.0, 0.25, 0.5]
+            temp = temps[min(attempt - 1, len(temps) - 1)]
 
-        # Simulate API latency
-        await asyncio.sleep(0.01)
+            call_log.append({"attempt": attempt, "temp": temp, "timeout": timeout})
 
-        # Return result and token usage
-        return (
-            TestOutput(value=f"Direct call result (temp={temp})", temperature=temp),
-            {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
-        )
+            # Simulate API latency
+            await asyncio.sleep(0.01)
+
+            # Return result and token usage
+            return (
+                TestOutput(value=f"Direct call result (temp={temp})", temperature=temp),
+                {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
+            )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
-    # Test with direct_call mode
+    # Test with custom strategy
     work_item = LLMWorkItem(
         item_id="item_1",
-        direct_call=custom_llm_call,
-        input_data={"custom": "data"},  # Can pass custom data
+        strategy=DirectAPIStrategy(),
+        prompt="Test prompt",
         context=None,
     )
     await processor.add_work(work_item)
@@ -142,34 +152,37 @@ async def test_direct_call_mode():
 
 
 @pytest.mark.asyncio
-async def test_direct_call_with_retries():
-    """Test that direct_call respects retry logic and progressive temperature."""
+async def test_custom_strategy_with_retries():
+    """Test that custom strategies respect retry logic."""
 
     call_log = []
 
-    async def failing_then_succeeding_call(
-        attempt: int, timeout: float
-    ) -> tuple[TestOutput, dict[str, int]]:
+    class FailingStrategy(LLMCallStrategy[TestOutput]):
         """Fail first attempt, succeed on second."""
-        temps = [0.0, 0.25, 0.5]
-        temp = temps[min(attempt - 1, len(temps) - 1)]
 
-        call_log.append({"attempt": attempt, "temp": temp})
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            temps = [0.0, 0.25, 0.5]
+            temp = temps[min(attempt - 1, len(temps) - 1)]
 
-        if attempt == 1:
-            raise Exception("Simulated failure on first attempt")
+            call_log.append({"attempt": attempt, "temp": temp})
 
-        return (
-            TestOutput(value=f"Success on attempt {attempt}", temperature=temp),
-            {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
-        )
+            if attempt == 1:
+                raise Exception("Simulated failure on first attempt")
+
+            return (
+                TestOutput(value=f"Success on attempt {attempt}", temperature=temp),
+                {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
+            )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        direct_call=failing_then_succeeding_call,
+        strategy=FailingStrategy(),
+        prompt="Test prompt",
         context=None,
     )
     await processor.add_work(work_item)
@@ -186,93 +199,32 @@ async def test_direct_call_with_retries():
 
 
 @pytest.mark.asyncio
-async def test_work_item_validation_rejects_multiple_modes():
-    """Test that LLMWorkItem rejects multiple processing modes."""
+async def test_custom_strategy_timeout_handling():
+    """Test that custom strategies respect timeout."""
 
-    mock_agent = MockAgent(latency=0.01)
+    class SlowStrategy(LLMCallStrategy[TestOutput]):
+        """Strategy that takes too long."""
 
-    async def dummy_call(attempt: int, timeout: float):
-        return TestOutput(value="test"), {}
-
-    # Should raise ValueError when providing both agent and direct_call
-    with pytest.raises(ValueError, match="Only one of"):
-        LLMWorkItem(
-            item_id="item_1",
-            agent=mock_agent,
-            direct_call=dummy_call,  # Can't have both!
-            prompt="test",
-        )
-
-
-@pytest.mark.asyncio
-async def test_work_item_validation_requires_one_mode():
-    """Test that LLMWorkItem requires at least one processing mode."""
-
-    # Should raise ValueError when providing no processing mode
-    with pytest.raises(ValueError, match="Must provide either strategy or one of"):
-        LLMWorkItem(
-            item_id="item_1",
-            prompt="test",
-            # No strategy, agent, agent_factory, or direct_call!
-        )
-
-
-@pytest.mark.asyncio
-async def test_agent_factory_gets_correct_attempt_numbers():
-    """Test that agent_factory receives correct attempt numbers."""
-
-    attempts_received = []
-
-    def create_agent(attempt: int) -> Agent:
-        attempts_received.append(attempt)
-
-        def response(prompt: str) -> TestOutput:
-            # Fail first two attempts
-            if len(attempts_received) < 3:
-                raise Exception(f"Fail attempt {attempt}")
-            return TestOutput(value=f"Success on attempt {attempt}")
-
-        return MockAgent(response_factory=response, latency=0.01)
-
-    config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
-    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
-
-    work_item = LLMWorkItem(
-        item_id="item_1",
-        agent_factory=create_agent,
-        prompt="Test",
-        context=None,
-    )
-    await processor.add_work(work_item)
-
-    result = await processor.process_all()
-
-    # Should succeed after 3 attempts
-    assert result.succeeded == 1
-    assert attempts_received == [1, 2, 3], f"Got attempts: {attempts_received}"
-
-
-@pytest.mark.asyncio
-async def test_direct_call_timeout_handling():
-    """Test that direct_call respects timeout."""
-
-    async def slow_call(attempt: int, timeout: float) -> tuple[TestOutput, dict]:
-        # Sleep much longer than timeout to ensure it triggers
-        await asyncio.sleep(5.0)  # Sleep longer than timeout
-        return TestOutput(value="Should timeout"), {}
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            # Sleep longer than timeout to ensure it triggers
+            await asyncio.sleep(1.0)  # 1 second sleep
+            return TestOutput(value="Should timeout"), {}
 
     # Use very short timeout and no retries to make test fast
     from batch_llm.core import RetryConfig
     config = ProcessorConfig(
         max_workers=1,
-        timeout_per_item=0.1,  # Very short timeout (100ms)
+        timeout_per_item=0.05,  # Very short timeout (50ms)
         retry=RetryConfig(max_attempts=1),  # No retries
     )
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        direct_call=slow_call,
+        strategy=SlowStrategy(),
+        prompt="Test prompt",
         context=None,
     )
     await processor.add_work(work_item)
@@ -282,18 +234,17 @@ async def test_direct_call_timeout_handling():
     # Should fail due to timeout
     assert result.failed == 1
     assert result.results[0].error is not None
-    result.results[0].error.lower()
-    # asyncio.TimeoutError message is empty, so just check it's not successful
+    # Just check it's not successful
     assert not result.results[0].success
 
 
 @pytest.mark.asyncio
-async def test_context_preserved_across_modes():
-    """Test that context is preserved across all three modes."""
+async def test_context_preserved_across_strategies():
+    """Test that context is preserved with different strategies."""
 
     context_data = {"user_id": 123, "request_id": "abc"}
 
-    # Test agent mode
+    # Test PydanticAIStrategy
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
         latency=0.01
@@ -304,7 +255,7 @@ async def test_context_preserved_across_modes():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=context_data,
     )
@@ -316,31 +267,46 @@ async def test_context_preserved_across_modes():
 
 
 @pytest.mark.asyncio
-async def test_input_data_passed_to_direct_call():
-    """Test that input_data is accessible in direct_call context."""
+async def test_strategy_lifecycle_prepare_and_cleanup():
+    """Test that strategy prepare and cleanup are called."""
 
+    lifecycle_log = []
 
-    async def call_with_input(attempt: int, timeout: float) -> tuple[TestOutput, dict]:
-        # Note: input_data is available via work_item.input_data, not as a parameter
-        # This test verifies the pattern works
-        return TestOutput(value="Success"), {}
+    class LifecycleStrategy(LLMCallStrategy[TestOutput]):
+        """Strategy that tracks lifecycle calls."""
+
+        async def prepare(self):
+            lifecycle_log.append("prepare")
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            lifecycle_log.append("execute")
+            return TestOutput(value="Success"), {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            }
+
+        async def cleanup(self):
+            lifecycle_log.append("cleanup")
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
-    processor = ParallelBatchProcessor[dict, TestOutput, None](config=config)
 
-    custom_input = {"cluster_id": "cluster_1", "items": [1, 2, 3]}
+    async with ParallelBatchProcessor[str, TestOutput, None](config=config) as processor:
+        work_item = LLMWorkItem(
+            item_id="item_1",
+            strategy=LifecycleStrategy(),
+            prompt="Test",
+            context=None,
+        )
+        await processor.add_work(work_item)
+        result = await processor.process_all()
 
-    work_item = LLMWorkItem(
-        item_id="item_1",
-        direct_call=call_with_input,
-        input_data=custom_input,
-        context=None,
-    )
-    await processor.add_work(work_item)
-
-    result = await processor.process_all()
-
-    # Verify it processes successfully
+    # Verify lifecycle
     assert result.succeeded == 1
-    # input_data is stored on work_item
-    assert work_item.input_data == custom_input
+    assert "prepare" in lifecycle_log
+    assert "execute" in lifecycle_log
+    assert "cleanup" in lifecycle_log
+    # Prepare should come before execute
+    assert lifecycle_log.index("prepare") < lifecycle_log.index("execute")

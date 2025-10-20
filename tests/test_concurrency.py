@@ -15,6 +15,7 @@ from batch_llm import (
     MetricsObserver,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
 )
 from batch_llm.testing import MockAgent
 
@@ -43,7 +44,7 @@ async def test_concurrent_stats_updates():
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -105,7 +106,7 @@ async def test_concurrent_rate_limit_handling():
     for i in range(3):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -145,7 +146,7 @@ async def test_metrics_observer_thread_safety():
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -189,7 +190,7 @@ async def test_no_result_loss_under_concurrency():
         expected_ids.add(item_id)
         work_item = LLMWorkItem(
             item_id=item_id,
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -238,7 +239,7 @@ async def test_concurrent_post_processor_calls():
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -268,7 +269,7 @@ async def test_get_stats_thread_safety():
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -335,7 +336,7 @@ async def test_slow_start_counter_accuracy():
     for i in range(15):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )

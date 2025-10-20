@@ -13,6 +13,7 @@ from batch_llm import (
     MetricsObserver,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
 )
 from batch_llm.testing import MockAgent
 
@@ -45,7 +46,7 @@ async def test_basic_processing():
     for i in range(5):
         work_item = LLMWorkItem(
             item_id=f"book_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Summarize book {i}",
             context=None,
         )
@@ -84,7 +85,7 @@ async def test_with_context():
     context = BookContext(book_id="book_1", source="test")
     work_item = LLMWorkItem(
         item_id="book_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test prompt",
         context=context,
     )
@@ -120,7 +121,7 @@ async def test_post_processor():
     for i in range(3):
         work_item = LLMWorkItem(
             item_id=f"book_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -154,7 +155,7 @@ async def test_metrics_observer():
     for i in range(5):
         work_item = LLMWorkItem(
             item_id=f"book_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         )
@@ -184,7 +185,7 @@ async def test_timeout_handling():
 
     work_item = LLMWorkItem(
         item_id="book_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )

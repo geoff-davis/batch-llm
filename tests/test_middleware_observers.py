@@ -10,6 +10,7 @@ from batch_llm import (
     LLMWorkItem,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
 )
 from batch_llm.middleware import BaseMiddleware
 from batch_llm.observers import BaseObserver, ProcessingEvent
@@ -52,7 +53,7 @@ async def test_middleware_before_process():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Original prompt",
         context=None,
     )
@@ -93,7 +94,7 @@ async def test_middleware_after_process():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -134,7 +135,7 @@ async def test_middleware_can_skip_items():
     for item_id, prompt in [("item_1", "Process this"), ("item_2", "SKIP this")]:
         work_item = LLMWorkItem(
             item_id=item_id,
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=prompt,
             context=None,
         )
@@ -178,7 +179,7 @@ async def test_middleware_on_error():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -228,7 +229,7 @@ async def test_multiple_middlewares_execute_in_order():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -272,7 +273,7 @@ async def test_observer_receives_all_events():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -325,7 +326,7 @@ async def test_observer_receives_failure_events():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -366,7 +367,7 @@ async def test_multiple_observers_all_receive_events():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -403,7 +404,7 @@ async def test_observer_timeout_doesnt_break_processing():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -449,7 +450,7 @@ async def test_middleware_and_observers_work_together():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -494,7 +495,7 @@ async def test_middleware_returns_none_original_item_id_preserved():
 
     work_item = LLMWorkItem(
         item_id="filtered_item",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )

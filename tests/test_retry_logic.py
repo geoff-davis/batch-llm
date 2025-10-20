@@ -9,6 +9,7 @@ from batch_llm import (
     LLMWorkItem,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
 )
 from batch_llm.classifiers import GeminiErrorClassifier
 from batch_llm.core import RetryConfig
@@ -49,7 +50,7 @@ async def test_retry_on_timeout():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -92,7 +93,7 @@ async def test_retry_with_exponential_backoff():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -135,7 +136,7 @@ async def test_max_attempts_respected():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -232,7 +233,7 @@ async def test_validation_error_retries():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -280,7 +281,7 @@ async def test_non_retryable_error_fails_immediately():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -320,7 +321,7 @@ async def test_retry_succeeds_on_final_attempt():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -377,7 +378,7 @@ async def test_token_usage_tracked_across_retries():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=agent,
+        strategy=PydanticAIStrategy(agent=agent),
         prompt="Test",
         context=None,
     )

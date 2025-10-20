@@ -129,15 +129,16 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
     async def execute(
         self, prompt: str, attempt: int, timeout: float
     ) -> tuple[TOutput, dict[str, int]]:
-        """Execute Gemini API call."""
+        """Execute Gemini API call.
+
+        Note: timeout parameter is provided for information but timeout enforcement
+        is handled by the framework wrapping this call in asyncio.wait_for().
+        """
         # Make the call
-        response = await asyncio.wait_for(
-            self.client.aio.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=self.config,
-            ),
-            timeout=timeout,
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=self.config,
         )
 
         # Parse output
@@ -216,7 +217,11 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
     async def execute(
         self, prompt: str, attempt: int, timeout: float
     ) -> tuple[TOutput, dict[str, int]]:
-        """Execute Gemini API call with cache, refreshing TTL if needed."""
+        """Execute Gemini API call with cache, refreshing TTL if needed.
+
+        Note: timeout parameter is provided for information but timeout enforcement
+        is handled by the framework wrapping this call in asyncio.wait_for().
+        """
         if self._cache is None:
             raise RuntimeError("Cache not initialized - prepare() was not called")
 
@@ -232,14 +237,11 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
             self._cache_created_at = time.time()
 
         # Make the call using the cache
-        response = await asyncio.wait_for(
-            self.client.aio.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=self.config,
-                cached_content=self._cache.name,
-            ),
-            timeout=timeout,
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=self.config,
+            cached_content=self._cache.name,
         )
 
         # Parse output
@@ -295,11 +297,12 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
     async def execute(
         self, prompt: str, attempt: int, timeout: float
     ) -> tuple[TOutput, dict[str, int]]:
-        """Execute PydanticAI agent call."""
-        result = await asyncio.wait_for(
-            self.agent.run(prompt),
-            timeout=timeout,
-        )
+        """Execute PydanticAI agent call.
+
+        Note: timeout parameter is provided for information but timeout enforcement
+        is handled by the framework wrapping this call in asyncio.wait_for().
+        """
+        result = await self.agent.run(prompt)
 
         # Extract token usage
         usage = result.usage()

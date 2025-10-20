@@ -10,6 +10,7 @@ from batch_llm import (
     LLMWorkItem,
     ParallelBatchProcessor,
     ProcessorConfig,
+    PydanticAIStrategy,
     WorkItemResult,
 )
 from batch_llm.core import RetryConfig
@@ -52,7 +53,7 @@ async def test_single_item():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -81,7 +82,7 @@ async def test_more_items_than_workers():
     for i in range(10):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Prompt {i}",
             context=None,
         )
@@ -113,7 +114,7 @@ async def test_all_items_fail():
     for i in range(5):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt="Test",
             context=None,
         )
@@ -144,7 +145,7 @@ async def test_mixed_success_and_failure():
     for i, prompt in enumerate(prompts):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=prompt,
             context=None,
         )
@@ -174,7 +175,7 @@ async def test_very_short_timeout():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -203,7 +204,7 @@ async def test_very_long_timeout():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -235,7 +236,7 @@ async def test_post_processor_exception_doesnt_fail_item():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -266,7 +267,7 @@ async def test_large_batch():
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i:03d}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Prompt {i}",
             context=None,
         )
@@ -305,7 +306,7 @@ async def test_special_characters_in_item_id():
     for item_id in special_ids:
         work_item = LLMWorkItem(
             item_id=item_id,
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt="Test",
             context=None,
         )
@@ -347,7 +348,7 @@ async def test_unicode_in_prompts():
     for i, prompt in enumerate(unicode_prompts):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=prompt,
             context=None,
         )
@@ -373,7 +374,7 @@ async def test_none_context():
 
     work_item = LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test",
         context=None,
     )
@@ -410,7 +411,7 @@ async def test_complex_context_types():
     for i, ctx in enumerate(contexts):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt="Test",
             context=ctx,
         )
@@ -465,7 +466,7 @@ async def test_adding_work_after_processing_started():
     # Add first item
     await processor.add_work(LLMWorkItem(
         item_id="item_1",
-        agent=mock_agent,
+        strategy=PydanticAIStrategy(agent=mock_agent),
         prompt="Test 1",
         context=None,
     ))
@@ -540,7 +541,7 @@ async def test_max_queue_size_zero_is_unlimited():
     for i in range(20):
         await processor.add_work(LLMWorkItem(
             item_id=f"item_{i}",
-            agent=mock_agent,
+            strategy=PydanticAIStrategy(agent=mock_agent),
             prompt=f"Test {i}",
             context=None,
         ))

@@ -653,8 +653,12 @@ class ParallelBatchProcessor(
                     }
                 else:
                     # Call strategy.execute() with prompt, attempt number, and timeout
-                    output, token_usage = await strategy.execute(
-                        work_item.prompt, attempt_number, self.config.timeout_per_item
+                    # Wrap in asyncio.wait_for to enforce timeout at framework level
+                    output, token_usage = await asyncio.wait_for(
+                        strategy.execute(
+                            work_item.prompt, attempt_number, self.config.timeout_per_item
+                        ),
+                        timeout=self.config.timeout_per_item
                     )
             except (TimeoutError, asyncio.TimeoutError):
                 elapsed = time.time() - llm_start_time

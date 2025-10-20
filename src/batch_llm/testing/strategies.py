@@ -1,6 +1,12 @@
 """Helper functions for creating test strategies."""
 
-from typing import TypeVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, TypeVar
+
+if TYPE_CHECKING:
+    from ..llm_strategies import PydanticAIStrategy
+    from .mocks import MockAgent
 
 from ..llm_strategies import PydanticAIStrategy
 from .mocks import MockAgent
@@ -8,7 +14,7 @@ from .mocks import MockAgent
 TOutput = TypeVar("TOutput")
 
 
-def mock_strategy(mock_agent: MockAgent[TOutput]) -> PydanticAIStrategy[TOutput]:
+def mock_strategy(mock_agent: "MockAgent[TOutput]") -> "PydanticAIStrategy[TOutput]":
     """
     Convert a MockAgent to a PydanticAIStrategy for testing.
 
