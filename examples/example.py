@@ -12,10 +12,10 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from batch_llm.base import LLMWorkItem, WorkItemResult
-from batch_llm.core import ProcessorConfig, RateLimitConfig, RetryConfig
 from batch_llm.classifiers import GeminiErrorClassifier
-from batch_llm.observers import MetricsObserver
+from batch_llm.core import ProcessorConfig, RateLimitConfig, RetryConfig
 from batch_llm.middleware import BaseMiddleware
+from batch_llm.observers import MetricsObserver
 from batch_llm.parallel import ParallelBatchProcessor
 from batch_llm.testing import MockAgent
 
@@ -286,7 +286,7 @@ async def example_error_handling():
         work_item = LLMWorkItem(
             item_id=f"book_{i}",
             strategy=strategy,
-            prompt=f"Summarize a book (this will likely timeout)",
+            prompt="Summarize a book (this will likely timeout)",
             context=None,
         )
         await processor.add_work(work_item)

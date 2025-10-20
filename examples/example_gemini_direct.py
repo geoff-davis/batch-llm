@@ -63,7 +63,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
     temperature based on retry attempt number.
     """
 
-    def __init__(self, client: genai.Client, temps=[0.0, 0.25, 0.5]):
+    def __init__(self, client: genai.Client, temps=None):
         """
         Initialize progressive temperature strategy.
 
@@ -72,7 +72,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
             temps: List of temperatures for attempts [attempt1, attempt2, attempt3...]
         """
         self.client = client
-        self.temps = temps
+        self.temps = temps if temps is not None else [0.0, 0.25, 0.5]
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float

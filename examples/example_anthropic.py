@@ -9,7 +9,6 @@ Install dependencies:
 
 import asyncio
 import os
-from typing import Any
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
@@ -279,11 +278,11 @@ async def example_anthropic_progressive_temperature():
             self,
             client: AsyncAnthropic,
             model: str = "claude-3-5-haiku-20241022",
-            base_temps: list[float] = [0.3, 0.7, 1.0],
+            base_temps: list[float] | None = None,
         ):
             self.client = client
             self.model = model
-            self.base_temps = base_temps
+            self.base_temps = base_temps if base_temps is not None else [0.3, 0.7, 1.0]
 
         async def execute(
             self, prompt: str, attempt: int, timeout: float

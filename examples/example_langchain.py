@@ -9,13 +9,11 @@ Install dependencies:
 
 import asyncio
 import os
-from typing import Any
 
 from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from batch_llm.llm_strategies import LLMCallStrategy

@@ -158,6 +158,62 @@ print(f"Total cost: ${estimate_cost(result)}")
 
 ---
 
+## Automatic Retry on Validation Errors
+
+One of the most powerful features is automatic retry when Pydantic validation fails:
+
+```python
+from pydantic import BaseModel, Field, ValidationError
+from batch_llm import PydanticAIStrategy, LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm.core import RetryConfig
+from pydantic_ai import Agent
+
+class StructuredData(BaseModel):
+    """Strict schema - LLM must follow this exactly."""
+    name: str = Field(min_length=1)
+    age: int = Field(gt=0, lt=150)
+    email: str = Field(pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+
+# Agent with structured output
+agent = Agent("gemini-2.0-flash-exp", result_type=StructuredData)
+strategy = PydanticAIStrategy(agent=agent)
+
+# Configure retries with progressive temperature
+config = ProcessorConfig(
+    max_workers=5,
+    timeout_per_item=30.0,
+    retry=RetryConfig(
+        max_attempts=3,
+        initial_wait=1.0,
+        exponential_base=2.0,
+    ),
+)
+
+async with ParallelBatchProcessor[str, StructuredData, None](config=config) as processor:
+    await processor.add_work(
+        LLMWorkItem(
+            item_id="item_1",
+            strategy=strategy,
+            prompt="Extract: John Smith, 32 years old, john.smith@example.com",
+        )
+    )
+
+    result = await processor.process_all()
+
+# If parsing fails:
+# - Attempt 1: Fails validation → automatic retry
+# - Attempt 2: Fails validation → automatic retry
+# - Attempt 3: Success! (or final failure if still invalid)
+```
+
+**How it works:**
+1. LLM returns malformed JSON → `ValidationError` raised
+2. Framework catches error and retries automatically
+3. Each retry can use different temperature (via custom strategy)
+4. Success or final failure after max attempts
+
+---
+
 ## Provider Examples
 
 ### OpenAI
@@ -368,6 +424,71 @@ class ProgressiveTempStrategy(LLMCallStrategy[str]):
         return response.text, response.token_usage
 ```
 
+### Smart Retry with Validation Feedback
+
+When validation fails, create smarter retry prompts that tell the LLM exactly which fields succeeded and which failed:
+
+```python
+class SmartRetryStrategy(LLMCallStrategy[PersonData]):
+    """On validation failure, tell LLM which fields succeeded vs failed."""
+
+    def _create_retry_prompt(self, original_prompt: str) -> str:
+        """Create targeted retry prompt with specific field feedback."""
+        retry_prompt = f"""The previous extraction had validation errors.
+
+ORIGINAL REQUEST:
+{original_prompt}
+
+PREVIOUS ATTEMPT RESULTS:
+
+Successfully extracted (KEEP THESE):
+  - name: John Smith
+  - age: 32
+
+Failed validation (FIX THESE):
+  - email: String should match pattern '^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$'
+  - phone: String should match pattern '^\\+?1?\\d{{10,14}}$'
+
+Please provide a COMPLETE JSON response with all fields corrected."""
+        return retry_prompt
+```
+
+This approach is more efficient than blind retries because:
+- LLM knows exactly what went wrong
+- LLM can focus on fixing specific fields
+- Reduces token usage with shorter, focused prompts
+- Higher success rate on retries
+
+See [`examples/example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) for complete implementation with automatic error parsing.
+
+### Model Escalation for Cost Optimization
+
+Start with cheap models and escalate to expensive ones only when needed:
+
+```python
+class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
+    """Start with cheapest model, escalate on failure."""
+
+    MODELS = [
+        "gemini-2.0-flash-exp",  # Attempt 1: Cheapest/fastest
+        "gemini-1.5-flash",       # Attempt 2: Production fast
+        "gemini-1.5-pro",         # Attempt 3: Most capable
+    ]
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        model = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
+        # Make call with escalated model...
+```
+
+**Cost savings example:**
+- Most tasks succeed on attempt 1 (cheap model)
+- Only difficult tasks escalate to expensive models
+- Result: ~60-80% cost reduction vs. always using best model
+
+You can also combine model escalation with temperature escalation for even better results.
+
+See [`examples/example_model_escalation.py`](examples/example_model_escalation.py) for complete examples including cost comparisons.
+
 ### Context and Post-Processing
 
 Pass context through and run custom logic after each success:
@@ -507,6 +628,8 @@ Check out the [`examples/`](examples/) directory:
 - [`example_anthropic.py`](examples/example_anthropic.py) - Anthropic Claude
 - [`example_langchain.py`](examples/example_langchain.py) - LangChain & RAG
 - [`example_gemini_direct.py`](examples/example_gemini_direct.py) - Direct Gemini API
+- [`example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) - Smart retry with validation feedback
+- [`example_model_escalation.py`](examples/example_model_escalation.py) - Model escalation for cost optimization
 - [`example_context_manager.py`](examples/example_context_manager.py) - Resource management
 
 ---
