@@ -162,6 +162,51 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             "error_counts": {},  # Track error types: {error_type: count}
             "rate_limit_count": 0,  # Track 429 errors from main LLM calls
         }
+        self._workers: list[asyncio.Task] = []
+        self._is_processing = False
+
+    async def __aenter__(self):
+        """Context manager entry - returns self for use in async with."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures cleanup of resources."""
+        await self.cleanup()
+        return False  # Don't suppress exceptions
+
+    async def cleanup(self):
+        """
+        Clean up resources: cancel pending workers and clear queue.
+
+        This method should be called when you're done with the processor,
+        or use the processor as an async context manager.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Cancel any running workers
+        if self._workers:
+            logger.debug(f"Cleaning up {len(self._workers)} workers")
+            for worker in self._workers:
+                if not worker.done():
+                    worker.cancel()
+
+            # Wait briefly for cancellations
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._workers, return_exceptions=True),
+                    timeout=2.0
+                )
+            except TimeoutError:
+                logger.warning("Some workers did not cancel within timeout")
+
+        # Clear any remaining items in queue
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except asyncio.QueueEmpty:
+                break
 
     async def add_work(self, work_item: LLMWorkItem[TInput, TOutput, TContext]):
         """
@@ -182,13 +227,14 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         """
         # Record start time for rate calculation
         self._stats["start_time"] = time.time()
+        self._is_processing = True
 
         # Add sentinel values to stop workers
         for _ in range(self.max_workers):
             await self._queue.put(None)
 
-        # Start workers
-        workers = [
+        # Start workers and store them for cleanup
+        self._workers = [
             asyncio.create_task(self._worker(worker_id))
             for worker_id in range(self.max_workers)
         ]
@@ -202,10 +248,10 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         # Wait for workers to finish with timeout
         try:
             await asyncio.wait_for(
-                asyncio.gather(*workers),
+                asyncio.gather(*self._workers),
                 timeout=30.0  # 30 second timeout for workers to clean up
             )
-            logging.info(f"✓ All {len(workers)} workers finished successfully")
+            logging.info(f"✓ All {len(self._workers)} workers finished successfully")
         except TimeoutError:
             import logging
             logging.error(
@@ -213,15 +259,18 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
                 "Cancelling workers and proceeding..."
             )
             # Cancel any workers that are still running
-            for worker in workers:
+            for worker in self._workers:
                 if not worker.done():
                     worker.cancel()
             # Wait briefly for cancellations to complete
             try:
-                await asyncio.wait_for(asyncio.gather(*workers, return_exceptions=True), timeout=5.0)
+                await asyncio.wait_for(
+                    asyncio.gather(*self._workers, return_exceptions=True), timeout=5.0
+                )
             except TimeoutError:
                 logging.error("⚠️  Some workers could not be cancelled")
 
+        self._is_processing = False
         return BatchResult(results=self._results)
 
     @abstractmethod
