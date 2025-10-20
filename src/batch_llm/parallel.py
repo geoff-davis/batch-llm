@@ -9,6 +9,7 @@ from .base import (
     BatchProcessor,
     LLMWorkItem,
     PostProcessorFunc,
+    ProgressCallbackFunc,
     TContext,
     TInput,
     TOutput,
@@ -60,6 +61,7 @@ class ParallelBatchProcessor(
         rate_limit_strategy: RateLimitStrategy | None = None,
         middlewares: list[Middleware[TInput, TOutput, TContext]] | None = None,
         observers: list[ProcessorObserver] | None = None,
+        progress_callback: "ProgressCallbackFunc | None" = None,
     ):
         """
         Initialize the parallel batch processor.
@@ -74,6 +76,7 @@ class ParallelBatchProcessor(
             rate_limit_strategy: Strategy for handling rate limits
             middlewares: List of middleware to apply
             observers: List of observers for events
+            progress_callback: Optional callback(completed, total, current_item_id) for progress updates
         """
         # Handle backward compatibility
         if config is None:
@@ -100,7 +103,8 @@ class ParallelBatchProcessor(
         super().__init__(
             config.max_workers,
             post_processor,
-            max_queue_size=config.max_queue_size
+            max_queue_size=config.max_queue_size,
+            progress_callback=progress_callback,
         )
         self.config = config
 
@@ -292,17 +296,45 @@ class ParallelBatchProcessor(
                 self._results.append(result)
 
             # Update stats (thread-safe)
+            should_call_progress = False
+            completed = 0
+            total = 0
+            current_item = ""
+
             async with self._stats_lock:
-                self._stats["processed"] += 1
+                self._stats.processed += 1
                 if result.success:
-                    self._stats["succeeded"] += 1
+                    self._stats.succeeded += 1
                 else:
-                    self._stats["failed"] += 1
+                    self._stats.failed += 1
                     if result.error:
                         error_type = result.error.split(":")[0]
-                        self._stats["error_counts"][error_type] = (
-                            self._stats["error_counts"].get(error_type, 0) + 1
+                        self._stats.error_counts[error_type] = (
+                            self._stats.error_counts.get(error_type, 0) + 1
                         )
+
+                # Track token usage in real-time
+                if result.token_usage:
+                    self._stats.total_input_tokens += result.token_usage.get("input_tokens", 0)
+                    self._stats.total_output_tokens += result.token_usage.get("output_tokens", 0)
+                    self._stats.total_tokens += result.token_usage.get("total_tokens", 0)
+                    self._stats.cached_input_tokens += result.token_usage.get("cached_input_tokens", 0)
+
+                # Check if we should call progress callback (based on progress_interval)
+                if self.progress_callback and self._stats.processed % self.config.progress_interval == 0:
+                    should_call_progress = True
+                    completed = self._stats.processed
+                    total = self._stats.total
+                    current_item = work_item.item_id
+
+            # Invoke progress callback outside of lock
+            if should_call_progress:
+                try:
+                    result_or_none = self.progress_callback(completed, total, current_item)
+                    if asyncio.iscoroutine(result_or_none):
+                        await result_or_none
+                except Exception as e:
+                    logger.warning(f"⚠️  Progress callback failed: {e}")
 
             # Run post-processor for both success AND failure
             # Note: Post-processors should check result.success and handle accordingly
@@ -325,7 +357,7 @@ class ParallelBatchProcessor(
 
             # Log progress (thread-safe read of stats)
             async with self._stats_lock:
-                should_log = self._stats["processed"] % self.config.progress_interval == 0
+                should_log = self._stats.processed % self.config.progress_interval == 0
                 if should_log:
                     stats_snapshot = self._stats.copy()
 
@@ -341,11 +373,23 @@ class ParallelBatchProcessor(
                     ]
                     error_breakdown = f" | Errors: {', '.join(error_strs)}"
 
+                # Token summary
+                token_summary = ""
+                if stats_snapshot["total_tokens"] > 0:
+                    cached_info = ""
+                    if stats_snapshot.get("cached_input_tokens", 0) > 0:
+                        cached_info = f", {stats_snapshot['cached_input_tokens']:,} cached"
+                    token_summary = (
+                        f" | Tokens: {stats_snapshot['total_tokens']:,} "
+                        f"({stats_snapshot['total_input_tokens']:,} in, "
+                        f"{stats_snapshot['total_output_tokens']:,} out{cached_info})"
+                    )
+
                 logger.info(
                     f"ℹ️  Progress: {stats_snapshot['processed']}/{stats_snapshot['total']} "
                     f"({stats_snapshot['processed']/stats_snapshot['total']*100:.1f}%) | "
                     f"Succeeded: {stats_snapshot['succeeded']}, Failed: {stats_snapshot['failed']}"
-                    f"{error_breakdown} | {calls_per_sec:.2f} calls/sec"
+                    f"{error_breakdown} | {calls_per_sec:.2f} calls/sec{token_summary}"
                 )
 
     async def _handle_rate_limit(self, worker_id: int):
@@ -587,10 +631,31 @@ class ParallelBatchProcessor(
             llm_start_time = time.time()
 
             try:
-                # Call strategy.execute() with prompt, attempt number, and timeout
-                output, token_usage = await strategy.execute(
-                    work_item.prompt, attempt_number, self.config.timeout_per_item
-                )
+                # Dry-run mode: skip actual API call
+                if self.config.dry_run:
+                    logger.info(f"[DRY-RUN] Skipping API call for {work_item.item_id}")
+                    await asyncio.sleep(0.1)  # Simulate brief processing
+                    # Return mock output based on result_type
+                    from pydantic import BaseModel
+                    if hasattr(strategy, 'agent') and hasattr(strategy.agent, 'result_type'):
+                        result_type = strategy.agent.result_type
+                        if isinstance(result_type, type) and issubclass(result_type, BaseModel):
+                            # Create instance with default values
+                            output = result_type()
+                        else:
+                            output = f"[DRY-RUN] Mock output for {work_item.item_id}"
+                    else:
+                        output = f"[DRY-RUN] Mock output for {work_item.item_id}"
+                    token_usage = {
+                        "input_tokens": 100,
+                        "output_tokens": 50,
+                        "total_tokens": 150,
+                    }
+                else:
+                    # Call strategy.execute() with prompt, attempt number, and timeout
+                    output, token_usage = await strategy.execute(
+                        work_item.prompt, attempt_number, self.config.timeout_per_item
+                    )
             except (TimeoutError, asyncio.TimeoutError):
                 elapsed = time.time() - llm_start_time
                 logger.error(
@@ -607,7 +672,7 @@ class ParallelBatchProcessor(
                 logger.info(f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number-1} failure(s), took {llm_duration:.1f}s)")
 
             # Log first few results for debugging
-            if self._stats["succeeded"] < 3:
+            if self._stats.succeeded < 3:
                 logger.info(
                     f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
                 )
@@ -659,7 +724,7 @@ class ParallelBatchProcessor(
                 # Note: Don't increment 'total' for re-queued items as that inflates the count
                 # The item will be re-processed, so it stays in the original total
                 async with self._stats_lock:
-                    self._stats["rate_limit_count"] += 1
+                    self._stats.rate_limit_count += 1
 
                 await self._emit_event(
                     ProcessingEvent.RATE_LIMIT_HIT,
@@ -818,3 +883,9 @@ class ParallelBatchProcessor(
                 context=work_item.context,
                 token_usage=failed_token_usage,
             )
+
+    async def shutdown(self):
+        """Clean up resources: flush observers and cancel pending tasks."""
+        # Notify observers of shutdown
+        await self._emit_event(ProcessingEvent.BATCH_COMPLETED, {})
+

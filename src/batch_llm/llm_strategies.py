@@ -251,6 +251,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
             "input_tokens": usage.prompt_token_count if usage else 0,
             "output_tokens": usage.candidates_token_count if usage else 0,
             "total_tokens": usage.total_token_count if usage else 0,
+            "cached_input_tokens": usage.cached_content_token_count if usage and hasattr(usage, 'cached_content_token_count') else 0,
         }
 
         return output, tokens

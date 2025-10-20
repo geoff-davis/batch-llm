@@ -5,7 +5,14 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic, TypeVar
+
+# Import Any for ProcessingStats.copy() return type
+from typing import (
+    TYPE_CHECKING,
+    Any,  # noqa: F401
+    Generic,
+    TypeVar,
+)
 
 # Conditional imports for type checking
 if TYPE_CHECKING:
@@ -33,6 +40,19 @@ class LLMWorkItem(Generic[TInput, TOutput, TContext]):
     strategy: "LLMCallStrategy[TOutput]"
     prompt: str = ""
     context: TContext | None = None
+
+    def __post_init__(self):
+        """Validate work item fields."""
+        if not self.item_id or not isinstance(self.item_id, str):
+            raise ValueError(
+                f"item_id must be a non-empty string (got {type(self.item_id).__name__}: {repr(self.item_id)}). "
+                f"Provide a unique string identifier for this work item."
+            )
+        if not self.item_id.strip():
+            raise ValueError(
+                f"item_id cannot be whitespace only (got {repr(self.item_id)}). "
+                f"Provide a non-whitespace string identifier."
+            )
 
 
 @dataclass
@@ -98,6 +118,43 @@ PostProcessorFunc = Callable[
     [WorkItemResult[TOutput, TContext]], Awaitable[None] | None
 ]
 
+# Type alias for progress callback function (completed, total, current_item_id)
+ProgressCallbackFunc = Callable[[int, int, str], Awaitable[None] | None]
+
+
+@dataclass
+class ProcessingStats:
+    """Statistics for batch processing."""
+
+    total: int = 0
+    processed: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    start_time: float | None = None
+    error_counts: dict[str, int] = field(default_factory=dict)
+    rate_limit_count: int = 0
+    # Token usage tracking
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_tokens: int = 0
+    cached_input_tokens: int = 0  # Gemini context caching
+
+    def copy(self) -> dict[str, Any]:
+        """Return a dictionary copy of the stats for backwards compatibility."""
+        return {
+            "total": self.total,
+            "processed": self.processed,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "start_time": self.start_time,
+            "error_counts": self.error_counts.copy(),
+            "rate_limit_count": self.rate_limit_count,
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_tokens,
+            "cached_input_tokens": self.cached_input_tokens,
+        }
+
 
 class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
     """
@@ -113,6 +170,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         max_workers: int = 5,
         post_processor: PostProcessorFunc[TOutput, TContext] | None = None,
         max_queue_size: int = 0,
+        progress_callback: ProgressCallbackFunc | None = None,
     ):
         """
         Initialize the batch processor.
@@ -121,23 +179,17 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             max_workers: Maximum number of concurrent workers
             post_processor: Optional async function called after each successful item
             max_queue_size: Maximum queue size (0 = unlimited)
+            progress_callback: Optional callback(completed, total, current_item_id) for progress updates
         """
         self.max_workers = max_workers
         self.post_processor = post_processor
         self.max_queue_size = max_queue_size
+        self.progress_callback = progress_callback
         self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = (
             asyncio.Queue(maxsize=max_queue_size)
         )
         self._results: list[WorkItemResult[TOutput, TContext]] = []
-        self._stats = {
-            "total": 0,
-            "processed": 0,
-            "succeeded": 0,
-            "failed": 0,
-            "start_time": None,
-            "error_counts": {},  # Track error types: {error_type: count}
-            "rate_limit_count": 0,  # Track 429 errors from main LLM calls
-        }
+        self._stats = ProcessingStats()
         self._workers: list[asyncio.Task] = []
         self._is_processing = False
 
@@ -192,7 +244,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             work_item: Work item to process
         """
         await self._queue.put(work_item)
-        self._stats["total"] += 1
+        self._stats.total += 1
 
     async def process_all(self) -> BatchResult[TOutput, TContext]:
         """
@@ -202,7 +254,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             BatchResult containing all results and statistics
         """
         # Record start time for rate calculation
-        self._stats["start_time"] = time.time()
+        self._stats.start_time = time.time()
         self._is_processing = True
 
         # Add sentinel values to stop workers

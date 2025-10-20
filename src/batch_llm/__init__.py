@@ -32,6 +32,8 @@ from .base import (
     BatchResult,
     LLMWorkItem,
     PostProcessorFunc,
+    ProcessingStats,
+    ProgressCallbackFunc,
     WorkItemResult,
 )
 
@@ -74,6 +76,8 @@ __all__ = [
     "BatchResult",
     "LLMWorkItem",
     "PostProcessorFunc",
+    "ProcessingStats",
+    "ProgressCallbackFunc",
     "WorkItemResult",
     # Configuration
     "ProcessorConfig",
