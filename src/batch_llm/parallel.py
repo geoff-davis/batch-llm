@@ -14,12 +14,16 @@ from .base import (
     TOutput,
     WorkItemResult,
 )
-from .classifiers import GeminiErrorClassifier
 from .core import ProcessorConfig
 from .llm_strategies import LLMCallStrategy
 from .middleware import Middleware
 from .observers import ProcessingEvent, ProcessorObserver
-from .strategies import ErrorClassifier, ExponentialBackoffStrategy, RateLimitStrategy
+from .strategies import (
+    DefaultErrorClassifier,
+    ErrorClassifier,
+    ExponentialBackoffStrategy,
+    RateLimitStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +70,7 @@ class ParallelBatchProcessor(
             timeout_per_item: Timeout per item in seconds (deprecated, use config)
             rate_limit_cooldown: Cooldown duration (deprecated, use config)
             config: Processor configuration object (recommended)
-            error_classifier: Strategy for classifying errors (default: GeminiErrorClassifier)
+            error_classifier: Strategy for classifying errors (default: DefaultErrorClassifier)
             rate_limit_strategy: Strategy for handling rate limits
             middlewares: List of middleware to apply
             observers: List of observers for events
@@ -101,7 +105,7 @@ class ParallelBatchProcessor(
         self.config = config
 
         # Set up strategies
-        self.error_classifier = error_classifier or GeminiErrorClassifier()
+        self.error_classifier = error_classifier or DefaultErrorClassifier()
         self.rate_limit_strategy = rate_limit_strategy or ExponentialBackoffStrategy(
             initial_cooldown=config.rate_limit.cooldown_seconds,
             slow_start_items=config.rate_limit.slow_start_items,
