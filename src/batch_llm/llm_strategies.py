@@ -7,7 +7,8 @@ including caching, model selection, and retry behavior.
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 # Conditional imports for optional dependencies
 if TYPE_CHECKING:

@@ -41,6 +41,14 @@ from .classifiers import GeminiErrorClassifier
 # Configuration
 from .core import ProcessorConfig, RateLimitConfig, RetryConfig
 
+# LLM call strategies
+from .llm_strategies import (
+    GeminiCachedStrategy,
+    GeminiStrategy,
+    LLMCallStrategy,
+    PydanticAIStrategy,
+)
+
 # Middleware
 from .middleware import BaseMiddleware, Middleware
 
@@ -60,14 +68,6 @@ from .strategies import (
     RateLimitStrategy,
 )
 
-# LLM call strategies
-from .llm_strategies import (
-    GeminiCachedStrategy,
-    GeminiStrategy,
-    LLMCallStrategy,
-    PydanticAIStrategy,
-)
-
 __all__ = [
     # Core
     "BatchProcessor",
@@ -79,7 +79,12 @@ __all__ = [
     "ProcessorConfig",
     "RateLimitConfig",
     "RetryConfig",
-    # Strategies
+    # LLM Strategies
+    "GeminiCachedStrategy",
+    "GeminiStrategy",
+    "LLMCallStrategy",
+    "PydanticAIStrategy",
+    # Error Classification Strategies
     "ErrorClassifier",
     "ErrorInfo",
     "DefaultErrorClassifier",
