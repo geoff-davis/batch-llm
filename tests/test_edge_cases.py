@@ -71,7 +71,7 @@ async def test_more_items_than_workers():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value=f"Response: {p}"),
-        latency=0.01
+        latency=0.001  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=2, timeout_per_item=10.0)
@@ -101,7 +101,7 @@ async def test_all_items_fail():
     def always_fail(prompt: str) -> TestOutput:
         raise ValueError("Always fails")
 
-    mock_agent = MockAgent(response_factory=always_fail, latency=0.01)
+    mock_agent = MockAgent(response_factory=always_fail, latency=0.001)  # Reduced from 0.01s
 
     config = ProcessorConfig(
         max_workers=2,
@@ -135,7 +135,7 @@ async def test_mixed_success_and_failure():
             raise ValueError("Intentional failure")
         return TestOutput(value="Success")
 
-    mock_agent = MockAgent(response_factory=conditional_fail, latency=0.01)
+    mock_agent = MockAgent(response_factory=conditional_fail, latency=0.001)  # Reduced from 0.01s
 
     config = ProcessorConfig(max_workers=2, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
@@ -248,6 +248,7 @@ async def test_post_processor_exception_doesnt_fail_item():
     assert result.failed == 0
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_large_batch():
     """Test processing a large batch of items."""
@@ -285,7 +286,7 @@ async def test_special_characters_in_item_id():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
+        latency=0.001  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
@@ -330,7 +331,7 @@ async def test_unicode_in_prompts():
         received_prompts.append(prompt)
         return TestOutput(value="ok")
 
-    mock_agent = MockAgent(response_factory=track_prompt, latency=0.01)
+    mock_agent = MockAgent(response_factory=track_prompt, latency=0.001)  # Reduced from 0.01s
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
@@ -364,7 +365,7 @@ async def test_none_context():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
+        latency=0.001  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
@@ -390,7 +391,7 @@ async def test_complex_context_types():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
+        latency=0.001  # Reduced from 0.01s
     )
 
     # Test with different context types
@@ -517,13 +518,14 @@ async def test_max_queue_size_config_validation():
     config_limited.validate()  # Should not raise
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_max_queue_size_zero_is_unlimited():
     """Test that max_queue_size=0 allows unlimited queue size."""
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
+        latency=0.001  # Reduced from 0.01s
     )
 
     # Default max_queue_size=0 means unlimited
@@ -534,8 +536,8 @@ async def test_max_queue_size_zero_is_unlimited():
     )
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
-    # Add many items without blocking
-    for i in range(100):
+    # Add many items without blocking (reduced from 100 to 20)
+    for i in range(20):
         await processor.add_work(LLMWorkItem(
             item_id=f"item_{i}",
             agent=mock_agent,

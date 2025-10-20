@@ -46,7 +46,6 @@ class ParallelBatchProcessor(
     def __init__(
         self,
         max_workers: int | None = None,
-        batch_size: int = 1,  # Ignored (kept for API compatibility)
         post_processor: PostProcessorFunc[TOutput, TContext] | None = None,
         timeout_per_item: float | None = None,
         rate_limit_cooldown: float | None = None,  # Deprecated, use config
@@ -62,7 +61,6 @@ class ParallelBatchProcessor(
 
         Args:
             max_workers: Maximum concurrent workers (deprecated, use config)
-            batch_size: Ignored (kept for API compatibility)
             post_processor: Optional async function called after each successful item
             timeout_per_item: Timeout per item in seconds (deprecated, use config)
             rate_limit_cooldown: Cooldown duration (deprecated, use config)
@@ -96,7 +94,6 @@ class ParallelBatchProcessor(
 
         super().__init__(
             config.max_workers,
-            batch_size,
             post_processor,
             max_queue_size=config.max_queue_size
         )
@@ -160,10 +157,10 @@ class ParallelBatchProcessor(
                 )
             except TimeoutError:
                 logger.warning(
-                    f"Observer callback timed out after 5s for event {event.name}"
+                    f"⚠️  Observer callback timed out after 5s for event {event.name}"
                 )
             except Exception as e:
-                logger.warning(f"Observer error: {e}")
+                logger.warning(f"⚠️  Observer error: {e}")
 
     async def _run_middlewares_before(
         self, work_item: LLMWorkItem[TInput, TOutput, TContext]
@@ -178,7 +175,7 @@ class ParallelBatchProcessor(
                 current_item = result
             except Exception as e:
                 logger.warning(
-                    f"Middleware before_process error for {work_item.item_id}: {e}"
+                    f"⚠️  Middleware before_process error for {work_item.item_id}: {e}"
                 )
         return current_item
 
@@ -193,7 +190,7 @@ class ParallelBatchProcessor(
                 current_result = await middleware.after_process(current_result)
             except Exception as e:
                 logger.warning(
-                    f"Middleware after_process error for {result.item_id}: {e}"
+                    f"⚠️  Middleware after_process error for {result.item_id}: {e}"
                 )
         return current_result
 
@@ -208,7 +205,7 @@ class ParallelBatchProcessor(
                     return result  # Middleware handled the error
             except Exception as e:
                 logger.warning(
-                    f"Middleware on_error error for {work_item.item_id}: {e}"
+                    f"⚠️  Middleware on_error error for {work_item.item_id}: {e}"
                 )
         return None
 
@@ -230,7 +227,7 @@ class ParallelBatchProcessor(
             except TimeoutError:
                 continue
 
-            logger.info(f"[Worker {worker_id}] Picked up {work_item.item_id} from queue")
+            logger.info(f"ℹ️  [Worker {worker_id}] Picked up {work_item.item_id} from queue")
 
             # Wait if we're in rate limit cooldown
             await self._rate_limit_event.wait()
@@ -267,7 +264,7 @@ class ParallelBatchProcessor(
                     token_msg = f" (consumed {failed_tokens['total_tokens']} tokens across all attempts)"
 
                 logger.error(
-                    f"Worker {worker_id} failed to process {work_item.item_id} after all retries: "
+                    f"✗ Worker {worker_id} failed to process {work_item.item_id} after all retries: "
                     f"{type(e).__name__}: {str(e)[:200]}{token_msg}"
                 )
 
@@ -312,7 +309,7 @@ class ParallelBatchProcessor(
                 )
             except TimeoutError:
                 logger.error(
-                    f"✗ Post-processor exceeded timeout for {work_item.item_id}"
+                    f"⏱ Post-processor exceeded timeout for {work_item.item_id}"
                 )
 
             self._queue.task_done()
@@ -340,7 +337,7 @@ class ParallelBatchProcessor(
                     error_breakdown = f" | Errors: {', '.join(error_strs)}"
 
                 logger.info(
-                    f"Progress: {stats_snapshot['processed']}/{stats_snapshot['total']} "
+                    f"ℹ️  Progress: {stats_snapshot['processed']}/{stats_snapshot['total']} "
                     f"({stats_snapshot['processed']/stats_snapshot['total']*100:.1f}%) | "
                     f"Succeeded: {stats_snapshot['succeeded']}, Failed: {stats_snapshot['failed']}"
                     f"{error_breakdown} | {calls_per_sec:.2f} calls/sec"
@@ -373,7 +370,7 @@ class ParallelBatchProcessor(
         )
 
         logger.warning(
-            f"🚫 Rate limit detected by worker {worker_id}. "
+            f"🚫  Rate limit detected by worker {worker_id}. "
             f"Pausing all workers for {cooldown:.1f}s..."
         )
 
@@ -529,25 +526,25 @@ class ParallelBatchProcessor(
                     if is_validation_error:
                         error_snippet = str(e)[:150]
                         logger.warning(
-                            f"⚠ Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
+                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
                             f"Retrying immediately with temperature={next_temp}..."
                         )
                     else:
                         error_snippet = str(e)[:150]
                         logger.warning(
-                            f"⚠ Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
+                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
                             f"Retrying in {wait_time:.1f}s with temperature={next_temp}..."
                         )
                 else:
                     error_snippet = str(e)[:150]
                     if is_validation_error:
                         logger.warning(
-                            f"Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
+                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
                             f"Retrying immediately..."
                         )
                     else:
                         logger.warning(
-                            f"Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
+                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
                             f"Retrying in {wait_time:.1f}s..."
                         )
 
@@ -572,7 +569,7 @@ class ParallelBatchProcessor(
             # Run before middlewares
             processed_item = await self._run_middlewares_before(work_item)
             if processed_item is None:
-                logger.info(f"Skipping {original_item_id} (filtered by middleware)")
+                logger.info(f"ℹ️  Skipping {original_item_id} (filtered by middleware)")
                 return WorkItemResult(
                     item_id=original_item_id,
                     success=False,
@@ -593,7 +590,7 @@ class ParallelBatchProcessor(
                     temp = 0.5
 
                 if attempt_number > 1:
-                    logger.info(f"[Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
+                    logger.info(f"ℹ️  [Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
                 logger.debug(f"[DIRECT CALL] Starting direct LLM call for {work_item.item_id} (attempt {attempt_number}, temperature={temp}, timeout={self.config.timeout_per_item}s)")
                 llm_start_time = time.time()
 
@@ -622,7 +619,7 @@ class ParallelBatchProcessor(
                 # Log first few results for debugging
                 if self._stats["succeeded"] < 3:
                     logger.info(
-                        f"\n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
+                        f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
                     )
 
                 # Create result
@@ -647,7 +644,7 @@ class ParallelBatchProcessor(
                     else:
                         temp = 0.5
                     if attempt_number > 1:
-                        logger.info(f"Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
+                        logger.info(f"ℹ️  Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
                     logger.debug(f"Created agent for attempt {attempt_number} with temperature={temp}")
                 else:
                     agent = work_item.agent
@@ -688,7 +685,7 @@ class ParallelBatchProcessor(
                 # Log first few results for debugging
                 if self._stats["succeeded"] < 3:
                     logger.info(
-                        f"\n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{result.output}\n{'='*80}"
+                        f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{result.output}\n{'='*80}"
                     )
 
                 # Create result
@@ -822,7 +819,7 @@ class ParallelBatchProcessor(
                                 )
 
                             log_msg = (
-                                f"Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
+                                f"✗ Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
                                 f"  Error type: {error_name}\n"
                                 f"  Field-level errors:\n" + "\n".join(error_details)
                             )
@@ -832,7 +829,7 @@ class ParallelBatchProcessor(
                         else:
                             # Not a Pydantic ValidationError, log full error with more context
                             log_msg = (
-                                f"Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
+                                f"✗ Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
                                 f"  Error type: {error_name}\n"
                                 f"  Full error message: {error_msg}\n"
                                 f"  Exception chain:"
@@ -850,7 +847,7 @@ class ParallelBatchProcessor(
                     except Exception as parse_error:
                         # Fallback if we can't parse the error
                         log_msg = (
-                            f"Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
+                            f"✗ Validation error on attempt {attempt_number} for {work_item.item_id}{token_msg}:\n"
                             f"  Error type: {error_name}\n"
                             f"  Full error: {error_msg}\n"
                             f"  (Failed to parse error details: {parse_error})"

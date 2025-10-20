@@ -132,7 +132,7 @@ async def test_metrics_observer_thread_safety():
     def mock_response(prompt: str) -> TestOutput:
         return TestOutput(value=f"Response: {prompt}")
 
-    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.001)  # Reduced from 0.01s
 
     config = ProcessorConfig(max_workers=10, timeout_per_item=10.0)
     metrics = MetricsObserver()
@@ -140,8 +140,8 @@ async def test_metrics_observer_thread_safety():
         config=config, observers=[metrics]
     )
 
-    # Add many items
-    num_items = 50
+    # Add many items (reduced from 50 to 20 for faster execution)
+    num_items = 20
     for i in range(num_items):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",

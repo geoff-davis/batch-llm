@@ -135,7 +135,6 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
     def __init__(
         self,
         max_workers: int = 5,
-        batch_size: int = 1,
         post_processor: PostProcessorFunc[TOutput, TContext] | None = None,
         max_queue_size: int = 0,
     ):
@@ -144,12 +143,10 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
 
         Args:
             max_workers: Maximum number of concurrent workers
-            batch_size: Number of items per batch (interpretation depends on strategy)
             post_processor: Optional async function called after each successful item
             max_queue_size: Maximum queue size (0 = unlimited)
         """
         self.max_workers = max_workers
-        self.batch_size = batch_size
         self.post_processor = post_processor
         self.max_queue_size = max_queue_size
         self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = (
