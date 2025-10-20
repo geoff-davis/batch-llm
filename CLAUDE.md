@@ -6,35 +6,46 @@ This document contains important information about the `batch-llm` project for f
 
 ## Project Overview
 
-**batch-llm** is a Python package for processing multiple LLM requests efficiently with three integration modes:
+**batch-llm** is a Python package for processing multiple LLM requests efficiently using a **strategy pattern** (v3.0+).
 
-1. **PydanticAI Agents** - Standard agent-based processing
-2. **Direct API Calls** - Custom temperature control and direct LLM access
-3. **Agent Factories** - Progressive temperature increases for retries
+**Current Version: v3.0** - Uses `LLMCallStrategy` for provider-agnostic LLM integration
 
 **Key Features:**
-- Parallel asyncio processing
-- Built-in rate limiting and retry logic
+- Parallel asyncio processing with configurable concurrency
+- Built-in rate limiting and exponential backoff retry logic
 - Thread-safe concurrent operations
-- Provider-agnostic error classification
-- Middleware and observer patterns
+- Provider-agnostic through strategy pattern
+- Middleware and observer patterns for extensibility
 - MockAgent for testing without API calls
+- Support for ANY LLM provider (OpenAI, Anthropic, Google, LangChain, custom)
 
 ---
 
-## Architecture
+## Architecture (v3.0 Strategy Pattern)
 
 ### Core Components
 
-**`LLMWorkItem`** - Three processing modes (exactly one required):
-- `agent`: PydanticAI Agent instance
-- `agent_factory`: Callable that creates agents per attempt
-- `direct_call`: Async callable for direct LLM API calls
+**`LLMCallStrategy[TOutput]`** - Abstract base for all LLM integrations:
+- `async def prepare()` - Initialize resources (caches, connections)
+- `async def execute(prompt, attempt, timeout)` - Make LLM call
+- `async def cleanup()` - Clean up resources (delete caches)
 
-**`ParallelBatchProcessor`** - Main processing engine:
+**Built-in Strategies:**
+- `PydanticAIStrategy` - Wraps PydanticAI agents
+- `GeminiStrategy` - Direct Google Gemini API calls
+- `GeminiCachedStrategy` - Gemini with context caching (great for RAG)
+
+**`LLMWorkItem[TInput, TOutput, TContext]`** - Work unit:
+- `item_id: str` - Unique identifier
+- `strategy: LLMCallStrategy[TOutput]` - How to call the LLM
+- `prompt: str` - The prompt/input
+- `context: TContext | None` - Optional context passed through
+
+**`ParallelBatchProcessor[TInput, TOutput, TContext]`** - Main processing engine:
 - Manages worker pool (default 5 workers)
 - Coordinates rate limiting across all workers
 - Handles retries with exponential backoff
+- Framework-level timeout enforcement with `asyncio.wait_for()`
 - Collects results and metrics
 
 **Thread Safety:**
@@ -46,7 +57,30 @@ This document contains important information about the `batch-llm` project for f
 
 ## Critical Design Decisions
 
-### 1. Rate Limiting Strategy
+### 1. Strategy Pattern (v3.0)
+
+**Why:** Decouple framework from specific LLM providers.
+
+**Benefits:**
+- Support any LLM provider (OpenAI, Anthropic, Google, LangChain, custom)
+- Each strategy encapsulates provider-specific logic
+- Framework handles retry, timeout, rate limiting uniformly
+- Easy to test with mock strategies
+- Resource lifecycle management (prepare/cleanup)
+
+**Migration from v2.x:**
+```python
+# v2.x (removed)
+work_item = LLMWorkItem(item_id="1", agent=agent, prompt="...")
+
+# v3.0 (current)
+strategy = PydanticAIStrategy(agent=agent)
+work_item = LLMWorkItem(item_id="1", strategy=strategy, prompt="...")
+```
+
+See `docs/MIGRATION_V3.md` for complete migration guide.
+
+### 2. Rate Limiting Strategy
 
 **Problem:** Multiple workers hitting rate limits simultaneously.
 
@@ -65,29 +99,30 @@ async with self._rate_limit_lock:
     self._rate_limit_event.clear()  # Pause all
 ```
 
-### 2. Progressive Temperature Retry
+### 3. Progressive Temperature Retry (v3.0)
 
 **Why:** LLMs may fail validation at low temperature but succeed at higher temps.
 
-**Implementation:**
-- Attempt 1: temperature = 0.0 (deterministic)
-- Attempt 2: temperature = 0.25
-- Attempt 3: temperature = 0.5
-
-**Usage:**
+**Implementation in v3.0:**
 ```python
-def create_agent(attempt: int) -> Agent:
-    temp = [0.0, 0.25, 0.5][attempt - 1]
-    return Agent("gemini-2.0-flash", temperature=temp)
+class ProgressiveTempStrategy(LLMCallStrategy[Output]):
+    def __init__(self, client, temps=None):
+        self.client = client
+        self.temps = temps if temps is not None else [0.0, 0.5, 1.0]
 
-work_item = LLMWorkItem(
-    item_id="item_1",
-    agent_factory=create_agent,
-    prompt="Your prompt"
-)
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
+        # Make call with progressive temperature
+        response = await self.client.generate(prompt, temperature=temp)
+        return parsed_output, token_usage
+
+strategy = ProgressiveTempStrategy(client=client)
+work_item = LLMWorkItem(item_id="1", strategy=strategy, prompt="...")
 ```
 
-### 3. Token Usage Tracking
+See `examples/example_gemini_direct.py` for complete example.
+
+### 4. Token Usage Tracking
 
 **Challenge:** Track tokens even for failed attempts.
 
@@ -99,29 +134,52 @@ work_item = LLMWorkItem(
 
 ---
 
-## Common Patterns
+## Common Patterns (v3.0)
 
-### Pattern 1: Using Direct Calls
+### Pattern 1: Using PydanticAI Strategy
 
 ```python
-async def call_gemini(attempt: int, timeout: float) -> tuple[Output, dict]:
-    """Direct LLM call with custom temperature."""
-    temp = [0.0, 0.25, 0.5][attempt - 1]
-    # Your API call here
-    return result, {
-        "input_tokens": 100,
-        "output_tokens": 200,
-        "total_tokens": 300
-    }
+from batch_llm import PydanticAIStrategy, LLMWorkItem
+from pydantic_ai import Agent
+
+agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+strategy = PydanticAIStrategy(agent=agent)
 
 work_item = LLMWorkItem(
     item_id="item_1",
-    direct_call=call_gemini,
-    input_data=your_data
+    strategy=strategy,
+    prompt="Your prompt here"
 )
 ```
 
-### Pattern 2: Post-Processing Results
+### Pattern 2: Custom Strategy for Any Provider
+
+```python
+from batch_llm.llm_strategies import LLMCallStrategy
+
+class OpenAIStrategy(LLMCallStrategy[str]):
+    def __init__(self, client: AsyncOpenAI, model: str):
+        self.client = client
+        self.model = model
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        output = response.choices[0].message.content
+        tokens = {
+            "input_tokens": response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens
+        }
+        return output, tokens
+
+strategy = OpenAIStrategy(client=openai_client, model="gpt-4o-mini")
+work_item = LLMWorkItem(item_id="1", strategy=strategy, prompt="...")
+```
+
+### Pattern 3: Post-Processing Results
 
 ```python
 async def save_result(result: WorkItemResult):
@@ -134,7 +192,7 @@ processor = ParallelBatchProcessor(
 )
 ```
 
-### Pattern 3: Observing Metrics
+### Pattern 4: Observing Metrics
 
 ```python
 metrics = MetricsObserver()
@@ -323,7 +381,7 @@ src/batch_llm/
 
 ---
 
-## Common Pitfalls
+## Common Pitfalls (v3.0)
 
 ### ❌ Don't: Forget to await async methods
 
@@ -335,21 +393,34 @@ stats = processor.get_stats()
 stats = await processor.get_stats()
 ```
 
-### ❌ Don't: Provide multiple processing methods
+### ❌ Don't: Use old v2.x API
 
 ```python
-# WRONG - will raise ValueError
+# WRONG - v2.x API (removed)
 work_item = LLMWorkItem(
     item_id="item_1",
-    agent=agent,
-    direct_call=my_func  # Can't have both!
+    agent=agent,  # No longer supported
+    prompt="..."
 )
 
-# RIGHT - exactly one
+# RIGHT - v3.0 API (current)
+strategy = PydanticAIStrategy(agent=agent)
 work_item = LLMWorkItem(
     item_id="item_1",
-    agent=agent
+    strategy=strategy,
+    prompt="..."
 )
+```
+
+### ❌ Don't: Forget to wrap agents in strategies
+
+```python
+# WRONG - agent is not a strategy
+work_item = LLMWorkItem(item_id="1", strategy=agent, prompt="...")
+
+# RIGHT - wrap agent in PydanticAIStrategy
+strategy = PydanticAIStrategy(agent=agent)
+work_item = LLMWorkItem(item_id="1", strategy=strategy, prompt="...")
 ```
 
 ### ❌ Don't: Mutate results in post-processor
@@ -438,7 +509,64 @@ assert len(result.results) == result.total_items
 ## Version History
 
 - **v2.0.0** - Initial PyPI release with full feature set
-- **v2.0.1** - Fixed 5 critical race conditions (current)
+- **v2.0.1** - Fixed 5 critical race conditions
+- **v3.0.0** - Strategy pattern refactor (current)
+  - Breaking: Replaced `agent=`, `agent_factory=`, `direct_call=` with `strategy=`
+  - Added `LLMCallStrategy` abstract base class
+  - Framework-level timeout enforcement
+  - Built-in strategies: `PydanticAIStrategy`, `GeminiStrategy`, `GeminiCachedStrategy`
+
+---
+
+## Advanced Retry Patterns (v3.0)
+
+### Smart Retry with Validation Feedback
+
+When Pydantic validation fails, create targeted retry prompts:
+
+```python
+class SmartRetryStrategy(LLMCallStrategy[PersonData]):
+    """On validation failure, tell LLM which fields succeeded vs failed."""
+
+    def _create_retry_prompt(self, original_prompt: str) -> str:
+        # Parse validation errors
+        # Create focused prompt with:
+        # - Fields that succeeded (keep these)
+        # - Fields that failed (fix these with specific error messages)
+        return retry_prompt
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        if attempt == 1:
+            final_prompt = prompt
+        else:
+            final_prompt = self._create_retry_prompt(prompt)
+        # Make LLM call with focused prompt
+```
+
+See `examples/example_gemini_smart_retry.py` for complete implementation.
+
+### Model Escalation for Cost Optimization
+
+Start with cheap models, escalate only when needed:
+
+```python
+class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
+    """Start with cheapest model, escalate on failure."""
+
+    MODELS = [
+        "gemini-2.0-flash-exp",  # Attempt 1: Cheapest
+        "gemini-1.5-flash",       # Attempt 2: Moderate
+        "gemini-1.5-pro",         # Attempt 3: Most capable
+    ]
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        model = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
+        # Make call with escalated model
+```
+
+**Cost savings:** ~60-80% vs always using best model, since most tasks succeed on first (cheap) attempt.
+
+See `examples/example_model_escalation.py` for complete implementation with cost comparisons.
 
 ---
 
@@ -450,30 +578,146 @@ assert len(result.results) == result.total_items
 
 ---
 
+## Lessons Learned (For Future Claude Sessions)
+
+### Code Quality and Linting
+
+1. **Always run linters after code changes:**
+   - Python: `uv run ruff check src/ tests/ --fix`
+   - Markdown: `markdownlint-cli2 "README.md" "docs/*.md" --fix`
+   - Both should pass with 0 errors before committing
+
+2. **Common ruff issues to watch for:**
+   - Mutable default arguments: Use `None` and initialize in function body
+   - Unused imports: Remove them
+   - Unnecessary f-strings: Remove `f` prefix if no placeholders
+   - Import sorting: Let ruff auto-fix this
+
+3. **Markdown linting config:**
+   - Created `.markdownlint.json` with line-length: 120
+   - Code blocks need language specifiers (use `text` for error messages)
+   - Blank lines required around lists and code fences
+
+### Documentation Best Practices
+
+1. **Example files are critical:**
+   - Users learn from examples more than docs
+   - Every new pattern needs a complete working example
+   - Examples should be runnable (handle missing API keys gracefully)
+
+2. **Keep docs in sync with code:**
+   - When refactoring API (like v2.x → v3.0), update ALL docs
+   - Search for old patterns: `agent=`, `agent_factory=`, `direct_call=`
+   - Update: README, docs/, examples/, CLAUDE.md
+
+3. **Migration guides are essential:**
+   - Breaking changes need migration docs
+   - Show before/after code examples
+   - Explain WHY the change was made
+
+### Testing Strategy
+
+1. **Test coverage is comprehensive:**
+   - 61 tests covering core functionality
+   - Concurrency tests with high worker counts (10-20)
+   - Edge cases (empty queues, timeouts, validation errors)
+
+2. **MockAgent is powerful:**
+   - Test without API calls
+   - Simulate rate limits, errors, latency
+   - Much faster than integration tests
+
+3. **Run tests in parallel when possible:**
+   - Multiple test files can run concurrently
+   - Use background bash shells for long-running tests
+
+### Development Workflow Insights
+
+1. **Strategy pattern benefits:**
+   - Decouples framework from providers
+   - Easy to add new providers (OpenAI, Anthropic examples)
+   - Resource lifecycle (prepare/cleanup) is powerful for caching
+
+2. **Advanced retry patterns are valuable:**
+   - Smart retry (field-specific feedback) reduces token usage
+   - Model escalation (cheap → expensive) saves 60-80% cost
+   - Progressive temperature helps with validation errors
+
+3. **Optional dependencies strategy:**
+   - Keep minimal: only `[pydantic-ai]` and `[gemini]`
+   - Don't add `[openai]`, `[anthropic]`, etc.
+   - Let users control their provider SDK versions
+   - Examples serve as documentation, not product features
+
+### Common Pitfalls to Avoid
+
+1. **Don't use bash for file operations:**
+   - Use Read, Edit, Write, Glob, Grep tools instead
+   - Bash is only for terminal operations (git, npm, pytest, etc.)
+
+2. **Always read files before editing:**
+   - Edit tool requires prior Read
+   - Prevents editing non-existent files
+
+3. **Watch for mutable defaults in Python:**
+   - `def __init__(self, temps=[0.0, 0.5, 1.0])` is wrong
+   - Use `temps=None` and initialize: `self.temps = temps if temps is not None else [0.0, 0.5, 1.0]`
+
+4. **Markdown line length:**
+   - 120 chars is reasonable (not 80)
+   - Long URLs and code examples need flexibility
+   - Use config file to relax rules
+
+### Project-Specific Knowledge
+
+1. **File structure:**
+   - Main code: `src/batch_llm/`
+   - Tests: `tests/`
+   - Examples: `examples/`
+   - Docs: `docs/` + `README.md`
+
+2. **Key files to update together:**
+   - API changes → Update: `README.md`, `docs/API.md`, `examples/*.py`
+   - New patterns → Update: `README.md` Advanced Usage, `examples/`, `CLAUDE.md`
+
+3. **Examples to reference:**
+   - `example_gemini_smart_retry.py` - Smart retry patterns
+   - `example_model_escalation.py` - Cost optimization
+   - `example_gemini_direct.py` - Direct Gemini API usage
+   - `example_openai.py`, `example_anthropic.py` - Other providers
+
+4. **Versioning:**
+   - Major version (v3.0) for breaking API changes
+   - Document breaking changes in `docs/MIGRATION_V3.md`
+   - Update version history in `CLAUDE.md`
+
+---
+
 ## Quick Reference
 
-### Minimal Example
+### Minimal Example (v3.0)
 
 ```python
-from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig
+from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig, PydanticAIStrategy
 from pydantic_ai import Agent
 from pydantic import BaseModel
 
 class Output(BaseModel):
     result: str
 
-agent = Agent("gemini-2.0-flash", output_type=Output)
+agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+strategy = PydanticAIStrategy(agent=agent)
 config = ProcessorConfig(max_workers=5, timeout_per_item=120.0)
-processor = ParallelBatchProcessor(config=config)
 
-await processor.add_work(LLMWorkItem(
-    item_id="1",
-    agent=agent,
-    prompt="Hello"
-))
+async with ParallelBatchProcessor[str, Output, None](config=config) as processor:
+    await processor.add_work(LLMWorkItem(
+        item_id="1",
+        strategy=strategy,
+        prompt="Hello"
+    ))
 
-result = await processor.process_all()
-print(f"Success: {result.succeeded}/{result.total_items}")
+    result = await processor.process_all()
+    print(f"Success: {result.succeeded}/{result.total_items}")
 ```
 
 ### Full-Featured Example
