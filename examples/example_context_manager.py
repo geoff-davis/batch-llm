@@ -2,9 +2,10 @@
 
 import asyncio
 
+from pydantic import BaseModel
+
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from batch_llm.testing import MockAgent
-from pydantic import BaseModel
 
 
 class SummaryOutput(BaseModel):

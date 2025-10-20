@@ -16,6 +16,7 @@ from .base import (
 )
 from .classifiers import GeminiErrorClassifier
 from .core import ProcessorConfig
+from .llm_strategies import LLMCallStrategy
 from .middleware import Middleware
 from .observers import ProcessingEvent, ProcessorObserver
 from .strategies import ErrorClassifier, ExponentialBackoffStrategy, RateLimitStrategy
@@ -450,92 +451,79 @@ class ParallelBatchProcessor(
     async def _process_item_with_retries(
         self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int
     ) -> WorkItemResult[TOutput, TContext]:
-        """Wrapper that applies retry logic."""
+        """Wrapper that applies retry logic and strategy lifecycle."""
         # Track cumulative token usage across all failed attempts
         cumulative_failed_tokens = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-        for attempt in range(1, self.config.retry.max_attempts + 1):
-            try:
-                return await self._process_item(work_item, worker_id, attempt_number=attempt)
-            except Exception as e:
-                # Try to extract token usage from this failed attempt using robust extraction
-                attempt_tokens = self._extract_token_usage(e)
-                if attempt_tokens:
-                    cumulative_failed_tokens["input_tokens"] += attempt_tokens.get("input_tokens", 0)
-                    cumulative_failed_tokens["output_tokens"] += attempt_tokens.get("output_tokens", 0)
-                    cumulative_failed_tokens["total_tokens"] += attempt_tokens.get("total_tokens", 0)
+        # Get the strategy
+        strategy = self._get_strategy(work_item)
 
-                if not self._should_retry_error(e):
-                    logger.debug(f"Error not retryable: {type(e).__name__}")
-                    # Attach token usage to exception so it can be included in failed result
-                    if hasattr(e, '__dict__'):
-                        e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
-                    raise
-                if attempt >= self.config.retry.max_attempts:
-                    error_msg = str(e)
-                    token_summary = ""
-                    if cumulative_failed_tokens["total_tokens"] > 0:
-                        token_summary = f"\n  Total tokens consumed across all attempts: {cumulative_failed_tokens['total_tokens']}"
-                    logger.error(
-                        f"✗ ALL {self.config.retry.max_attempts} ATTEMPTS EXHAUSTED for {work_item.item_id}:\n"
-                        f"  Final error type: {type(e).__name__}\n"
-                        f"  Final error message: {error_msg[:500]}\n"
-                        f"  All temperature variations tried (0.0, 0.25, 0.5){token_summary}"
+        # Call prepare() once before any retries
+        try:
+            await strategy.prepare()
+        except Exception as e:
+            logger.error(f"✗ Strategy prepare() failed for {work_item.item_id}: {e}")
+            raise
+
+        try:
+            for attempt in range(1, self.config.retry.max_attempts + 1):
+                try:
+                    return await self._process_item(work_item, worker_id, attempt_number=attempt, strategy=strategy)
+                except Exception as e:
+                    # Try to extract token usage from this failed attempt using robust extraction
+                    attempt_tokens = self._extract_token_usage(e)
+                    if attempt_tokens:
+                        cumulative_failed_tokens["input_tokens"] += attempt_tokens.get("input_tokens", 0)
+                        cumulative_failed_tokens["output_tokens"] += attempt_tokens.get("output_tokens", 0)
+                        cumulative_failed_tokens["total_tokens"] += attempt_tokens.get("total_tokens", 0)
+
+                    if not self._should_retry_error(e):
+                        logger.debug(f"Error not retryable: {type(e).__name__}")
+                        # Attach token usage to exception so it can be included in failed result
+                        if hasattr(e, '__dict__'):
+                            e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
+                        raise
+                    if attempt >= self.config.retry.max_attempts:
+                        error_msg = str(e)
+                        token_summary = ""
+                        if cumulative_failed_tokens["total_tokens"] > 0:
+                            token_summary = f"\n  Total tokens consumed across all attempts: {cumulative_failed_tokens['total_tokens']}"
+                        logger.error(
+                            f"✗ ALL {self.config.retry.max_attempts} ATTEMPTS EXHAUSTED for {work_item.item_id}:\n"
+                            f"  Final error type: {type(e).__name__}\n"
+                            f"  Final error message: {error_msg[:500]}{token_summary}"
+                        )
+                        # Attach token usage to exception so it can be included in failed result
+                        if hasattr(e, '__dict__'):
+                            e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
+                        raise
+
+                    # Classify error to determine if we should delay
+                    error_info = self.error_classifier.classify(e)
+
+                    # Only delay for network/timeout errors, not for validation errors
+                    # Validation errors are immediate - strategy can adjust its behavior on retry
+                    # PydanticAI wraps validation errors in UnexpectedModelBehavior
+                    error_msg_for_check = str(e)
+                    is_validation_error = (
+                        'validation' in type(e).__name__.lower()
+                        or 'parse' in type(e).__name__.lower()
+                        or 'unexpectedmodelbehavior' in type(e).__name__.lower()
+                        or 'result validation' in error_msg_for_check.lower()
+                        or error_info.error_category == 'validation_error'
                     )
-                    # Attach token usage to exception so it can be included in failed result
-                    if hasattr(e, '__dict__'):
-                        e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
-                    raise
-
-                # Classify error to determine if we should delay
-                error_info = self.error_classifier.classify(e)
-
-                # Only delay for network/timeout errors, not for validation errors
-                # Validation errors are immediate - just need different temperature
-                # PydanticAI wraps validation errors in UnexpectedModelBehavior
-                error_msg_for_check = str(e)
-                is_validation_error = (
-                    'validation' in type(e).__name__.lower()
-                    or 'parse' in type(e).__name__.lower()
-                    or 'unexpectedmodelbehavior' in type(e).__name__.lower()
-                    or 'result validation' in error_msg_for_check.lower()
-                    or error_info.error_category == 'validation_error'
-                )
-
-                if is_validation_error:
-                    wait_time = 0.0  # No delay for validation - retry immediately
-                else:
-                    # Calculate wait time with exponential backoff for network/timeout errors
-                    wait_time = min(
-                        self.config.retry.initial_wait
-                        * (self.config.retry.exponential_base ** (attempt - 1)),
-                        self.config.retry.max_wait,
-                    )
-
-                # Log retry with temperature info if using agent_factory
-                if work_item.agent_factory:
-                    next_attempt = attempt + 1
-                    # Infer temperature based on attempt (matches dedupe_authors logic)
-                    if next_attempt == 1:
-                        next_temp = 0.0
-                    elif next_attempt == 2:
-                        next_temp = 0.25
-                    else:
-                        next_temp = 0.5
 
                     if is_validation_error:
-                        error_snippet = str(e)[:150]
-                        logger.warning(
-                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
-                            f"Retrying immediately with temperature={next_temp}..."
-                        )
+                        wait_time = 0.0  # No delay for validation - retry immediately
                     else:
-                        error_snippet = str(e)[:150]
-                        logger.warning(
-                            f"⚠️  Attempt {attempt}/{self.config.retry.max_attempts} failed for {work_item.item_id}: {type(e).__name__} - {error_snippet}. "
-                            f"Retrying in {wait_time:.1f}s with temperature={next_temp}..."
+                        # Calculate wait time with exponential backoff for network/timeout errors
+                        wait_time = min(
+                            self.config.retry.initial_wait
+                            * (self.config.retry.exponential_base ** (attempt - 1)),
+                            self.config.retry.max_wait,
                         )
-                else:
+
+                    # Log retry attempt
                     error_snippet = str(e)[:150]
                     if is_validation_error:
                         logger.warning(
@@ -548,13 +536,23 @@ class ParallelBatchProcessor(
                             f"Retrying in {wait_time:.1f}s..."
                         )
 
-                if wait_time > 0:
-                    await asyncio.sleep(wait_time)
+                    if wait_time > 0:
+                        await asyncio.sleep(wait_time)
+        finally:
+            # Call cleanup() once after all retries complete (success or failure)
+            try:
+                await strategy.cleanup()
+            except Exception as e:
+                logger.warning(f"⚠️  Strategy cleanup() failed for {work_item.item_id}: {e}")
+
+    def _get_strategy(self, work_item: LLMWorkItem[TInput, TOutput, TContext]) -> LLMCallStrategy[TOutput]:
+        """Get the LLM call strategy for this work item."""
+        return work_item.strategy
 
     async def _process_item(
-        self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int, attempt_number: int = 1
+        self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int, attempt_number: int = 1, strategy: LLMCallStrategy[TOutput] | None = None
     ) -> WorkItemResult[TOutput, TContext]:
-        """Process a single work item with retries."""
+        """Process a single work item using the provided strategy."""
         start_time = time.time()
 
         # Store original item_id before middleware might return None
@@ -578,124 +576,46 @@ class ParallelBatchProcessor(
                 )
             work_item = processed_item
 
-            # Determine processing method: direct_call or agent
-            if work_item.direct_call:
-                # Direct API call path
-                # Infer temperature for logging
-                if attempt_number == 1:
-                    temp = 0.0
-                elif attempt_number == 2:
-                    temp = 0.25
-                else:
-                    temp = 0.5
+            # Execute the strategy
+            if attempt_number > 1:
+                logger.info(f"ℹ️  [Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id}")
+            logger.debug(f"[STRATEGY] Starting strategy.execute() for {work_item.item_id} (attempt {attempt_number}, timeout={self.config.timeout_per_item}s)")
+            llm_start_time = time.time()
 
-                if attempt_number > 1:
-                    logger.info(f"ℹ️  [Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
-                logger.debug(f"[DIRECT CALL] Starting direct LLM call for {work_item.item_id} (attempt {attempt_number}, temperature={temp}, timeout={self.config.timeout_per_item}s)")
-                llm_start_time = time.time()
+            try:
+                # Call strategy.execute() with prompt, attempt number, and timeout
+                output, token_usage = await strategy.execute(
+                    work_item.prompt, attempt_number, self.config.timeout_per_item
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                elapsed = time.time() - llm_start_time
+                logger.error(
+                    f"⏱ LLM TIMEOUT for {work_item.item_id} after {elapsed:.1f}s "
+                    f"(limit: {self.config.timeout_per_item}s, attempt {attempt_number})"
+                )
+                raise
 
-                try:
-                    # Call the direct function with attempt number and timeout
-                    # Wrap in wait_for to enforce timeout at the framework level
-                    output, token_usage = await asyncio.wait_for(
-                        work_item.direct_call(attempt_number, self.config.timeout_per_item),
-                        timeout=self.config.timeout_per_item
-                    )
-                except (TimeoutError, asyncio.TimeoutError):
-                    elapsed = time.time() - llm_start_time
-                    logger.error(
-                        f"⏱ LLM TIMEOUT for {work_item.item_id} after {elapsed:.1f}s "
-                        f"(limit: {self.config.timeout_per_item}s, attempt {attempt_number})"
-                    )
-                    raise
+            llm_duration = time.time() - llm_start_time
+            logger.debug(f"[STRATEGY] Completed strategy.execute() for {work_item.item_id} in {llm_duration:.1f}s")
 
-                llm_duration = time.time() - llm_start_time
-                logger.debug(f"[DIRECT CALL] Completed LLM call for {work_item.item_id} in {llm_duration:.1f}s")
+            # Log success after previous failures
+            if attempt_number > 1:
+                logger.info(f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number-1} failure(s), took {llm_duration:.1f}s)")
 
-                # Log success after previous failures
-                if attempt_number > 1:
-                    logger.info(f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number-1} failure(s), took {llm_duration:.1f}s)")
-
-                # Log first few results for debugging
-                if self._stats["succeeded"] < 3:
-                    logger.info(
-                        f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
-                    )
-
-                # Create result
-                work_result = WorkItemResult(
-                    item_id=work_item.item_id,
-                    success=True,
-                    output=output,
-                    context=work_item.context,
-                    token_usage=token_usage,
+            # Log first few results for debugging
+            if self._stats["succeeded"] < 3:
+                logger.info(
+                    f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
                 )
 
-            else:
-                # Agent path (PydanticAI)
-                # Get agent for this attempt (supports temperature progression)
-                if work_item.agent_factory:
-                    agent = work_item.agent_factory(attempt_number)
-                    # Infer temperature for logging
-                    if attempt_number == 1:
-                        temp = 0.0
-                    elif attempt_number == 2:
-                        temp = 0.25
-                    else:
-                        temp = 0.5
-                    if attempt_number > 1:
-                        logger.info(f"ℹ️  Retry attempt {attempt_number} for {work_item.item_id} with temperature={temp}")
-                    logger.debug(f"Created agent for attempt {attempt_number} with temperature={temp}")
-                else:
-                    agent = work_item.agent
-
-                # Run agent
-                logger.debug(f"[AGENT CALL] Starting agent.run() for {work_item.item_id} (attempt {attempt_number}, timeout={self.config.timeout_per_item}s)")
-                llm_start_time = time.time()
-
-                try:
-                    result = await asyncio.wait_for(
-                        agent.run(work_item.prompt),
-                        timeout=self.config.timeout_per_item,
-                    )
-                except TimeoutError:
-                    elapsed = time.time() - llm_start_time
-                    logger.error(
-                        f"⏱ LLM TIMEOUT for {work_item.item_id} after {elapsed:.1f}s "
-                        f"(limit: {self.config.timeout_per_item}s, attempt {attempt_number})"
-                    )
-                    raise
-
-                llm_duration = time.time() - llm_start_time
-                logger.debug(f"[AGENT CALL] Completed agent.run() for {work_item.item_id} in {llm_duration:.1f}s")
-
-                # Log success after previous failures
-                if attempt_number > 1:
-                    logger.info(f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number-1} failure(s), took {llm_duration:.1f}s)")
-
-                # Extract token usage
-                token_usage = {
-                    "input_tokens": result.usage().request_tokens if result.usage() else 0,
-                    "output_tokens": (
-                        result.usage().response_tokens if result.usage() else 0
-                    ),
-                    "total_tokens": result.usage().total_tokens if result.usage() else 0,
-                }
-
-                # Log first few results for debugging
-                if self._stats["succeeded"] < 3:
-                    logger.info(
-                        f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{result.output}\n{'='*80}"
-                    )
-
-                # Create result
-                work_result = WorkItemResult(
-                    item_id=work_item.item_id,
-                    success=True,
-                    output=result.output,
-                    context=work_item.context,
-                    token_usage=token_usage,
-                )
+            # Create result
+            work_result = WorkItemResult(
+                item_id=work_item.item_id,
+                success=True,
+                output=output,
+                context=work_item.context,
+                token_usage=token_usage,
+            )
 
             # Run after middlewares
             work_result = await self._run_middlewares_after(work_result)

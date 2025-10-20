@@ -1,6 +1,6 @@
 # Batch LLM
 
-A flexible framework for processing multiple LLM requests efficiently with support for PydanticAI agents, direct API calls, and custom factories.
+A flexible framework for processing multiple LLM requests efficiently using a clean strategy pattern for LLM call configuration.
 
 [![PyPI version](https://badge.fury.io/py/batch-llm.svg)](https://badge.fury.io/py/batch-llm)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -36,7 +36,7 @@ pip install batch-llm[all]
 
 ```python
 import asyncio
-from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig
+from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig, PydanticAIStrategy
 from pydantic_ai import Agent
 from pydantic import BaseModel
 
@@ -44,8 +44,9 @@ class BookSummary(BaseModel):
     title: str
     summary: str
 
-# Create agent
-agent = Agent("gemini-2.0-flash", output_type=BookSummary)
+# Create agent and wrap in strategy
+agent = Agent("gemini-2.0-flash-exp", result_type=BookSummary)
+strategy = PydanticAIStrategy(agent=agent)
 
 # Create processor
 config = ProcessorConfig(max_workers=5, timeout_per_item=120.0)
@@ -54,7 +55,7 @@ processor = ParallelBatchProcessor(config=config)
 # Add work
 work_item = LLMWorkItem(
     item_id="book_1",
-    agent=agent,
+    strategy=strategy,
     prompt="Summarize Pride and Prejudice",
 )
 await processor.add_work(work_item)
@@ -64,22 +65,52 @@ result = await processor.process_all()
 print(f"Succeeded: {result.succeeded}/{result.total_items}")
 ```
 
+### Using Gemini with Context Caching
+
+```python
+from batch_llm import GeminiCachedStrategy
+from google import genai
+
+client = genai.Client(api_key="your-api-key")
+
+# Large context to cache (e.g., RAG documents)
+cached_content = [
+    genai.types.Content(
+        role="user",
+        parts=[genai.types.Part(text="Context to cache...")]
+    )
+]
+
+strategy = GeminiCachedStrategy(
+    model="gemini-2.0-flash-exp",
+    client=client,
+    response_parser=lambda r: r.text,
+    cached_content=cached_content,
+    cache_ttl_seconds=3600,
+)
+
+# Use strategy in work items...
+```
+
 ## Features
 
 This module provides a clean abstraction for bulk LLM processing with support for:
-- **Flexible LLM Integration** - Three ways to call LLMs:
-  - PydanticAI agents (recommended)
-  - Direct API calls with custom temperature control
-  - Agent factories for progressive retry strategies
+- **Strategy Pattern** - Flexible LLM call configuration:
+  - `PydanticAIStrategy` - For PydanticAI agents with structured output
+  - `GeminiStrategy` - Direct Gemini API calls
+  - `GeminiCachedStrategy` - Gemini with context caching and TTL refresh
+  - Custom strategies - Implement your own LLM call logic
+- **Lifecycle Management** - Clean prepare/execute/cleanup pattern
 - **Parallel Processing** - Efficient asyncio-based concurrent execution
 - **Work Queue Management** - Easy batch job coordination
+- **Intelligent Retry Logic** - Automatic retry with exponential backoff
 - **Partial Failure Handling** - Graceful error handling and reporting
 - **Post-Processing Hooks** - Run custom logic after each success
 - **Progress Tracking** - Built-in metrics and observability
 - **Provider-Agnostic** - Error classification works with any LLM provider
 - **Middleware Pipeline** - Extensible processing pipeline
 - **Rate Limiting** - Built-in rate limit handling with configurable strategies
-- **Testing Utilities** - MockAgent for testing without API calls
+- **Testing Utilities** - MockAgent and helpers for testing without API calls
 
 ## Architecture
 

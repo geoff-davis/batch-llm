@@ -50,7 +50,7 @@ from .observers import BaseObserver, MetricsObserver, ProcessingEvent, Processor
 # Main processor
 from .parallel import ParallelBatchProcessor
 
-# Strategies
+# Error classification and rate limit strategies
 from .strategies import (
     DefaultErrorClassifier,
     ErrorClassifier,
@@ -58,6 +58,14 @@ from .strategies import (
     ExponentialBackoffStrategy,
     FixedDelayStrategy,
     RateLimitStrategy,
+)
+
+# LLM call strategies
+from .llm_strategies import (
+    GeminiCachedStrategy,
+    GeminiStrategy,
+    LLMCallStrategy,
+    PydanticAIStrategy,
 )
 
 __all__ = [

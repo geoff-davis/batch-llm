@@ -7,14 +7,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-# Conditional import for PydanticAI (optional dependency)
+# Conditional imports for type checking
 if TYPE_CHECKING:
-    from pydantic_ai import Agent
-else:
-    try:
-        from pydantic_ai import Agent
-    except ImportError:
-        Agent = Any  # type: ignore[misc,assignment]
+    from .llm_strategies import LLMCallStrategy
 
 # Type variables for generic typing
 TInput = TypeVar("TInput")  # Input data type
@@ -25,38 +20,19 @@ TContext = TypeVar("TContext")  # Optional context passed through
 @dataclass
 class LLMWorkItem(Generic[TInput, TOutput, TContext]):
     """
-    Represents a single work item to be processed by an LLM agent or direct call.
+    Represents a single work item to be processed by an LLM strategy.
 
     Attributes:
         item_id: Unique identifier for this work item
-        agent: PydanticAI agent to use for processing (if agent_factory/direct_call not provided)
-        prompt: The prompt/input to pass to the agent (not used for direct_call)
+        strategy: LLM call strategy that encapsulates how to make the LLM call
+        prompt: The prompt/input to pass to the LLM
         context: Optional context data passed through to results/post-processor
-        agent_factory: Optional callable that creates an agent based on attempt number.
-                      Useful for progressive temperature increases on retries.
-                      Signature: (attempt_number: int) -> Agent[None, TOutput]
-        direct_call: Optional callable that directly calls LLM API with temperature control.
-                    Signature: (attempt_number: int, timeout: float) -> Awaitable[tuple[TOutput, dict[str, int]]]
-                    Returns: (result, token_usage_dict)
-        input_data: Input data for direct_call (cluster, works, etc.)
     """
 
     item_id: str
-    agent: "Agent[None, TOutput] | None" = None
+    strategy: "LLMCallStrategy[TOutput]"
     prompt: str = ""
     context: TContext | None = None
-    agent_factory: "Callable[[int], Agent[None, TOutput]] | None" = None
-    direct_call: Callable[[int, float], Awaitable[tuple[TOutput, dict[str, int]]]] | None = None
-    input_data: TInput | None = None
-
-    def __post_init__(self):
-        """Validate that exactly one processing method is provided."""
-        methods = [self.agent, self.agent_factory, self.direct_call]
-        provided = sum(1 for m in methods if m is not None)
-        if provided == 0:
-            raise ValueError("Must provide one of: agent, agent_factory, or direct_call")
-        if provided > 1:
-            raise ValueError("Only one of agent, agent_factory, or direct_call should be provided")
 
 
 @dataclass

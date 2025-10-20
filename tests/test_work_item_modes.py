@@ -209,11 +209,11 @@ async def test_work_item_validation_requires_one_mode():
     """Test that LLMWorkItem requires at least one processing mode."""
 
     # Should raise ValueError when providing no processing mode
-    with pytest.raises(ValueError, match="Must provide one of"):
+    with pytest.raises(ValueError, match="Must provide either strategy or one of"):
         LLMWorkItem(
             item_id="item_1",
             prompt="test",
-            # No agent, agent_factory, or direct_call!
+            # No strategy, agent, agent_factory, or direct_call!
         )
 
 
