@@ -2,7 +2,8 @@
 
 **Provider-agnostic parallel LLM processing with automatic retries, rate limiting, and flexible strategies.**
 
-Process thousands of LLM requests efficiently across any provider (OpenAI, Anthropic, Google, LangChain, or custom) with built-in error handling, retry logic, and observability.
+Process thousands of LLM requests efficiently across any provider (OpenAI, Anthropic, Google, LangChain, or custom)
+with built-in error handling, retry logic, and observability.
 
 [![PyPI version](https://badge.fury.io/py/batch-llm.svg)](https://badge.fury.io/py/batch-llm)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -92,11 +93,13 @@ asyncio.run(main())
 ### 🎯 Strategy Pattern for Any LLM Provider
 
 Built-in strategies:
+
 - **`PydanticAIStrategy`** - PydanticAI agents with structured output
 - **`GeminiStrategy`** - Direct Google Gemini API calls
 - **`GeminiCachedStrategy`** - Gemini with context caching (great for RAG)
 
 Create custom strategies for any provider:
+
 - OpenAI (see `examples/example_openai.py`)
 - Anthropic Claude (see `examples/example_anthropic.py`)
 - LangChain (see `examples/example_langchain.py`)
@@ -207,6 +210,7 @@ async with ParallelBatchProcessor[str, StructuredData, None](config=config) as p
 ```
 
 **How it works:**
+
 1. LLM returns malformed JSON → `ValidationError` raised
 2. Framework catches error and retries automatically
 3. Each retry can use different temperature (via custom strategy)
@@ -367,6 +371,7 @@ class LLMCallStrategy(ABC):
 ```
 
 This design:
+
 - ✅ Decouples framework from LLM providers
 - ✅ Enables resource lifecycle management (caches, connections)
 - ✅ Supports progressive temperature strategies on retries
@@ -454,12 +459,14 @@ Please provide a COMPLETE JSON response with all fields corrected."""
 ```
 
 This approach is more efficient than blind retries because:
+
 - LLM knows exactly what went wrong
 - LLM can focus on fixing specific fields
 - Reduces token usage with shorter, focused prompts
 - Higher success rate on retries
 
-See [`examples/example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) for complete implementation with automatic error parsing.
+See [`examples/example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) for complete
+implementation with automatic error parsing.
 
 ### Model Escalation for Cost Optimization
 
@@ -481,6 +488,7 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
 ```
 
 **Cost savings example:**
+
 - Most tasks succeed on attempt 1 (cheap model)
 - Only difficult tasks escalate to expensive models
 - Result: ~60-80% cost reduction vs. always using best model
@@ -581,12 +589,14 @@ pytest
 ## Performance
 
 ### Parallel Processing
+
 - **Throughput**: ~5-10 items/second per worker (depends on LLM latency)
 - **Cost**: Same as sequential (no additional API costs)
 - **Latency**: Real-time (seconds per item)
 - **Concurrency**: Configurable workers (default: 5)
 
 ### Example: 1000 Items
+
 - **Sequential**: ~16 minutes (1 req/sec)
 - **5 workers**: ~3 minutes (5 req/sec)
 - **10 workers**: ~1.5 minutes (10 req/sec)
@@ -606,6 +616,7 @@ pytest
 ## Contributing
 
 Contributions welcome! Areas of interest:
+
 - Additional provider strategies (AWS Bedrock, Azure OpenAI, etc.)
 - Improved error classification for specific providers
 - Performance optimizations

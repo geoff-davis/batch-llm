@@ -46,17 +46,20 @@ class LLMWorkItem(Generic[TInput, TOutput, TContext]):
 ```
 
 **Type Parameters:**
+
 - `TInput`: Input data type (unused in v3.0, kept for backward compatibility)
 - `TOutput`: Expected output type from the LLM
 - `TContext`: Optional context data type passed through to results
 
 **Fields:**
+
 - `item_id` (str): Unique identifier for this work item. Must be non-empty.
 - `strategy` (LLMCallStrategy[TOutput]): Strategy that encapsulates how to make the LLM call
 - `prompt` (str, optional): The prompt/input to pass to the LLM. Default: ""
 - `context` (TContext | None, optional): Optional context data passed through to results/post-processor
 
 **Example:**
+
 ```python
 from batch_llm import LLMWorkItem, PydanticAIStrategy
 from pydantic_ai import Agent
@@ -73,6 +76,7 @@ work_item = LLMWorkItem(
 ```
 
 **Validation:**
+
 - Raises `ValueError` if `item_id` is empty or whitespace-only
 - Raises `ValueError` if `item_id` is not a string
 
@@ -95,6 +99,7 @@ class WorkItemResult(Generic[TOutput, TContext]):
 ```
 
 **Fields:**
+
 - `item_id` (str): ID of the work item
 - `success` (bool): Whether processing succeeded
 - `output` (TOutput | None): LLM output if successful, None if failed
@@ -105,6 +110,7 @@ class WorkItemResult(Generic[TOutput, TContext]):
 - `gemini_safety_ratings` (dict[str, str] | None): Gemini API safety ratings if available
 
 **Example:**
+
 ```python
 result = await processor.process_all()
 for item_result in result.results:
@@ -133,6 +139,7 @@ class BatchResult(Generic[TOutput, TContext]):
 ```
 
 **Fields:**
+
 - `results` (list[WorkItemResult]): List of individual work item results
 - `total_items` (int): Total number of items processed
 - `succeeded` (int): Number of successful items
@@ -143,6 +150,7 @@ class BatchResult(Generic[TOutput, TContext]):
 **Note:** Summary statistics are calculated automatically in `__post_init__`.
 
 **Example:**
+
 ```python
 result = await processor.process_all()
 
@@ -180,6 +188,7 @@ class ParallelBatchProcessor(
 ```
 
 **Parameters:**
+
 - `config` (ProcessorConfig): Configuration for the processor
 - `post_processor` (PostProcessorFunc | None): Optional async function called after each item
 - `progress_callback` (ProgressCallbackFunc | None): Optional callback for progress updates
@@ -211,6 +220,7 @@ result = await processor.process_all()
 **Returns:** `BatchResult` containing all results and statistics
 
 **Behavior:**
+
 1. Starts worker tasks (up to `max_workers`)
 2. Workers process items from queue with retry logic
 3. Waits for all work to complete
@@ -236,6 +246,7 @@ async with ParallelBatchProcessor(config=config) as processor:
 ```
 
 **Example:**
+
 ```python
 from batch_llm import ParallelBatchProcessor, ProcessorConfig, LLMWorkItem
 
@@ -275,6 +286,7 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
 ```
 
 **Lifecycle:**
+
 1. `prepare()` - Called once before any retry attempts
 2. `execute()` - Called for each attempt (including retries)
 3. `cleanup()` - Called once after all attempts complete
@@ -292,12 +304,14 @@ Initialize resources before making LLM calls (e.g., create caches, initialize cl
 Execute an LLM call.
 
 **Parameters:**
+
 - `prompt` (str): The prompt to send to the LLM
 - `attempt` (int): Which retry attempt this is (1, 2, 3, ...)
 - `timeout` (float): Maximum time to wait for response (seconds)
   - Note: Timeout enforcement is handled by the framework wrapping this call
 
 **Returns:** Tuple of `(output, token_usage)`
+
 - `output` (TOutput): The LLM response
 - `token_usage` (dict[str, int]): Token usage with keys: `input_tokens`, `output_tokens`, `total_tokens`
 
@@ -310,6 +324,7 @@ Clean up resources after all attempts complete (e.g., delete caches, close clien
 **Default:** No-op
 
 **Custom Strategy Example:**
+
 ```python
 from batch_llm import LLMCallStrategy
 
@@ -341,11 +356,13 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
 ```
 
 **Parameters:**
+
 - `agent` (Agent[None, TOutput]): Configured PydanticAI agent
 
 **Requires:** `pip install 'batch-llm[pydantic-ai]'`
 
 **Example:**
+
 ```python
 from batch_llm import PydanticAIStrategy, LLMWorkItem
 from pydantic_ai import Agent
@@ -383,6 +400,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 ```
 
 **Parameters:**
+
 - `model` (str): Model name (e.g., "gemini-2.0-flash-exp")
 - `client` (genai.Client): Initialized Gemini client
 - `response_parser` (Callable): Function to parse response into TOutput
@@ -391,6 +409,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 **Requires:** `pip install 'batch-llm[gemini]'`
 
 **Example:**
+
 ```python
 from batch_llm import GeminiStrategy, LLMWorkItem
 from google import genai
@@ -434,6 +453,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 ```
 
 **Parameters:**
+
 - `model` (str): Model name
 - `client` (genai.Client): Initialized Gemini client
 - `response_parser` (Callable): Function to parse response
@@ -443,6 +463,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 - `config` (GenerateContentConfig | None): Optional generation config
 
 **Lifecycle:**
+
 - `prepare()`: Creates the Gemini cache
 - `execute()`: Uses cache, automatically refreshes TTL if needed
 - `cleanup()`: Deletes the cache
@@ -450,6 +471,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 **Requires:** `pip install 'batch-llm[gemini]'`
 
 **Example:**
+
 ```python
 from batch_llm import GeminiCachedStrategy, LLMWorkItem
 from google import genai
@@ -503,6 +525,7 @@ class ProcessorConfig:
 ```
 
 **Fields:**
+
 - `max_workers` (int): Maximum number of concurrent workers. Default: 5
 - `timeout_per_item` (float): Timeout per item in seconds. Default: 120.0
 - `retry` (RetryConfig): Retry configuration
@@ -513,6 +536,7 @@ class ProcessorConfig:
 - `dry_run` (bool): Skip actual API calls, return mock data. Default: False
 
 **Example:**
+
 ```python
 from batch_llm import ProcessorConfig, RetryConfig
 
@@ -542,6 +566,7 @@ class RetryConfig:
 ```
 
 **Fields:**
+
 - `max_attempts` (int): Maximum retry attempts. Default: 3
 - `initial_wait` (float): Initial wait time in seconds. Default: 1.0
 - `max_wait` (float): Maximum wait time in seconds. Default: 60.0
@@ -549,12 +574,14 @@ class RetryConfig:
 - `jitter` (bool): Add random jitter to wait times. Default: True
 
 **Validation:**
+
 - `max_attempts` must be >= 1
 - `initial_wait` must be > 0
 - `max_wait` must be >= initial_wait
 - `exponential_base` must be >= 1
 
 **Example:**
+
 ```python
 retry_config = RetryConfig(
     max_attempts=5,
@@ -582,6 +609,7 @@ class RateLimitConfig:
 ```
 
 **Fields:**
+
 - `cooldown_seconds` (float): Cooldown after rate limit. Default: 300.0 (5 minutes)
 - `slow_start_items` (int): Number of items for slow start. Default: 50
 - `slow_start_initial_delay` (float): Initial delay in slow start. Default: 2.0
@@ -589,6 +617,7 @@ class RateLimitConfig:
 - `backoff_multiplier` (float): Increase cooldown on repeated rate limits. Default: 1.5
 
 **Validation:**
+
 - `cooldown_seconds` must be >= 0
 - `slow_start_items` must be >= 0
 - `slow_start_initial_delay` must be >= slow_start_final_delay
@@ -609,10 +638,12 @@ class ErrorClassifier(ABC):
 ```
 
 **Built-in Implementations:**
+
 - `DefaultErrorClassifier`: Provider-agnostic classification based on exception types
 - `GeminiErrorClassifier`: Specialized for Google Gemini API errors
 
 **Custom Example:**
+
 ```python
 from batch_llm import ErrorClassifier, ErrorInfo
 
@@ -648,6 +679,7 @@ class ErrorInfo:
 ```
 
 **Fields:**
+
 - `is_retryable` (bool): Whether the error should trigger a retry
 - `is_rate_limit` (bool): Whether this is a rate limit error
 - `category` (str): Error category for logging/metrics
@@ -668,6 +700,7 @@ class RateLimitStrategy(ABC):
 ```
 
 **Built-in Implementations:**
+
 - `ExponentialBackoffStrategy`: Exponential backoff with configurable parameters
 - `FixedDelayStrategy`: Fixed delay between retries
 
@@ -695,11 +728,13 @@ class Middleware(ABC):
 ```
 
 **Methods:**
+
 - `before_process()`: Modify work item before processing. Return `None` to skip.
 - `after_process()`: Modify result after processing
 - `on_error()`: Handle errors (doesn't stop processing)
 
 **Example:**
+
 ```python
 from batch_llm.middleware import BaseMiddleware
 
@@ -728,6 +763,7 @@ class ProcessorObserver(ABC):
 ```
 
 **Events:**
+
 - `PROCESSING_STARTED`: Batch processing started
 - `PROCESSING_COMPLETED`: Batch processing completed
 - `ITEM_STARTED`: Work item started
@@ -753,12 +789,14 @@ class MetricsObserver(BaseObserver):
 ```
 
 **Methods:**
+
 - `get_metrics()`: Get current metrics as dict
 - `export_json()`: Export metrics as JSON string
 - `export_prometheus()`: Export in Prometheus text format
 - `export_dict()`: Export as dictionary
 
 **Example:**
+
 ```python
 from batch_llm import MetricsObserver
 
@@ -792,6 +830,7 @@ PostProcessorFunc = Callable[
 ```
 
 **Example:**
+
 ```python
 async def save_result(result: WorkItemResult):
     if result.success:
@@ -815,6 +854,7 @@ ProgressCallbackFunc = Callable[
 ```
 
 **Example:**
+
 ```python
 async def on_progress(completed: int, total: int, current_item: str):
     print(f"Progress: {completed}/{total} - {current_item}")

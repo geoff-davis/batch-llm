@@ -12,6 +12,7 @@ uv add 'batch-llm[gemini]'
 ```
 
 This installs:
+
 - `batch-llm` - Core batch processing framework
 - `google-genai` - Official Google Gemini SDK
 - `pydantic` - For response validation
@@ -21,7 +22,7 @@ This installs:
 ### 1. Get API Key
 
 Get a free API key from Google AI Studio:
-https://aistudio.google.com/apikey
+<https://aistudio.google.com/apikey>
 
 ### 2. Set Environment Variable
 
@@ -30,6 +31,7 @@ export GOOGLE_API_KEY=your_api_key_here
 ```
 
 Or in Python:
+
 ```python
 import os
 os.environ["GOOGLE_API_KEY"] = "your_api_key_here"
@@ -222,6 +224,7 @@ strategy = ProgressiveTempGeminiStrategy(client=client, temps=[0.0, 0.5, 1.0])
 ```
 
 **Why progressive temperature?**
+
 - Attempt 1 (temp=0.0): Deterministic, most likely to succeed
 - Attempt 2 (temp=0.5): More creative if first attempt had validation errors
 - Attempt 3 (temp=1.0): Maximum creativity as last resort
@@ -242,7 +245,7 @@ model="gemini-1.5-pro"
 model="gemini-2.0-flash-thinking-exp"
 ```
 
-See: https://ai.google.dev/gemini-api/docs/models/gemini
+See: <https://ai.google.dev/gemini-api/docs/models/gemini>
 
 ### Generation Config Options
 
@@ -282,7 +285,7 @@ config = GenerateContentConfig(
 )
 ```
 
-See: https://ai.google.dev/gemini-api/docs/models/generative-models#model-parameters
+See: <https://ai.google.dev/gemini-api/docs/models/generative-models#model-parameters>
 
 ### Error Handling
 
@@ -298,6 +301,7 @@ processor = ParallelBatchProcessor(
 ```
 
 The classifier automatically:
+
 - Detects rate limit errors (429) as non-retryable
 - Marks server errors (500) as retryable
 - Detects timeout errors
@@ -323,6 +327,7 @@ config = ProcessorConfig(
 ```
 
 When rate limit (429) is detected:
+
 1. All workers pause
 2. Wait for cooldown period
 3. Resume with slow-start (gradual ramp-up)
@@ -378,7 +383,7 @@ class GeminiVisionStrategy(LLMCallStrategy[str]):
 strategy = GeminiVisionStrategy(client=client, image_path="photo.jpg")
 ```
 
-See: https://ai.google.dev/gemini-api/docs/vision
+See: <https://ai.google.dev/gemini-api/docs/vision>
 
 ### Token Usage Tracking
 
@@ -398,7 +403,7 @@ for item in result.results:
         print(f"{item.item_id}: ${cost:.6f}")
 ```
 
-Pricing: https://ai.google.dev/pricing
+Pricing: <https://ai.google.dev/pricing>
 
 ## Complete Example
 
@@ -469,22 +474,24 @@ work_item = LLMWorkItem(
 
 ### API Key Not Found
 
-```
+```text
 Error: GOOGLE_API_KEY environment variable not set
 ```
 
 **Fix**: Export your API key before running:
+
 ```bash
 export GOOGLE_API_KEY=your_key_here
 ```
 
 ### Rate Limit Errors (429)
 
-```
+```text
 google.genai.errors.ClientError: 429 Resource exhausted
 ```
 
 **Fix**: Reduce `max_workers` or configure rate limiting:
+
 ```python
 config = ProcessorConfig(
     max_workers=3,  # Lower concurrency
@@ -494,39 +501,42 @@ config = ProcessorConfig(
 
 ### Validation Errors
 
-```
+```text
 pydantic.ValidationError: response doesn't match schema
 ```
 
 **Fix**:
+
 1. Check your Pydantic model matches expected output
 2. Use progressive temperature strategy (increases temp on retries)
 3. Add examples in your prompt
 
 ### Timeout Errors
 
-```
+```text
 asyncio.TimeoutError
 ```
 
 **Fix**: Increase timeout:
+
 ```python
 config = ProcessorConfig(timeout_per_item=60.0)  # 60 seconds
 ```
 
 ## Resources
 
-- **Gemini API Docs**: https://ai.google.dev/gemini-api/docs
-- **Python SDK**: https://googleapis.github.io/python-genai/
-- **Pricing**: https://ai.google.dev/pricing
-- **Models**: https://ai.google.dev/gemini-api/docs/models/gemini
-- **Get API Key**: https://aistudio.google.com/apikey
-- **Quickstart**: https://ai.google.dev/gemini-api/docs/quickstart
+- **Gemini API Docs**: <https://ai.google.dev/gemini-api/docs>
+- **Python SDK**: <https://googleapis.github.io/python-genai/>
+- **Pricing**: <https://ai.google.dev/pricing>
+- **Models**: <https://ai.google.dev/gemini-api/docs/models/gemini>
+- **Get API Key**: <https://aistudio.google.com/apikey>
+- **Quickstart**: <https://ai.google.dev/gemini-api/docs/quickstart>
 - **batch-llm API Docs**: [docs/API.md](API.md)
 
 ## Support
 
 For issues with:
-- **batch-llm**: https://github.com/yourusername/batch-llm/issues
-- **Gemini API**: https://developers.google.com/support
-- **google-genai SDK**: https://github.com/googleapis/python-genai/issues
+
+- **batch-llm**: <https://github.com/yourusername/batch-llm/issues>
+- **Gemini API**: <https://developers.google.com/support>
+- **google-genai SDK**: <https://github.com/googleapis/python-genai/issues>

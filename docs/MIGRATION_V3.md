@@ -1,10 +1,12 @@
 # Migration Guide: v2.x → v3.0
 
-This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the new **LLM call strategy pattern** to provide greater flexibility and cleaner separation of concerns.
+This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the new
+**LLM call strategy pattern** to provide greater flexibility and cleaner separation of concerns.
 
 ## Overview of Changes
 
 **v3.0 Breaking Changes:**
+
 - Replaced `agent=` parameter with `strategy=` in `LLMWorkItem`
 - Removed `client=` parameter from `LLMWorkItem`
 - Introduced `LLMCallStrategy` abstract base class
@@ -12,6 +14,7 @@ This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the n
 - Improved timeout enforcement (now framework-level)
 
 **Why the change?**
+
 - **Flexibility**: Support any LLM provider (OpenAI, Anthropic, LangChain, etc.) through custom strategies
 - **Clean separation**: Strategy encapsulates all model-specific logic (caching, parsing, retries)
 - **Extensibility**: Easy to create custom strategies with prepare/execute/cleanup lifecycle
@@ -22,6 +25,7 @@ This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the n
 ### Pattern 1: PydanticAI Agent (Most Common)
 
 **v2.x Code:**
+
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from pydantic_ai import Agent
@@ -37,6 +41,7 @@ work_item = LLMWorkItem(
 ```
 
 **v3.0 Code:**
+
 ```python
 from batch_llm import (
     LLMWorkItem,
@@ -58,6 +63,7 @@ work_item = LLMWorkItem(
 ```
 
 **Migration steps:**
+
 1. Import `PydanticAIStrategy` from `batch_llm`
 2. Wrap your agent: `strategy = PydanticAIStrategy(agent=agent)`
 3. Replace `agent=agent` with `strategy=strategy`
@@ -67,6 +73,7 @@ work_item = LLMWorkItem(
 ### Pattern 2: Direct Gemini API Calls
 
 **v2.x Code:**
+
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from google import genai
@@ -82,6 +89,7 @@ work_item = LLMWorkItem(
 ```
 
 **v3.0 Code:**
+
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from batch_llm.llm_strategies import GeminiStrategy  # ✅ New import
@@ -109,6 +117,7 @@ work_item = LLMWorkItem(
 ```
 
 **Migration steps:**
+
 1. Import `GeminiStrategy` from `batch_llm.llm_strategies`
 2. Create a response parser function
 3. Create strategy with model, client, parser, and optional config
@@ -119,6 +128,7 @@ work_item = LLMWorkItem(
 ### Pattern 3: Gemini with Context Caching
 
 **v2.x Code:**
+
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from google import genai
@@ -134,6 +144,7 @@ work_item = LLMWorkItem(
 ```
 
 **v3.0 Code:**
+
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from batch_llm.llm_strategies import GeminiCachedStrategy  # ✅ New import
@@ -170,6 +181,7 @@ work_item = LLMWorkItem(
 ```
 
 **Migration steps:**
+
 1. Import `GeminiCachedStrategy` from `batch_llm.llm_strategies`
 2. Define your cached content as list of `Content` objects
 3. Create cached strategy with TTL and refresh settings
@@ -268,6 +280,7 @@ if __name__ == "__main__":
 ```
 
 **Key differences:**
+
 1. Import `PydanticAIStrategy`
 2. Create strategy: `strategy = PydanticAIStrategy(agent=agent)`
 3. Use `strategy=` instead of `agent=`
@@ -373,6 +386,7 @@ class CachedStrategy(LLMCallStrategy[str]):
 - **v3.0**: Framework enforces timeout with `asyncio.wait_for()` wrapper
 
 **Impact on custom strategies:**
+
 - You no longer need to wrap your strategy execution in `asyncio.wait_for()`
 - The `timeout` parameter is still passed to `execute()` for informational purposes
 - Framework handles timeout consistently across all strategies
@@ -431,7 +445,7 @@ To migrate from v2.x to v3.0:
   - `example_openai.py` - OpenAI integration
   - `example_anthropic.py` - Anthropic Claude integration
   - `example_langchain.py` - LangChain integration
-- **Issues**: Report bugs at https://github.com/yourusername/batch-llm/issues
+- **Issues**: Report bugs at <https://github.com/yourusername/batch-llm/issues>
 
 ---
 
