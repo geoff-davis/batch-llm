@@ -23,6 +23,10 @@ async def main():
         latency=0.01,
     )
 
+    # Wrap in strategy
+    from batch_llm import PydanticAIStrategy
+    strategy = PydanticAIStrategy(agent=mock_agent)
+
     config = ProcessorConfig(max_workers=3, timeout_per_item=10.0)
 
     # Using async context manager ensures cleanup even if errors occur
@@ -34,7 +38,7 @@ async def main():
             await processor.add_work(
                 LLMWorkItem(
                     item_id=f"item_{i}",
-                    agent=mock_agent,
+                    strategy=strategy,
                     prompt=f"Summarize document {i}",
                     context=None,
                 )

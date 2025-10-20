@@ -1,71 +1,234 @@
-# Batch LLM
+# batch-llm
 
-A flexible framework for processing multiple LLM requests efficiently using a clean strategy pattern for LLM call configuration.
+**Provider-agnostic parallel LLM processing with automatic retries, rate limiting, and flexible strategies.**
+
+Process thousands of LLM requests efficiently across any provider (OpenAI, Anthropic, Google, LangChain, or custom) with built-in error handling, retry logic, and observability.
 
 [![PyPI version](https://badge.fury.io/py/batch-llm.svg)](https://badge.fury.io/py/batch-llm)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Installation
+---
 
-Install using uv (recommended):
+## Why batch-llm?
 
-```bash
-uv add batch-llm
-```
+- ✅ **Universal**: Works with any LLM provider through a simple strategy interface
+- ✅ **Reliable**: Built-in retry logic, timeout handling, and rate limiting
+- ✅ **Fast**: Parallel async processing with configurable concurrency
+- ✅ **Observable**: Token tracking, metrics, and middleware hooks
+- ✅ **Clean**: Strategy pattern separates business logic from API integration
+- ✅ **Type-safe**: Full generic type support with Pydantic validation
 
-Or using pip:
-
-```bash
-# Minimal (for direct API calls)
-pip install batch-llm
-
-# With PydanticAI support
-pip install batch-llm[pydantic-ai]
-
-# With Gemini SDK
-pip install batch-llm[gemini]
-
-# With everything
-pip install batch-llm[all]
-```
-
-**Note**: PydanticAI is now optional! See [OPTIONAL_DEPENDENCIES.md](OPTIONAL_DEPENDENCIES.md) for details.
+---
 
 ## Quick Start
 
+### Installation
+
+```bash
+# Basic installation
+pip install batch-llm
+
+# With PydanticAI support (recommended for structured output)
+pip install 'batch-llm[pydantic-ai]'
+
+# With Google Gemini support
+pip install 'batch-llm[gemini]'
+
+# With everything
+pip install 'batch-llm[all]'
+```
+
+### Basic Example (PydanticAI)
+
 ```python
 import asyncio
-from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig, PydanticAIStrategy
+from batch_llm import (
+    ParallelBatchProcessor,
+    LLMWorkItem,
+    ProcessorConfig,
+    PydanticAIStrategy,
+)
 from pydantic_ai import Agent
 from pydantic import BaseModel
 
-class BookSummary(BaseModel):
+class Summary(BaseModel):
     title: str
-    summary: str
+    key_points: list[str]
 
-# Create agent and wrap in strategy
-agent = Agent("gemini-2.0-flash-exp", result_type=BookSummary)
-strategy = PydanticAIStrategy(agent=agent)
+async def main():
+    # Create agent and wrap in strategy
+    agent = Agent("gemini-2.0-flash-exp", result_type=Summary)
+    strategy = PydanticAIStrategy(agent=agent)
 
-# Create processor
-config = ProcessorConfig(max_workers=5, timeout_per_item=120.0)
-processor = ParallelBatchProcessor(config=config)
+    # Configure processor
+    config = ProcessorConfig(max_workers=5, timeout_per_item=30.0)
 
-# Add work
-work_item = LLMWorkItem(
-    item_id="book_1",
-    strategy=strategy,
-    prompt="Summarize Pride and Prejudice",
-)
-await processor.add_work(work_item)
+    # Process items
+    async with ParallelBatchProcessor[str, Summary, None](config=config) as processor:
+        # Add work items
+        for doc in ["Document 1 text...", "Document 2 text..."]:
+            await processor.add_work(
+                LLMWorkItem(
+                    item_id=f"doc_{hash(doc)}",
+                    strategy=strategy,
+                    prompt=f"Summarize: {doc}",
+                )
+            )
 
-# Process all
-result = await processor.process_all()
-print(f"Succeeded: {result.succeeded}/{result.total_items}")
+        # Process all in parallel
+        result = await processor.process_all()
+
+    print(f"Succeeded: {result.succeeded}/{result.total_items}")
+    print(f"Tokens used: {result.total_input_tokens + result.total_output_tokens}")
+
+asyncio.run(main())
 ```
 
-### Using Gemini with Context Caching
+---
+
+## Features
+
+### 🎯 Strategy Pattern for Any LLM Provider
+
+Built-in strategies:
+- **`PydanticAIStrategy`** - PydanticAI agents with structured output
+- **`GeminiStrategy`** - Direct Google Gemini API calls
+- **`GeminiCachedStrategy`** - Gemini with context caching (great for RAG)
+
+Create custom strategies for any provider:
+- OpenAI (see `examples/example_openai.py`)
+- Anthropic Claude (see `examples/example_anthropic.py`)
+- LangChain (see `examples/example_langchain.py`)
+- Your own custom API
+
+### 🔄 Automatic Retry Logic
+
+```python
+from batch_llm.core import RetryConfig
+
+config = ProcessorConfig(
+    max_workers=5,
+    timeout_per_item=30.0,
+    retry=RetryConfig(
+        max_attempts=3,
+        initial_wait=1.0,
+        exponential_base=2.0,
+        jitter=True,
+    ),
+)
+```
+
+### 🚦 Rate Limiting
+
+```python
+from batch_llm.core import RateLimitConfig
+
+config = ProcessorConfig(
+    rate_limit=RateLimitConfig(
+        requests_per_minute=60,
+        strategy="exponential_backoff",  # or "fixed_delay"
+    ),
+)
+```
+
+### 🔌 Middleware & Observers
+
+Extend functionality with middleware and observers:
+
+```python
+from batch_llm.middleware import LoggingMiddleware
+from batch_llm.observers import MetricsObserver
+
+processor = ParallelBatchProcessor(
+    config=config,
+    middleware=[LoggingMiddleware()],
+    observers=[MetricsObserver()],
+)
+```
+
+### 📊 Token Tracking
+
+```python
+result = await processor.process_all()
+print(f"Input tokens: {result.total_input_tokens}")
+print(f"Output tokens: {result.total_output_tokens}")
+print(f"Total cost: ${estimate_cost(result)}")
+```
+
+---
+
+## Provider Examples
+
+### OpenAI
+
+```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from openai import AsyncOpenAI
+
+class OpenAIStrategy(LLMCallStrategy[str]):
+    def __init__(self, client: AsyncOpenAI, model: str = "gpt-4o-mini"):
+        self.client = client
+        self.model = model
+
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[str, dict[str, int]]:
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        output = response.choices[0].message.content or ""
+        tokens = {
+            "input_tokens": response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+        return output, tokens
+
+# Use it
+client = AsyncOpenAI(api_key=API_KEY)
+strategy = OpenAIStrategy(client=client)
+```
+
+See [`examples/example_openai.py`](examples/example_openai.py) for complete examples including structured output.
+
+### Anthropic Claude
+
+```python
+from anthropic import AsyncAnthropic
+
+class AnthropicStrategy(LLMCallStrategy[str]):
+    def __init__(self, client: AsyncAnthropic, model: str = "claude-3-5-sonnet-20241022"):
+        self.client = client
+        self.model = model
+
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[str, dict[str, int]]:
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        output = response.content[0].text
+        tokens = {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+        }
+
+        return output, tokens
+```
+
+See [`examples/example_anthropic.py`](examples/example_anthropic.py) for system prompts and mixed model examples.
+
+### Google Gemini with Caching (RAG)
+
+Perfect for RAG applications where you have large context that stays constant:
 
 ```python
 from batch_llm import GeminiCachedStrategy
@@ -73,11 +236,11 @@ from google import genai
 
 client = genai.Client(api_key="your-api-key")
 
-# Large context to cache (e.g., RAG documents)
+# Define large context to cache (e.g., retrieved documents)
 cached_content = [
     genai.types.Content(
         role="user",
-        parts=[genai.types.Part(text="Context to cache...")]
+        parts=[genai.types.Part(text="Large document context...")]
     )
 ]
 
@@ -86,364 +249,266 @@ strategy = GeminiCachedStrategy(
     client=client,
     response_parser=lambda r: r.text,
     cached_content=cached_content,
-    cache_ttl_seconds=3600,
+    cache_ttl_seconds=3600,  # Cache for 1 hour
 )
 
-# Use strategy in work items...
+# Strategy automatically:
+# - Creates cache on first use
+# - Refreshes TTL when needed
+# - Deletes cache on cleanup
 ```
 
-## Features
-
-This module provides a clean abstraction for bulk LLM processing with support for:
-- **Strategy Pattern** - Flexible LLM call configuration:
-  - `PydanticAIStrategy` - For PydanticAI agents with structured output
-  - `GeminiStrategy` - Direct Gemini API calls
-  - `GeminiCachedStrategy` - Gemini with context caching and TTL refresh
-  - Custom strategies - Implement your own LLM call logic
-- **Lifecycle Management** - Clean prepare/execute/cleanup pattern
-- **Parallel Processing** - Efficient asyncio-based concurrent execution
-- **Work Queue Management** - Easy batch job coordination
-- **Intelligent Retry Logic** - Automatic retry with exponential backoff
-- **Partial Failure Handling** - Graceful error handling and reporting
-- **Post-Processing Hooks** - Run custom logic after each success
-- **Progress Tracking** - Built-in metrics and observability
-- **Provider-Agnostic** - Error classification works with any LLM provider
-- **Middleware Pipeline** - Extensible processing pipeline
-- **Rate Limiting** - Built-in rate limit handling with configurable strategies
-- **Testing Utilities** - MockAgent and helpers for testing without API calls
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│           BatchProcessor (Abstract)         │
-│  - Queue management                         │
-│  - Worker coordination                      │
-│  - Result aggregation                       │
-│  - Post-processing hooks                    │
-└─────────────────────────────────────────────┘
-                    │
-        ┌───────────┴───────────┐
-        │                       │
-┌───────▼──────────┐  ┌────────▼────────────┐
-│ Parallel         │  │ BatchAPI            │
-│ Processor        │  │ Processor (future)  │
-│                  │  │                     │
-│ • Single items   │  │ • True batch API    │
-│ • asyncio        │  │ • 50% discount      │
-│ • Fast           │  │ • Hours latency     │
-└──────────────────┘  └─────────────────────┘
-```
-
-## Core Components
-
-### `LLMWorkItem`
-
-Represents a single work item. You must provide **exactly one** of three processing methods:
-
-#### Option 1: PydanticAI Agent (Recommended)
-```python
-work_item = LLMWorkItem(
-    item_id="book_1",
-    agent=agent,  # PydanticAI Agent instance
-    prompt="Summarize this book",
-    context=optional_context,
-)
-```
-
-#### Option 2: Direct API Call
-For custom temperature control or when you need direct API access:
-```python
-async def call_gemini(attempt: int, timeout: float) -> tuple[OutputModel, dict[str, int]]:
-    """Direct call to Gemini API with custom temperature."""
-    # Your custom API call here
-    # Returns: (result, token_usage_dict)
-    return result, {"input_tokens": 100, "output_tokens": 200}
-
-work_item = LLMWorkItem(
-    item_id="book_1",
-    direct_call=call_gemini,
-    input_data=your_input_data,  # Passed to your callable
-    context=optional_context,
-)
-```
-
-#### Option 3: Agent Factory
-For progressive temperature increases on retries:
-```python
-def create_agent(attempt: int) -> Agent:
-    """Create agent with temperature based on attempt number."""
-    temperature = 0.7 + (attempt * 0.1)  # Increase temp on retries
-    return Agent("gemini-2.0-flash", temperature=temperature)
-
-work_item = LLMWorkItem(
-    item_id="book_1",
-    agent_factory=create_agent,
-    prompt="Summarize this book",
-    context=optional_context,
-)
-```
-
-**Common fields:**
-- `item_id`: Unique identifier (required)
-- `context`: Optional data passed through to results/post-processor
-
-### `WorkItemResult`
-Result of processing a single item:
-- `item_id`: Work item ID
-- `success`: Boolean success flag
-- `output`: Agent output (if successful)
-- `error`: Error message (if failed)
-- `context`: Context data from work item
-- `token_usage`: Token statistics
-
-### `BatchResult`
-Aggregate results from a batch:
-- `results`: List of individual results
-- `total_items`: Count of items
-- `succeeded`: Count of successes
-- `failed`: Count of failures
-- `total_input_tokens`: Sum of input tokens
-- `total_output_tokens`: Sum of output tokens
-
-### `BatchProcessor` (Abstract)
-Base class defining the interface:
-- `add_work()`: Add items to queue
-- `process_all()`: Process all items
-- `_worker()`: Worker implementation (abstract)
-- `_process_item()`: Item processing logic (abstract)
-
-## Implementations
-
-### `ParallelBatchProcessor`
-
-Processes items individually with asyncio concurrency:
+### LangChain Integration
 
 ```python
-from batch_llm import ParallelBatchProcessor, LLMWorkItem
-from pydantic_ai import Agent
-from pydantic import BaseModel
+from langchain.chains import LLMChain
+from langchain_openai import ChatOpenAI
 
-# Define output model
-class BookSummary(BaseModel):
-    title: str
-    summary: str
+class LangChainStrategy(LLMCallStrategy[str]):
+    def __init__(self, chain: LLMChain):
+        self.chain = chain
 
-# Create agent
-agent = Agent("gemini-2.0-flash", output_type=BookSummary)
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[str, dict[str, int]]:
+        result = await self.chain.arun(input=prompt)
+        # Return result and token usage
+        return result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
-# Create processor
-processor = ParallelBatchProcessor(
-    max_workers=5,
-    timeout_per_item=120.0,
-)
+# Create LangChain components
+llm = ChatOpenAI(model="gpt-4o-mini")
+chain = LLMChain(llm=llm, prompt=your_prompt_template)
 
-# Add work
+# Use with batch-llm
+strategy = LangChainStrategy(chain=chain)
+```
+
+See [`examples/example_langchain.py`](examples/example_langchain.py) for RAG pipeline examples.
+
+---
+
+## Core Concepts
+
+### Strategy Pattern
+
+All LLM calls go through a `LLMCallStrategy`:
+
+```python
+class LLMCallStrategy(ABC):
+    async def prepare(self) -> None:
+        """Called once before processing starts. Initialize resources here."""
+        pass
+
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[TOutput, dict[str, int]]:
+        """Execute the LLM call. Called for each retry attempt."""
+        pass
+
+    async def cleanup(self) -> None:
+        """Called once after processing. Clean up resources here."""
+        pass
+```
+
+This design:
+- ✅ Decouples framework from LLM providers
+- ✅ Enables resource lifecycle management (caches, connections)
+- ✅ Supports progressive temperature strategies on retries
+- ✅ Makes testing easy with mock strategies
+
+### Work Items
+
+```python
 work_item = LLMWorkItem(
-    item_id="book_1",
-    agent=agent,
-    prompt="Summarize Pride and Prejudice",
+    item_id="unique-id",           # Required: unique identifier
+    strategy=your_strategy,         # Required: how to call the LLM
+    prompt="Your prompt here",      # Optional: prompt string
+    context={"key": "value"},       # Optional: context data
 )
-await processor.add_work(work_item)
+```
 
-# Process all
+### Results
+
+```python
 result = await processor.process_all()
-print(f"Succeeded: {result.succeeded}/{result.total_items}")
+
+# Aggregate results
+print(f"Total: {result.total_items}")
+print(f"Succeeded: {result.succeeded}")
+print(f"Failed: {result.failed}")
+
+# Individual results
+for item_result in result.results:
+    if item_result.success:
+        print(f"{item_result.item_id}: {item_result.output}")
+    else:
+        print(f"{item_result.item_id} failed: {item_result.error}")
 ```
 
-**Pros:**
-- True parallel processing (fast)
-- Same cost as sequential
-- Simple to use
+---
 
-**Cons:**
-- No batch pricing discount
-- More API calls (same cost, more overhead)
+## Advanced Usage
 
-### `BatchAPIProcessor` (Future)
+### Progressive Temperature on Retries
 
-Will use Google's Batch Prediction API:
+```python
+class ProgressiveTempStrategy(LLMCallStrategy[str]):
+    """Increase temperature with each retry attempt."""
 
-**Pros:**
-- 50% pricing discount
-- Optimized for throughput
+    def __init__(self, client, temps=[0.0, 0.5, 1.0]):
+        self.client = client
+        self.temps = temps
 
-**Cons:**
-- Hours of latency (not real-time)
-- More complex setup
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Use higher temperature for retries
+        temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
 
-## Using Context and Post-Processing
+        # Make call with progressive temperature
+        response = await self.client.generate(prompt, temperature=temp)
+        return response.text, response.token_usage
+```
 
-Pass context data through the pipeline and run post-processing after each success:
+### Context and Post-Processing
+
+Pass context through and run custom logic after each success:
 
 ```python
 from dataclasses import dataclass
 
 @dataclass
-class EnrichmentContext:
-    work_key: str
-    original_title: str
+class WorkContext:
+    user_id: str
+    document_id: str
 
-async def save_to_db(result: WorkItemResult):
-    """Post-processor that saves results to database."""
-    if result.success and result.context:
-        # Save result.output to database using result.context
-        await db.save(result.context.work_key, result.output)
+async def save_result(result: WorkItemResult):
+    """Save successful results to database."""
+    if result.success:
+        await db.save(
+            user_id=result.context.user_id,
+            document_id=result.context.document_id,
+            summary=result.output,
+        )
 
+config = ProcessorConfig(max_workers=5)
 processor = ParallelBatchProcessor(
-    max_workers=5,
-    post_processor=save_to_db,  # Called after each success
+    config=config,
+    post_processor=save_result,
 )
 
 # Add work with context
-context = EnrichmentContext(work_key="/works/OL123W", original_title="1984")
-work_item = LLMWorkItem(
-    item_id="work_1",
-    agent=agent,
-    prompt="Enrich this book...",
-    context=context,
+await processor.add_work(
+    LLMWorkItem(
+        item_id="doc_123",
+        strategy=strategy,
+        prompt="Summarize...",
+        context=WorkContext(user_id="user_1", document_id="doc_123"),
+    )
 )
-await processor.add_work(work_item)
 ```
 
-## Error Handling
+### Error Classification
 
-The framework handles errors gracefully:
-
-1. **Timeouts**: Items timing out return `WorkItemResult` with `success=False`
-2. **Exceptions**: Caught and recorded in `error` field
-3. **Partial failures**: Other items continue processing
-4. **Post-processor errors**: Logged but don't fail the item
+Custom error handling per provider:
 
 ```python
-result = await processor.process_all()
-
-# Check individual results
-for item_result in result.results:
-    if not item_result.success:
-        print(f"Failed: {item_result.item_id} - {item_result.error}")
-```
-
-## Integration Example
-
-Here's how this would integrate with the existing enrichment pipeline:
-
-```python
-from batch_llm import ParallelBatchProcessor, LLMWorkItem
-from ingest.openlibrary.clean.enrich import create_agent, format_work_for_prompt
-from ingest.openlibrary.clean.popular_works import get_popular_works
-
-# Create agent
-agent = create_agent()
-
-# Create processor with post-processing
-async def save_enriched_work(result):
-    if result.success:
-        enriched = canonical_to_enriched_work(
-            result.context.work_key,
-            result.output
-        )
-        async with AsyncSession(async_engine) as session:
-            session.add(enriched)
-            await session.commit()
+from batch_llm.classifiers import GeminiErrorClassifier
 
 processor = ParallelBatchProcessor(
-    max_workers=5,
-    timeout_per_item=120.0,
-    post_processor=save_enriched_work,
+    config=config,
+    error_classifier=GeminiErrorClassifier(),  # Provider-specific errors
 )
-
-# Add work items
-async for work in get_popular_works(limit=100):
-    prompt = format_work_for_prompt(work)
-    work_item = LLMWorkItem(
-        item_id=work.work_key,
-        agent=agent,
-        prompt=prompt,
-        context=work,  # Pass work through as context
-    )
-    await processor.add_work(work_item)
-
-# Process all
-result = await processor.process_all()
-print(f"Enriched {result.succeeded}/{result.total_items} works")
 ```
 
-## Performance Considerations
+---
 
-### Parallel Strategy
-- **Throughput**: ~5-10 items/second with 5 workers (depends on response time)
-- **Cost**: Same as sequential ($0.075 per 1M input tokens, $0.30 per 1M output)
-- **Latency**: Real-time (seconds per item)
+## Documentation
 
-### Future Batch API Strategy
-- **Throughput**: Higher (Google's infrastructure optimizes)
-- **Cost**: 50% discount ($0.0375 per 1M input, $0.15 per 1M output)
-- **Latency**: Hours (asynchronous batch job)
+- **[API Reference](docs/API.md)** - Complete API documentation
+- **[Migration Guide](docs/MIGRATION_V3.md)** - Upgrading from v2.x
+- **[Examples](examples/)** - Working examples for all providers
 
-## Future Enhancements
-
-1. **Retry logic**: Add configurable retry for failed items
-2. **Dynamic batching**: Adjust batch size based on success rate
-3. **Rate limiting**: Built-in rate limit handling
-4. **Metrics export**: Prometheus/StatsD integration
-5. **Progress callbacks**: Real-time progress updates
-6. **BatchAPI implementation**: True batch API support
-
-## Examples
-
-See the `examples/` directory for complete usage examples:
-
-```bash
-# Run the example (requires API key)
-python examples/example.py
-```
+---
 
 ## Testing
 
-Run the test suite:
+### Mock Strategies
+
+```python
+from batch_llm.testing import MockAgent
+
+mock_agent = MockAgent(
+    response_factory=lambda p: Summary(title="Test", key_points=["A", "B"]),
+    latency=0.01,  # Simulate 10ms latency
+)
+
+strategy = PydanticAIStrategy(agent=mock_agent)
+# Test your code without API calls!
+```
+
+### Run Tests
 
 ```bash
-# Using uv
+# Using uv (recommended)
 uv run pytest
 
 # Or using pytest directly
 pytest
 ```
 
-## API Reference
+---
 
-### `LLMWorkItem[TInput, TOutput, TContext]`
-- `item_id: str` - Unique identifier
-- `agent: Agent[None, TOutput]` - PydanticAI agent
-- `prompt: str` - Input prompt
-- `context: TContext | None` - Optional context
+## Performance
 
-### `WorkItemResult[TOutput, TContext]`
-- `item_id: str`
-- `success: bool`
-- `output: TOutput | None`
-- `error: str | None`
-- `context: TContext | None`
-- `token_usage: dict[str, int]`
+### Parallel Processing
+- **Throughput**: ~5-10 items/second per worker (depends on LLM latency)
+- **Cost**: Same as sequential (no additional API costs)
+- **Latency**: Real-time (seconds per item)
+- **Concurrency**: Configurable workers (default: 5)
 
-### `BatchResult[TOutput, TContext]`
-- `results: list[WorkItemResult]`
-- `total_items: int`
-- `succeeded: int`
-- `failed: int`
-- `total_input_tokens: int`
-- `total_output_tokens: int`
+### Example: 1000 Items
+- **Sequential**: ~16 minutes (1 req/sec)
+- **5 workers**: ~3 minutes (5 req/sec)
+- **10 workers**: ~1.5 minutes (10 req/sec)
 
-### `ParallelBatchProcessor[TInput, TOutput, TContext]`
-```python
-def __init__(
-    max_workers: int = 5,
-    batch_size: int = 1,  # Ignored
-    post_processor: PostProcessorFunc | None = None,
-    timeout_per_item: float = 120.0,
-)
+---
 
-async def add_work(work_item: LLMWorkItem) -> None
-async def process_all() -> BatchResult
-```
+## Roadmap
+
+- [ ] Batch API support (50% cost reduction, hours latency)
+- [ ] Streaming support for long-running tasks
+- [ ] Built-in cost tracking and budgeting
+- [ ] Prometheus/StatsD metrics export
+- [ ] CLI for batch processing from files
+
+---
+
+## Contributing
+
+Contributions welcome! Areas of interest:
+- Additional provider strategies (AWS Bedrock, Azure OpenAI, etc.)
+- Improved error classification for specific providers
+- Performance optimizations
+- Documentation improvements
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+## Examples
+
+Check out the [`examples/`](examples/) directory:
+
+- [`example_llm_strategies.py`](examples/example_llm_strategies.py) - All built-in strategies
+- [`example_openai.py`](examples/example_openai.py) - OpenAI integration
+- [`example_anthropic.py`](examples/example_anthropic.py) - Anthropic Claude
+- [`example_langchain.py`](examples/example_langchain.py) - LangChain & RAG
+- [`example_gemini_direct.py`](examples/example_gemini_direct.py) - Direct Gemini API
+- [`example_context_manager.py`](examples/example_context_manager.py) - Resource management
+
+---
+
+**Questions?** Open an issue on GitHub or check the [API documentation](docs/API.md).

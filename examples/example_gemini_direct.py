@@ -1,14 +1,14 @@
-"""Example of using batch_llm with direct Gemini API calls (no PydanticAI required).
+"""Example of using batch_llm with Google Gemini using GeminiStrategy.
 
-This example shows how to process batches using the Gemini API directly,
+This example shows how to process batches using the built-in GeminiStrategy,
 with progressive temperature increases on retries.
 
 ## Installation
 
 ```bash
-uv add batch-llm[gemini]
+pip install 'batch-llm[gemini]'
 # or
-pip install batch-llm[gemini]
+uv add 'batch-llm[gemini]'
 ```
 
 ## Setup
@@ -22,8 +22,8 @@ Get an API key from: https://aistudio.google.com/apikey
 
 ## Features Demonstrated
 
-1. Direct Gemini API calls without PydanticAI
-2. Progressive temperature on retries (0.0 → 0.25 → 0.5)
+1. Built-in GeminiStrategy for direct Gemini API calls
+2. Progressive temperature via custom strategy
 3. Structured output with Pydantic response_schema
 4. Token usage tracking
 5. Async batch processing with concurrency control
@@ -33,6 +33,7 @@ Get an API key from: https://aistudio.google.com/apikey
 
 - Gemini API Quickstart: https://ai.google.dev/gemini-api/docs/quickstart
 - google-genai package: https://googleapis.github.io/python-genai/
+- GeminiStrategy docs: docs/GEMINI_INTEGRATION.md
 """
 
 import asyncio
@@ -44,6 +45,7 @@ from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
 
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm.llm_strategies import GeminiStrategy, LLMCallStrategy
 
 
 class SummaryOutput(BaseModel):
@@ -53,91 +55,78 @@ class SummaryOutput(BaseModel):
     key_points: Annotated[list[str], Field(description="Main points from the text")]
 
 
-async def call_gemini_direct(
-    text: str, attempt: int, timeout: float
-) -> tuple[SummaryOutput, dict[str, int]]:
+class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
     """
-    Call Gemini API directly with temperature based on attempt number.
+    Custom Gemini strategy with progressive temperature.
 
-    This demonstrates how to integrate the Gemini API directly with batch_llm
-    without using PydanticAI. Features:
-    - Progressive temperature: Increases with each retry attempt
-    - Structured output: Uses Pydantic schema for response validation
-    - Token tracking: Returns usage metadata for monitoring
-    - Timeout handling: Wraps async call with timeout
-
-    Args:
-        text: Text to summarize
-        attempt: Attempt number (1, 2, 3...) - automatically provided by batch_llm
-        timeout: Timeout in seconds - automatically provided by batch_llm
-
-    Returns:
-        (parsed_output, token_usage)
-
-    Raises:
-        TimeoutError: If call exceeds timeout
-        ValidationError: If response doesn't match schema
-        google.genai.errors.*: Various Gemini API errors
+    This demonstrates how to create a custom strategy that adjusts
+    temperature based on retry attempt number.
     """
-    # Progressive temperature: 0.0 -> 0.25 -> 0.5
-    # Lower temps (0.0) are more deterministic, higher temps (0.5) more creative
-    temperatures = [0.0, 0.25, 0.5]
-    temp = temperatures[min(attempt - 1, len(temperatures) - 1)]
 
-    # Create client - automatically uses GOOGLE_API_KEY environment variable
-    # See: https://ai.google.dev/gemini-api/docs/quickstart#set-up-api-key
-    client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+    def __init__(self, client: genai.Client, temps=[0.0, 0.25, 0.5]):
+        """
+        Initialize progressive temperature strategy.
 
-    # Configure the request
-    # See: https://ai.google.dev/gemini-api/docs/models/generative-models
-    config = GenerateContentConfig(
-        temperature=temp,  # Controls randomness (0.0-1.0)
-        response_mime_type="application/json",  # JSON output
-        response_schema=SummaryOutput,  # Pydantic model for validation
-        # Optional: Add other parameters
-        # top_p=0.95,  # Nucleus sampling
-        # top_k=40,  # Top-k sampling
-        # max_output_tokens=1024,  # Limit response length
-    )
+        Args:
+            client: Initialized Gemini client
+            temps: List of temperatures for attempts [attempt1, attempt2, attempt3...]
+        """
+        self.client = client
+        self.temps = temps
 
-    # Make the API call with timeout
-    # See: https://ai.google.dev/gemini-api/docs/text-generation
-    response = await asyncio.wait_for(
-        client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",  # Fast, experimental model
-            # model="gemini-1.5-flash",  # Production alternative
-            # model="gemini-1.5-pro",  # More capable, slower
-            contents=f"Please summarize this text:\n\n{text}",
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[SummaryOutput, dict[str, int]]:
+        """
+        Execute Gemini call with temperature based on attempt.
+
+        Args:
+            prompt: The prompt to send
+            attempt: Retry attempt number (1, 2, 3, ...)
+            timeout: Timeout in seconds (enforced by framework)
+
+        Returns:
+            (parsed_output, token_usage_dict)
+        """
+        # Progressive temperature: 0.0 -> 0.25 -> 0.5
+        # Lower temps (0.0) are more deterministic, higher temps (0.5) more creative
+        temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
+
+        # Configure the request
+        config = GenerateContentConfig(
+            temperature=temp,
+            response_mime_type="application/json",
+            response_schema=SummaryOutput,
+        )
+
+        # Make the API call
+        response = await self.client.aio.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=prompt,
             config=config,
-        ),
-        timeout=timeout,
-    )
+        )
 
-    # Parse the response using Pydantic
-    output = SummaryOutput.model_validate_json(response.text)
+        # Parse the response
+        output = SummaryOutput.model_validate_json(response.text)
 
-    # Extract token usage for cost tracking
-    # See: https://ai.google.dev/pricing
-    usage_metadata = response.usage_metadata
-    token_usage = {
-        "input_tokens": usage_metadata.prompt_token_count or 0,
-        "output_tokens": usage_metadata.candidates_token_count or 0,
-        "total_tokens": usage_metadata.total_token_count or 0,
-    }
+        # Extract token usage
+        usage_metadata = response.usage_metadata
+        token_usage = {
+            "input_tokens": usage_metadata.prompt_token_count or 0,
+            "output_tokens": usage_metadata.candidates_token_count or 0,
+            "total_tokens": usage_metadata.total_token_count or 0,
+        }
 
-    return output, token_usage
+        return output, token_usage
 
 
 async def main():
     """
-    Run batch processing with direct Gemini API calls.
+    Run batch processing with Gemini API.
 
-    This demonstrates batch_llm with direct Gemini integration:
-    - No PydanticAI dependency required
-    - Full control over API parameters
-    - Progressive temperature on retries
-    - Parallel processing with concurrency limits
-    - Automatic retry logic with exponential backoff
+    Demonstrates two approaches:
+    1. Built-in GeminiStrategy
+    2. Custom ProgressiveTempGeminiStrategy
     """
 
     # Check for API key
@@ -146,6 +135,9 @@ async def main():
         print("Get your API key from: https://aistudio.google.com/apikey")
         print("Then run: export GOOGLE_API_KEY=your_key_here")
         return
+
+    # Initialize Gemini client
+    client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
     # Sample texts to summarize
     texts = [
@@ -157,38 +149,42 @@ async def main():
         "launching satellites and planning missions to Mars and beyond.",
     ]
 
-    # Configure processor with sensible defaults
-    config = ProcessorConfig(
-        max_workers=3,  # Process 3 texts concurrently (respects rate limits)
-        timeout_per_item=30.0,  # 30 seconds per request
-        # Retry config with progressive temperature
-        # retry=RetryConfig(
-        #     max_attempts=3,
-        #     initial_wait=1.0,
-        #     max_wait=10.0,
-        #     exponential_base=2.0,
-        # ),
+    # Example 1: Using built-in GeminiStrategy (simple, no progressive temperature)
+    print("\n" + "=" * 60)
+    print("Example 1: Built-in GeminiStrategy")
+    print("=" * 60 + "\n")
+
+    def parse_response(response) -> SummaryOutput:
+        """Parse Gemini response into SummaryOutput."""
+        return SummaryOutput.model_validate_json(response.text)
+
+    strategy = GeminiStrategy(
+        model="gemini-2.0-flash-exp",
+        client=client,
+        response_parser=parse_response,
+        config=GenerateContentConfig(
+            temperature=0.7,
+            response_mime_type="application/json",
+            response_schema=SummaryOutput,
+        ),
     )
 
-    processor = ParallelBatchProcessor[str, SummaryOutput, None](config=config)
+    config = ProcessorConfig(max_workers=3, timeout_per_item=30.0)
 
-    # Add work items using direct_call mode
-    for i, text in enumerate(texts):
-        work_item = LLMWorkItem(
-            item_id=f"text_{i}",
-            direct_call=lambda attempt, timeout, text=text: call_gemini_direct(
-                text, attempt, timeout
-            ),
-            input_data=text,  # Store the text for reference
-            context=None,
-        )
-        await processor.add_work(work_item)
+    async with ParallelBatchProcessor[str, SummaryOutput, None](
+        config=config
+    ) as processor:
+        for i, text in enumerate(texts):
+            await processor.add_work(
+                LLMWorkItem(
+                    item_id=f"text_{i}",
+                    strategy=strategy,
+                    prompt=f"Please summarize this text:\n\n{text}",
+                )
+            )
 
-    # Process all items
-    print(f"Processing {len(texts)} texts with direct Gemini API calls...\n")
-    result = await processor.process_all()
+        result = await processor.process_all()
 
-    # Display results
     print(f"✓ Completed: {result.succeeded}/{result.total_items} successful\n")
 
     for item_result in result.results:
@@ -196,15 +192,41 @@ async def main():
             print(f"Item {item_result.item_id}:")
             print(f"  Summary: {item_result.output.summary}")
             print(f"  Key points: {', '.join(item_result.output.key_points)}")
-            print(
-                f"  Tokens: {item_result.token_usage.get('total_tokens', 0)} total\n"
-            )
+            print(f"  Tokens: {item_result.token_usage.get('total_tokens', 0)} total\n")
         else:
             print(f"Item {item_result.item_id}: FAILED - {item_result.error}\n")
 
-    # Get final stats
-    stats = await processor.get_stats()
-    print(f"\nFinal stats: {stats}")
+    # Example 2: Using custom ProgressiveTempGeminiStrategy
+    print("\n" + "=" * 60)
+    print("Example 2: Progressive Temperature Strategy")
+    print("=" * 60 + "\n")
+
+    progressive_strategy = ProgressiveTempGeminiStrategy(
+        client=client,
+        temps=[0.0, 0.5, 1.0],  # Increase temp on retries
+    )
+
+    async with ParallelBatchProcessor[str, SummaryOutput, None](
+        config=config
+    ) as processor:
+        for i, text in enumerate(texts):
+            await processor.add_work(
+                LLMWorkItem(
+                    item_id=f"progressive_{i}",
+                    strategy=progressive_strategy,
+                    prompt=f"Please summarize this text:\n\n{text}",
+                )
+            )
+
+        result = await processor.process_all()
+
+    print(f"✓ Completed: {result.succeeded}/{result.total_items} successful\n")
+
+    for item_result in result.results:
+        if item_result.success and item_result.output:
+            print(f"Item {item_result.item_id}:")
+            print(f"  Summary: {item_result.output.summary}")
+            print(f"  Tokens: {item_result.token_usage.get('total_tokens', 0)} total\n")
 
 
 if __name__ == "__main__":

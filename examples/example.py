@@ -96,12 +96,14 @@ async def example_simple():
     logging.info("EXAMPLE 1: Simple Batch Processing (New API)")
     logging.info("=" * 80)
 
-    # Create agent
+    # Create agent and wrap in strategy
     agent = Agent(
         "gemini-2.0-flash",
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
+    from batch_llm import PydanticAIStrategy
+    strategy = PydanticAIStrategy(agent=agent)
 
     # Create processor with new configuration system
     config = ProcessorConfig(
@@ -126,7 +128,7 @@ async def example_simple():
     for book_id, prompt in books:
         work_item = LLMWorkItem(
             item_id=book_id,
-            agent=agent,
+            strategy=strategy,
             prompt=prompt,
             context=None,
         )
@@ -159,12 +161,14 @@ async def example_with_context_and_postprocessor():
     logging.info("EXAMPLE 2: With Context, Middleware, and Observers")
     logging.info("=" * 80)
 
-    # Create agent
+    # Create agent and wrap in strategy
     agent = Agent(
         "gemini-2.0-flash",
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
+    from batch_llm import PydanticAIStrategy
+    strategy = PydanticAIStrategy(agent=agent)
 
     # Create configuration with custom retry settings
     config = ProcessorConfig(
@@ -216,7 +220,7 @@ async def example_with_context_and_postprocessor():
         )
         work_item = LLMWorkItem(
             item_id=book["work_key"],
-            agent=agent,
+            strategy=strategy,
             prompt=book["prompt"],
             context=context,
         )
@@ -250,12 +254,14 @@ async def example_error_handling():
     logging.info("EXAMPLE 3: Error Handling with Custom Configuration")
     logging.info("=" * 80)
 
-    # Create agent
+    # Create agent and wrap in strategy
     agent = Agent(
         "gemini-2.0-flash",
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
+    from batch_llm import PydanticAIStrategy
+    strategy = PydanticAIStrategy(agent=agent)
 
     # Create processor with custom rate limit configuration
     config = ProcessorConfig(
@@ -279,7 +285,7 @@ async def example_error_handling():
     for i in range(5):
         work_item = LLMWorkItem(
             item_id=f"book_{i}",
-            agent=agent,
+            strategy=strategy,
             prompt=f"Summarize a book (this will likely timeout)",
             context=None,
         )
@@ -333,6 +339,8 @@ async def example_testing_with_mocks():
         # Note: rate_limit_on_call is disabled for this simple example
         # You can enable it by setting rate_limit_on_call=3
     )
+    from batch_llm import PydanticAIStrategy
+    strategy = PydanticAIStrategy(agent=mock_agent)
 
     # Create processor with fast configuration for testing
     config = ProcessorConfig(
@@ -359,7 +367,7 @@ async def example_testing_with_mocks():
     for book_id in books:
         work_item = LLMWorkItem(
             item_id=book_id,
-            agent=mock_agent,
+            strategy=strategy,
             prompt=f"Summarize {book_id}",
             context=None,
         )
