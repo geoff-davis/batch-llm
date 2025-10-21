@@ -4,6 +4,7 @@ This module provides strategy classes that encapsulate how LLM calls are made,
 including caching, model selection, and retry behavior.
 """
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -27,6 +28,9 @@ else:
         from pydantic_ai import Agent
     except ImportError:
         Agent = Any  # type: ignore[misc,assignment]
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 TOutput = TypeVar("TOutput")
 
@@ -269,9 +273,12 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
         if self._cache:
             try:
                 await self.client.aio.caches.delete(name=self._cache.name)
-            except Exception:
-                # Cache might already be expired/deleted - ignore errors
-                pass
+            except Exception as e:
+                # Cache might already be expired/deleted - log but don't fail
+                logger.warning(
+                    f"Failed to delete Gemini cache '{self._cache.name}': {e}. "
+                    "Cache may have already expired or been deleted."
+                )
 
 
 class PydanticAIStrategy(LLMCallStrategy[TOutput]):
