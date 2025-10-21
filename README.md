@@ -124,28 +124,40 @@ config = ProcessorConfig(
 
 ### 🚦 Rate Limiting
 
+Automatic rate limit detection with coordinated cooldown across all workers:
+
 ```python
 from batch_llm.core import RateLimitConfig
 
 config = ProcessorConfig(
     rate_limit=RateLimitConfig(
-        requests_per_minute=60,
-        strategy="exponential_backoff",  # or "fixed_delay"
+        cooldown_seconds=60.0,        # Initial cooldown after 429 error
+        backoff_multiplier=2.0,       # Double cooldown on repeated limits
+        slow_start_items=50,          # Gradual ramp-up over 50 items
+        slow_start_initial_delay=2.0, # Start with 2s between items
+        slow_start_final_delay=0.1,   # End with 0.1s between items
     ),
 )
 ```
+
+When any worker hits a rate limit (429 error), **all workers pause** during cooldown, then gradually resume with slow start to prevent immediate re-limiting.
 
 ### 🔌 Middleware & Observers
 
 Extend functionality with middleware and observers:
 
 ```python
-from batch_llm.middleware import LoggingMiddleware
-from batch_llm.observers import MetricsObserver
+from batch_llm import BaseMiddleware, MetricsObserver
+
+# Create custom middleware by extending BaseMiddleware
+class CustomMiddleware(BaseMiddleware):
+    async def before_process(self, work_item):
+        print(f"Processing {work_item.item_id}")
+        return work_item
 
 processor = ParallelBatchProcessor(
     config=config,
-    middleware=[LoggingMiddleware()],
+    middlewares=[CustomMiddleware()],
     observers=[MetricsObserver()],
 )
 ```
@@ -603,13 +615,17 @@ pytest
 
 ---
 
-## Roadmap
+## Potential Future Directions
 
-- [ ] Batch API support (50% cost reduction, hours latency)
-- [ ] Streaming support for long-running tasks
-- [ ] Built-in cost tracking and budgeting
-- [ ] Prometheus/StatsD metrics export
-- [ ] CLI for batch processing from files
+These are ideas being considered, not committed features:
+
+- **Cost tracking and budgeting** - Automatic cost calculation per provider/model, budget enforcement, cost estimation before processing
+- **Prometheus/StatsD metrics** - Export metrics for monitoring dashboards (throughput, latency, success rates, token usage)
+- **CLI tool** - Command-line interface for processing files without writing Python code
+- **Streaming support** - Real-time token streaming for long-running tasks (would require significant architectural changes)
+- **Batch API integration** - Support for provider batch APIs (50% cost savings, 24hr latency) - this might be better as a separate tool given the fundamentally different async model
+
+Contributions and feedback welcome!
 
 ---
 
