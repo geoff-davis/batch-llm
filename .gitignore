@@ -148,7 +148,6 @@ Thumbs.db
 
 # uv
 .uv/
-uv.lock
 
 # Internal documentation (development history)
 docs/internal/
