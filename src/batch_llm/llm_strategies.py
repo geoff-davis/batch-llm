@@ -93,6 +93,32 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         """
         pass
 
+    async def dry_run(self, prompt: str) -> tuple[TOutput, dict[str, int]]:
+        """
+        Return mock output for dry-run mode (testing without API calls).
+
+        Override this method to provide realistic mock data for testing.
+        Default implementation returns placeholder values that may not match
+        your output type.
+
+        Args:
+            prompt: The prompt that would have been sent to the LLM
+
+        Returns:
+            Tuple of (mock_output, mock_token_usage)
+
+        Default behavior:
+        - Returns string "[DRY-RUN] Mock output" as output
+        - Returns mock token usage: 100 input, 50 output, 150 total
+        """
+        mock_output: TOutput = f"[DRY-RUN] Mock output for prompt: {prompt[:50]}..."  # type: ignore[assignment]
+        mock_tokens: dict[str, int] = {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+        }
+        return mock_output, mock_tokens
+
 
 class GeminiStrategy(LLMCallStrategy[TOutput]):
     """
@@ -326,3 +352,33 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
         }
 
         return result.output, tokens
+
+    async def dry_run(self, prompt: str) -> tuple[TOutput, dict[str, int]]:
+        """Return mock output based on agent's result_type for dry-run mode."""
+        # Try to create a mock instance of the expected output type
+        try:
+            from pydantic import BaseModel
+
+            result_type = self.agent.result_type  # type: ignore[attr-defined]
+
+            # If result_type is a Pydantic model, try to create an instance
+            if isinstance(result_type, type) and issubclass(result_type, BaseModel):
+                # Use model_construct to create instance without validation
+                # This allows creating instances even with required fields
+                mock_output: TOutput = result_type.model_construct()  # type: ignore[assignment]
+            else:
+                # For non-Pydantic types, use base class default
+                return await super().dry_run(prompt)
+
+        except Exception:
+            # If anything fails, fall back to base class default
+            return await super().dry_run(prompt)
+
+        # Return mock output with realistic token usage
+        mock_tokens: dict[str, int] = {
+            "input_tokens": len(prompt.split()),  # Rough estimate
+            "output_tokens": 50,
+            "total_tokens": len(prompt.split()) + 50,
+        }
+
+        return mock_output, mock_tokens

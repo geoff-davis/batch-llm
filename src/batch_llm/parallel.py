@@ -714,28 +714,11 @@ class ParallelBatchProcessor(
                 raise RuntimeError("Strategy is None in _process_item - this should not happen")
 
             try:
-                # Dry-run mode: skip actual API call
+                # Dry-run mode: use strategy's dry_run method instead of making API call
                 if self.config.dry_run:
                     logger.info(f"[DRY-RUN] Skipping API call for {work_item.item_id}")
-                    await asyncio.sleep(0.1)  # Simulate brief processing
-                    # Return mock output based on result_type
-                    from pydantic import BaseModel
-
-                    output: TOutput
-                    if hasattr(strategy, "agent") and hasattr(strategy.agent, "result_type"):
-                        result_type = strategy.agent.result_type
-                        if isinstance(result_type, type) and issubclass(result_type, BaseModel):
-                            # Create instance with default values
-                            output = result_type()  # type: ignore[assignment]
-                        else:
-                            output = f"[DRY-RUN] Mock output for {work_item.item_id}"  # type: ignore[assignment]
-                    else:
-                        output = f"[DRY-RUN] Mock output for {work_item.item_id}"  # type: ignore[assignment]
-                    token_usage = {
-                        "input_tokens": 100,
-                        "output_tokens": 50,
-                        "total_tokens": 150,
-                    }
+                    # Delegate to strategy's dry_run method for mock output
+                    output, token_usage = await strategy.dry_run(work_item.prompt)
                 else:
                     # Call strategy.execute() with prompt, attempt number, and timeout
                     # Wrap in asyncio.wait_for to enforce timeout at framework level
