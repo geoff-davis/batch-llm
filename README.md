@@ -59,7 +59,7 @@ class Summary(BaseModel):
 
 async def main():
     # Create agent and wrap in strategy
-    agent = Agent("gemini-2.0-flash-exp", result_type=Summary)
+    agent = Agent("gemini-2.5-flash", result_type=Summary)
     strategy = PydanticAIStrategy(agent=agent)
 
     # Configure processor
@@ -178,7 +178,7 @@ class StructuredData(BaseModel):
     email: str = Field(pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
 
 # Agent with structured output
-agent = Agent("gemini-2.0-flash-exp", result_type=StructuredData)
+agent = Agent("gemini-2.5-flash", result_type=StructuredData)
 strategy = PydanticAIStrategy(agent=agent)
 
 # Configure retries with progressive temperature
@@ -305,7 +305,7 @@ cached_content = [
 ]
 
 strategy = GeminiCachedStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.0-flash",
     client=client,
     response_parser=lambda r: r.text,
     cached_content=cached_content,
@@ -477,9 +477,9 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
     """Start with cheapest model, escalate on failure."""
 
     MODELS = [
-        "gemini-2.0-flash-exp",  # Attempt 1: Cheapest/fastest
-        "gemini-1.5-flash",       # Attempt 2: Production fast
-        "gemini-1.5-pro",         # Attempt 3: Most capable
+        "gemini-2.5-flash-lite",  # Attempt 1: Cheapest/fastest
+        "gemini-2.5-flash",       # Attempt 2: Production fast
+        "gemini-2.5-pro",         # Attempt 3: Most capable
     ]
 
     async def execute(self, prompt: str, attempt: int, timeout: float):

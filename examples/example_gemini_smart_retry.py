@@ -40,7 +40,8 @@ class PersonData(BaseModel):
     name: Annotated[str, Field(min_length=2, description="Full name")]
     age: Annotated[int, Field(gt=0, lt=150, description="Age in years")]
     email: Annotated[
-        str, Field(pattern=r"^[\w\.-]+@[\w\.-]+\.\w+$", description="Valid email address")
+        str,
+        Field(pattern=r"^[\w\.-]+@[\w\.-]+\.\w+$", description="Valid email address"),
     ]
     phone: Annotated[
         str, Field(pattern=r"^\+?1?\d{10,14}$", description="Phone number")
@@ -76,7 +77,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[PersonData]):
         )
 
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=config,
         )
@@ -135,7 +136,7 @@ class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
         )
 
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=final_prompt,
             config=config,
         )
@@ -364,7 +365,9 @@ async def example_comparison():
         prog_result = await processor.process_all()
 
     print(f"  Success rate: {prog_result.succeeded}/{prog_result.total_items}")
-    print(f"  Total tokens: {prog_result.total_input_tokens + prog_result.total_output_tokens}\n")
+    print(
+        f"  Total tokens: {prog_result.total_input_tokens + prog_result.total_output_tokens}\n"
+    )
 
     # Test smart retry
     print("Testing Smart Retry Strategy:")
@@ -384,7 +387,9 @@ async def example_comparison():
         smart_result = await processor.process_all()
 
     print(f"  Success rate: {smart_result.succeeded}/{smart_result.total_items}")
-    print(f"  Total tokens: {smart_result.total_input_tokens + smart_result.total_output_tokens}\n")
+    print(
+        f"  Total tokens: {smart_result.total_input_tokens + smart_result.total_output_tokens}\n"
+    )
 
     print("Analysis:")
     print(

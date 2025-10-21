@@ -101,7 +101,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
 
         # Make the API call
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=config,
         )
@@ -159,7 +159,7 @@ async def main():
         return SummaryOutput.model_validate_json(response.text)
 
     strategy = GeminiStrategy(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash",
         client=client,
         response_parser=parse_response,
         config=GenerateContentConfig(

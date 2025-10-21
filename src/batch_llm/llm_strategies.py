@@ -110,7 +110,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
         Initialize Gemini strategy.
 
         Args:
-            model: Model name (e.g., "gemini-2.0-flash-exp")
+            model: Model name (e.g., "gemini-2.5-flash")
             client: Initialized Gemini client
             response_parser: Function to parse response into TOutput
             config: Optional generation config (temperature, etc.)
@@ -180,7 +180,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
         Initialize Gemini cached strategy.
 
         Args:
-            model: Model name (e.g., "gemini-2.0-flash-exp")
+            model: Model name (e.g., "gemini-2.5-flash")
             client: Initialized Gemini client
             response_parser: Function to parse response into TOutput
             cached_content: Content to cache (system instructions, documents)
@@ -253,7 +253,11 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
             "input_tokens": usage.prompt_token_count if usage else 0,
             "output_tokens": usage.candidates_token_count if usage else 0,
             "total_tokens": usage.total_token_count if usage else 0,
-            "cached_input_tokens": usage.cached_content_token_count if usage and hasattr(usage, 'cached_content_token_count') else 0,
+            "cached_input_tokens": (
+                usage.cached_content_token_count
+                if usage and hasattr(usage, "cached_content_token_count")
+                else 0
+            ),
         }
 
         return output, tokens

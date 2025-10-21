@@ -120,14 +120,14 @@ client = genai.Client(api_key="your-api-key")
 
 # Simple Gemini strategy
 strategy = GeminiStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=lambda r: r.text,
 )
 
 # OR cached strategy for RAG
 strategy = GeminiCachedStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=lambda r: r.text,
     cached_content=your_cached_content,

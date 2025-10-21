@@ -401,7 +401,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 
 **Parameters:**
 
-- `model` (str): Model name (e.g., "gemini-2.0-flash-exp")
+- `model` (str): Model name (e.g., "gemini-2.5-flash")
 - `client` (genai.Client): Initialized Gemini client
 - `response_parser` (Callable): Function to parse response into TOutput
 - `config` (GenerateContentConfig | None): Optional generation config (temperature, etc.)
@@ -420,7 +420,7 @@ def parse_response(response) -> str:
     return response.text
 
 strategy = GeminiStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
 )
@@ -486,7 +486,7 @@ cached_content = [
 ]
 
 strategy = GeminiCachedStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=lambda r: r.text,
     cached_content=cached_content,

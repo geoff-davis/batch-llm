@@ -142,7 +142,7 @@ See `examples/example_gemini_direct.py` for complete example.
 from batch_llm import PydanticAIStrategy, LLMWorkItem
 from pydantic_ai import Agent
 
-agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+agent = Agent("gemini-2.0-flash", result_type=Output)
 strategy = PydanticAIStrategy(agent=agent)
 
 work_item = LLMWorkItem(
@@ -554,9 +554,9 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
     """Start with cheapest model, escalate on failure."""
 
     MODELS = [
-        "gemini-2.0-flash-exp",  # Attempt 1: Cheapest
-        "gemini-1.5-flash",       # Attempt 2: Moderate
-        "gemini-1.5-pro",         # Attempt 3: Most capable
+        "gemini-2.5-flash-lite",  # Attempt 1: Cheapest
+        "gemini-2.5-flash",       # Attempt 2: Moderate
+        "gemini-2.5-pro",         # Attempt 3: Most capable
     ]
 
     async def execute(self, prompt: str, attempt: int, timeout: float):
@@ -705,7 +705,7 @@ from pydantic import BaseModel
 class Output(BaseModel):
     result: str
 
-agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+agent = Agent("gemini-2.5-flash", result_type=Output)
 strategy = PydanticAIStrategy(agent=agent)
 config = ProcessorConfig(max_workers=5, timeout_per_item=120.0)
 

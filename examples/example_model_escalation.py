@@ -1,9 +1,9 @@
 """Model escalation strategy: Start cheap, escalate to smarter models on failure.
 
 This example demonstrates a cost-optimization pattern:
-1. Try with fast, cheap model first (gemini-2.0-flash-exp)
-2. If that fails, escalate to better model (gemini-1.5-flash)
-3. If that fails, escalate to most capable model (gemini-1.5-pro)
+1. Try with fast, cheap model first (gemini-2.5-flash-lite)
+2. If that fails, escalate to better model (gemini-2.5-flash)
+3. If that fails, escalate to most capable model (gemini-2.5-pro)
 
 This maximizes cost efficiency while maintaining high success rates.
 
@@ -47,7 +47,9 @@ class Analysis(BaseModel):
 
     summary: Annotated[str, Field(description="Brief summary")]
     key_insights: Annotated[list[str], Field(description="Main insights", min_length=3)]
-    recommendations: Annotated[list[str], Field(description="Actionable recommendations")]
+    recommendations: Annotated[
+        list[str], Field(description="Actionable recommendations")
+    ]
     confidence: Annotated[str, Field(description="High, Medium, or Low")]
 
 
@@ -61,9 +63,9 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
     Start with cheapest model, escalate to better models on failure.
 
     Model progression (cost and capability):
-    1. gemini-2.0-flash-exp (fastest, cheapest, experimental)
-    2. gemini-1.5-flash (production-ready, fast, good quality)
-    3. gemini-1.5-pro (most capable, slower, most expensive)
+    1. gemini-2.5-flash-lite (fastest, cheapest, experimental)
+    2. gemini-2.5-flash (production-ready, fast, good quality)
+    3. gemini-2.5-pro (most capable, slower, most expensive)
 
     This strategy optimizes for cost while maintaining quality:
     - Easy tasks: Succeed on attempt 1 (cheapest)
@@ -73,16 +75,16 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
 
     # Model tiers: [attempt 1, attempt 2, attempt 3]
     MODELS = [
-        "gemini-2.0-flash-exp",  # Attempt 1: Cheapest/fastest
-        "gemini-1.5-flash",       # Attempt 2: Production fast
-        "gemini-1.5-pro",         # Attempt 3: Most capable
+        "gemini-2.5-flash-lite",  # Attempt 1: Cheapest/fastest
+        "gemini-2.5-flash",  # Attempt 2: Production fast
+        "gemini-2.5-pro",  # Attempt 3: Most capable
     ]
 
     # Approximate relative costs (for illustration)
     COSTS = {
-        "gemini-2.0-flash-exp": 1.0,   # Baseline
-        "gemini-1.5-flash": 2.0,        # ~2x more expensive
-        "gemini-1.5-pro": 10.0,         # ~10x more expensive
+        "gemini-2.5-flash-lite": 1.0,  # Baseline
+        "gemini-2.5-flash": 2.0,  # ~2x more expensive
+        "gemini-2.5-pro": 10.0,  # ~10x more expensive
     }
 
     def __init__(self, client: genai.Client, verbose: bool = True):
@@ -148,9 +150,9 @@ class ModelAndTempEscalationStrategy(LLMCallStrategy[Analysis]):
     """
 
     MODELS = [
-        ("gemini-2.0-flash-exp", 0.5),  # Attempt 1: cheap, moderate temp
-        ("gemini-1.5-flash", 0.8),       # Attempt 2: better model, higher temp
-        ("gemini-1.5-pro", 1.0),         # Attempt 3: best model, max temp
+        ("gemini-2.5-flash-lite", 0.5),  # Attempt 1: cheap, moderate temp
+        ("gemini-2.5-flash", 0.8),  # Attempt 2: better model, higher temp
+        ("gemini-2.5-pro", 1.0),  # Attempt 3: best model, max temp
     ]
 
     def __init__(self, client: genai.Client, verbose: bool = True):
@@ -232,9 +234,7 @@ async def example_basic_escalation():
         },
     ]
 
-    async with ParallelBatchProcessor[str, Analysis, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[str, Analysis, None](config=config) as processor:
         for item in prompts:
             # Note: Create new strategy instance per item for cost tracking
             item_strategy = ModelEscalationStrategy(client=client, verbose=True)
@@ -283,7 +283,7 @@ async def example_cost_comparison():
     )
 
     # Strategy 1: Always use best model (expensive but reliable)
-    print("Strategy 1: Always use gemini-1.5-pro (best model)")
+    print("Strategy 1: Always use gemini-2.5-pro (best model)")
 
     class AlwaysProStrategy(LLMCallStrategy[Analysis]):
         def __init__(self, client: genai.Client):
@@ -296,7 +296,7 @@ async def example_cost_comparison():
                 response_schema=Analysis,
             )
             response = await self.client.aio.models.generate_content(
-                model="gemini-1.5-pro",
+                model="gemini-2.5-pro",
                 contents=prompt,
                 config=config,
             )
@@ -348,7 +348,9 @@ async def example_cost_comparison():
     print("Analysis:")
     print(f"  Always-Pro strategy: {always_cost} cost units")
     print(f"  Escalation strategy: ~{escalation_cost} cost units")
-    print(f"  Potential savings: ~{((always_cost - escalation_cost) / always_cost * 100):.0f}%")
+    print(
+        f"  Potential savings: ~{((always_cost - escalation_cost) / always_cost * 100):.0f}%"
+    )
     print("\n  Note: Actual savings depend on task difficulty distribution.")
     print("  Easy tasks = more savings. Hard tasks = less savings.")
 
@@ -374,9 +376,7 @@ async def example_model_and_temp():
     Retention is strong but acquisition cost tripled. Investors are concerned.
     """
 
-    async with ParallelBatchProcessor[str, Analysis, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[str, Analysis, None](config=config) as processor:
         await processor.add_work(
             LLMWorkItem(
                 item_id="nuanced_analysis",
@@ -416,7 +416,8 @@ async def main():
     print("\n" + "=" * 70)
     print("Key Takeaways")
     print("=" * 70)
-    print("""
+    print(
+        """
 1. Model escalation optimizes cost/quality tradeoff
 2. Most tasks succeed on cheaper models (attempt 1)
 3. Only difficult tasks escalate to expensive models
@@ -428,7 +429,8 @@ This pattern is perfect for:
 - Mixed difficulty content
 - Scenarios where cheaper models often suffice
 - Maximizing quality while minimizing cost
-    """)
+    """
+    )
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ async def example_pydantic_ai_strategy():
 
     # Create a PydanticAI agent
     agent = Agent(
-        "gemini-2.0-flash-exp",
+        "gemini-2.5-flash",
         result_type=SummaryOutput,
         system_prompt="You are a helpful assistant that summarizes text.",
     )
@@ -98,7 +98,7 @@ async def example_gemini_strategy():
 
     # Create the strategy
     strategy = GeminiStrategy(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash",
         client=client,
         response_parser=parse_response,
         config=genai.types.GenerateContentConfig(temperature=0.7),
@@ -181,7 +181,7 @@ async def example_gemini_cached_strategy():
 
     # Create the cached strategy
     strategy = GeminiCachedStrategy(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash",
         client=client,
         response_parser=parse_response,
         cached_content=cached_content,

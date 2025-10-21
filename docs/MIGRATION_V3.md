@@ -31,7 +31,7 @@ from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
 from pydantic_ai import Agent
 
 # Old way - passing agent directly
-agent = Agent("gemini-2.0-flash-exp", result_type=MyOutput)
+agent = Agent("gemini-2.5-flash", result_type=MyOutput)
 
 work_item = LLMWorkItem(
     item_id="item_1",
@@ -52,7 +52,7 @@ from batch_llm import (
 from pydantic_ai import Agent
 
 # New way - wrap agent in strategy
-agent = Agent("gemini-2.0-flash-exp", result_type=MyOutput)
+agent = Agent("gemini-2.5-flash", result_type=MyOutput)
 strategy = PydanticAIStrategy(agent=agent)  # ✅ Wrap in strategy
 
 work_item = LLMWorkItem(
@@ -103,7 +103,7 @@ def parse_response(response) -> str:
 
 # New way - use GeminiStrategy
 strategy = GeminiStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
     config=genai.types.GenerateContentConfig(temperature=0.7),
@@ -165,7 +165,7 @@ def parse_response(response) -> str:
 
 # New way - use GeminiCachedStrategy
 strategy = GeminiCachedStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
     cached_content=cached_content,
@@ -206,7 +206,7 @@ class Output(BaseModel):
 
 async def main():
     # Create agent
-    agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+    agent = Agent("gemini-2.5-flash", result_type=Output)
 
     # Configure processor
     config = ProcessorConfig(max_workers=5, timeout_per_item=30.0)
@@ -250,7 +250,7 @@ class Output(BaseModel):
 
 async def main():
     # Create agent
-    agent = Agent("gemini-2.0-flash-exp", result_type=Output)
+    agent = Agent("gemini-2.5-flash", result_type=Output)
 
     # Wrap in strategy ✅
     strategy = PydanticAIStrategy(agent=agent)

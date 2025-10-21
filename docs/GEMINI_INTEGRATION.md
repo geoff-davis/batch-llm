@@ -44,7 +44,7 @@ from google import genai
 
 client = genai.Client()
 response = client.models.generate_content(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     contents="Say hello!"
 )
 print(response.text)
@@ -79,7 +79,7 @@ def parse_response(response) -> SummaryOutput:
 
 # Create strategy
 strategy = GeminiStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
     config=genai.types.GenerateContentConfig(
@@ -139,7 +139,7 @@ def parse_response(response) -> str:
 
 # Create cached strategy
 strategy = GeminiCachedStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
     cached_content=cached_content,
@@ -203,7 +203,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
         )
 
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=config,
         )
@@ -236,13 +236,13 @@ strategy = ProgressiveTempGeminiStrategy(client=client, temps=[0.0, 0.5, 1.0])
 model="gemini-2.0-flash-exp"
 
 # Production-ready, fast
-model="gemini-1.5-flash"
+model="gemini-2.5-flash-lite"
 
 # Most capable, slower
-model="gemini-1.5-pro"
+model="gemini-2.5-flash"
 
 # With extended thinking
-model="gemini-2.0-flash-thinking-exp"
+model="gemini-2.5-pro"
 ```
 
 See: <https://ai.google.dev/gemini-api/docs/models/gemini>
@@ -366,7 +366,7 @@ class GeminiVisionStrategy(LLMCallStrategy[str]):
         ]
 
         response = await self.client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=contents,
         )
 
@@ -424,7 +424,7 @@ uv run python examples/example_gemini_direct.py
 from batch_llm import PydanticAIStrategy
 from pydantic_ai import Agent
 
-agent = Agent('gemini-2.0-flash-exp', result_type=SummaryOutput)
+agent = Agent('gemini-2.5-flash', result_type=SummaryOutput)
 strategy = PydanticAIStrategy(agent=agent)
 
 work_item = LLMWorkItem(
@@ -443,7 +443,7 @@ work_item = LLMWorkItem(
 from batch_llm.llm_strategies import GeminiStrategy
 
 strategy = GeminiStrategy(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.5-flash",
     client=client,
     response_parser=parse_response,
     config=config,  # Full control
