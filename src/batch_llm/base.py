@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar  # noqa: F401
+from typing import TYPE_CHECKING, Any, Generic, TypedDict, TypeVar  # noqa: F401
 
 # Conditional imports for type checking
 if TYPE_CHECKING:
@@ -25,6 +25,26 @@ WORKER_CANCELLATION_TIMEOUT = 2.0  # Time to wait for workers to cancel graceful
 WORKER_SHUTDOWN_TIMEOUT = 30.0  # Time to wait for workers to finish after queue is done
 POST_PROCESSOR_EXECUTION_TIMEOUT = 75.0  # Maximum time for post-processor to execute
 PROGRESS_TASK_CANCELLATION_TIMEOUT = 2.0  # Time to wait for progress callbacks to cancel
+
+
+class TokenUsage(TypedDict, total=False):
+    """
+    Token usage statistics from LLM API calls.
+
+    All fields are optional to accommodate different provider APIs.
+    Different providers may return different subsets of these fields.
+
+    Fields:
+        input_tokens: Number of tokens in the input/prompt
+        output_tokens: Number of tokens in the output/completion
+        total_tokens: Total tokens used (input + output)
+        cached_input_tokens: Number of input tokens served from cache (Gemini)
+    """
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cached_input_tokens: int
 
 
 @dataclass
@@ -78,7 +98,7 @@ class WorkItemResult(Generic[TOutput, TContext]):
     output: TOutput | None = None
     error: str | None = None
     context: TContext | None = None
-    token_usage: dict[str, int] = field(default_factory=dict)
+    token_usage: TokenUsage = field(default_factory=dict)  # type: ignore[assignment]
     gemini_safety_ratings: dict[str, str] | None = None
 
 

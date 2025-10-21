@@ -294,7 +294,7 @@ class ParallelBatchProcessor(
                         success=False,
                         error=f"{type(e).__name__}: {str(e)[:200]}",
                         context=work_item.context,
-                        token_usage=failed_tokens,
+                        token_usage=failed_tokens,  # type: ignore[arg-type]
                     )
                 # Fall through to store result and call task_done()
 
@@ -890,7 +890,7 @@ class ParallelBatchProcessor(
             success=False,
             error=f"{error_name}: {error_msg[:500]}",
             context=work_item.context,
-            token_usage=failed_token_usage,
+            token_usage=failed_token_usage,  # type: ignore[arg-type]
         )
 
     def _log_retryable_error(

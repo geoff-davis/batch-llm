@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from .base import TokenUsage
+
 # Conditional imports for optional dependencies
 if TYPE_CHECKING:
     from google import genai
@@ -64,7 +66,7 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     @abstractmethod
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]:
+    ) -> tuple[TOutput, TokenUsage]:
         """
         Execute an LLM call for the given attempt.
 
@@ -75,7 +77,8 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
 
         Returns:
             Tuple of (output, token_usage)
-            where token_usage is a dict with keys: input_tokens, output_tokens, total_tokens
+            where token_usage is a TokenUsage dict with optional keys:
+            input_tokens, output_tokens, total_tokens, cached_input_tokens
 
         Raises:
             Any exception to trigger retry (if retryable) or failure
@@ -93,7 +96,7 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         """
         pass
 
-    async def dry_run(self, prompt: str) -> tuple[TOutput, dict[str, int]]:
+    async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]:
         """
         Return mock output for dry-run mode (testing without API calls).
 
@@ -112,7 +115,7 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         - Returns mock token usage: 100 input, 50 output, 150 total
         """
         mock_output: TOutput = f"[DRY-RUN] Mock output for prompt: {prompt[:50]}..."  # type: ignore[assignment]
-        mock_tokens: dict[str, int] = {
+        mock_tokens: TokenUsage = {
             "input_tokens": 100,
             "output_tokens": 50,
             "total_tokens": 150,
@@ -157,7 +160,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]:
+    ) -> tuple[TOutput, TokenUsage]:
         """Execute Gemini API call.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -175,7 +178,7 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 
         # Extract token usage
         usage = response.usage_metadata
-        tokens: dict[str, int] = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_token_count or 0 if usage else 0,
             "output_tokens": usage.candidates_token_count or 0 if usage else 0,
             "total_tokens": usage.total_token_count or 0 if usage else 0,
@@ -246,7 +249,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]:
+    ) -> tuple[TOutput, TokenUsage]:
         """Execute Gemini API call with cache, refreshing TTL if needed.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -281,7 +284,7 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 
         # Extract token usage (cached tokens counted separately)
         usage = response.usage_metadata
-        tokens: dict[str, int] = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_token_count or 0 if usage else 0,
             "output_tokens": usage.candidates_token_count or 0 if usage else 0,
             "total_tokens": usage.total_token_count or 0 if usage else 0,
@@ -335,7 +338,7 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]:
+    ) -> tuple[TOutput, TokenUsage]:
         """Execute PydanticAI agent call.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -345,7 +348,7 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
 
         # Extract token usage
         usage = result.usage()
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.request_tokens if usage else 0,
             "output_tokens": usage.response_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0,
@@ -353,7 +356,7 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
 
         return result.output, tokens
 
-    async def dry_run(self, prompt: str) -> tuple[TOutput, dict[str, int]]:
+    async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]:
         """Return mock output based on agent's result_type for dry-run mode."""
         # Try to create a mock instance of the expected output type
         try:
@@ -375,7 +378,7 @@ class PydanticAIStrategy(LLMCallStrategy[TOutput]):
             return await super().dry_run(prompt)
 
         # Return mock output with realistic token usage
-        mock_tokens: dict[str, int] = {
+        mock_tokens: TokenUsage = {
             "input_tokens": len(prompt.split()),  # Rough estimate
             "output_tokens": 50,
             "total_tokens": len(prompt.split()) + 50,
