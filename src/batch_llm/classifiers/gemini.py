@@ -2,9 +2,21 @@
 
 from ..strategies.errors import ErrorClassifier, ErrorInfo
 
+# Error pattern constants
+RATE_LIMIT_PATTERNS = ("429", "resource_exhausted", "quota", "rate limit")
+TIMEOUT_PATTERNS = ("timeout", "504", "deadline")
+
+# Default wait time for rate limit errors (seconds)
+DEFAULT_RATE_LIMIT_WAIT = 300.0  # 5 minutes
+
 
 class GeminiErrorClassifier(ErrorClassifier):
     """Google Gemini-specific error classification."""
+
+    def _matches_any_pattern(self, error_str: str, patterns: tuple[str, ...]) -> bool:
+        """Check if error string matches any of the given patterns (case-insensitive)."""
+        error_lower = error_str.lower()
+        return any(pattern in error_lower for pattern in patterns)
 
     def classify(self, exception: Exception) -> ErrorInfo:
         """Classify Gemini-specific errors."""
@@ -20,24 +32,19 @@ class GeminiErrorClassifier(ErrorClassifier):
             )
 
         if isinstance(exception, ClientError):
-            error_str = str(exception).lower()
-            is_rate_limit = (
-                "429" in error_str
-                or "resource_exhausted" in error_str
-                or "quota" in error_str
-                or "rate limit" in error_str
-            )
+            error_str = str(exception)
+            is_rate_limit = self._matches_any_pattern(error_str, RATE_LIMIT_PATTERNS)
             return ErrorInfo(
                 is_retryable=not is_rate_limit,  # Don't retry rate limits with tenacity
                 is_rate_limit=is_rate_limit,
                 is_timeout=False,
                 error_category="rate_limit" if is_rate_limit else "client_error",
-                suggested_wait=300.0 if is_rate_limit else None,  # 5 min default
+                suggested_wait=DEFAULT_RATE_LIMIT_WAIT if is_rate_limit else None,
             )
 
         if isinstance(exception, ServerError):
-            error_str = str(exception).lower()
-            is_timeout = "504" in error_str or "deadline" in error_str
+            error_str = str(exception)
+            is_timeout = self._matches_any_pattern(error_str, TIMEOUT_PATTERNS)
             return ErrorInfo(
                 is_retryable=is_timeout,  # Only retry server timeouts
                 is_rate_limit=False,
@@ -60,20 +67,20 @@ class GeminiErrorClassifier(ErrorClassifier):
             pass
 
         # Fallback: Check error message for common patterns
-        error_str = str(exception).lower()
+        error_str = str(exception)
 
         # Check if it looks like a rate limit error (for mocks and other providers)
-        if "429" in error_str or "resource_exhausted" in error_str or "rate limit" in error_str:
+        if self._matches_any_pattern(error_str, RATE_LIMIT_PATTERNS):
             return ErrorInfo(
                 is_retryable=False,
                 is_rate_limit=True,
                 is_timeout=False,
                 error_category="rate_limit",
-                suggested_wait=300.0,
+                suggested_wait=DEFAULT_RATE_LIMIT_WAIT,
             )
 
         # Check if it looks like a timeout
-        if "timeout" in error_str or "504" in error_str or "deadline" in error_str:
+        if self._matches_any_pattern(error_str, TIMEOUT_PATTERNS):
             return ErrorInfo(
                 is_retryable=True,
                 is_rate_limit=False,
