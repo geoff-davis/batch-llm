@@ -23,6 +23,7 @@ from .strategies import (
     DefaultErrorClassifier,
     ErrorClassifier,
     ExponentialBackoffStrategy,
+    FrameworkTimeoutError,
     RateLimitStrategy,
 )
 
@@ -736,13 +737,17 @@ class ParallelBatchProcessor(
                         ),
                         timeout=self.config.timeout_per_item,
                     )
-            except (TimeoutError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.TimeoutError) as timeout_exc:
                 elapsed = time.time() - llm_start_time
                 logger.error(
-                    f"⏱ LLM TIMEOUT for {work_item.item_id} after {elapsed:.1f}s "
-                    f"(limit: {self.config.timeout_per_item}s, attempt {attempt_number})"
+                    f"⏱ FRAMEWORK TIMEOUT for {work_item.item_id} after {elapsed:.1f}s "
+                    f"(limit: {self.config.timeout_per_item}s, attempt {attempt_number}). "
+                    f"Consider increasing config.timeout_per_item if this error persists."
                 )
-                raise
+                # Wrap in FrameworkTimeoutError to differentiate from API timeouts
+                raise FrameworkTimeoutError(
+                    f"Framework timeout after {elapsed:.1f}s (limit: {self.config.timeout_per_item}s)"
+                ) from timeout_exc
 
             llm_duration = time.time() - llm_start_time
             logger.debug(

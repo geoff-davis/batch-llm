@@ -68,6 +68,7 @@ from .strategies import (
     ErrorInfo,
     ExponentialBackoffStrategy,
     FixedDelayStrategy,
+    FrameworkTimeoutError,
     RateLimitStrategy,
 )
 
@@ -94,6 +95,7 @@ __all__ = [
     "ErrorClassifier",
     "ErrorInfo",
     "DefaultErrorClassifier",
+    "FrameworkTimeoutError",
     "RateLimitStrategy",
     "ExponentialBackoffStrategy",
     "FixedDelayStrategy",

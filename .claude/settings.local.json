@@ -6,7 +6,8 @@
       "Bash(uv run:*)",
       "Bash(markdownlint-cli2:*)",
       "Bash(make:*)",
-      "Bash(python3 -m mypy:*)"
+      "Bash(python3 -m mypy:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

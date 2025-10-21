@@ -1,6 +1,6 @@
 """Google Gemini-specific error classification."""
 
-from ..strategies.errors import ErrorClassifier, ErrorInfo
+from ..strategies.errors import ErrorClassifier, ErrorInfo, FrameworkTimeoutError
 
 # Error pattern constants
 RATE_LIMIT_PATTERNS = ("429", "resource_exhausted", "quota", "rate limit")
@@ -20,6 +20,15 @@ class GeminiErrorClassifier(ErrorClassifier):
 
     def classify(self, exception: Exception) -> ErrorInfo:
         """Classify Gemini-specific errors."""
+        # Check for framework timeout first (highest priority)
+        if isinstance(exception, FrameworkTimeoutError):
+            return ErrorInfo(
+                is_retryable=True,  # Retry - might succeed if LLM is faster
+                is_rate_limit=False,
+                is_timeout=True,
+                error_category="framework_timeout",
+            )
+
         try:
             from google.genai.errors import ClientError, ServerError
         except ImportError:
