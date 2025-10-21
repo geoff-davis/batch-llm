@@ -1,6 +1,9 @@
 """Configuration management for batch processor."""
 
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -123,5 +126,37 @@ class ProcessorConfig:
                 f"Set config.max_queue_size to 0 for unlimited, or a positive number to limit queue size."
             )
 
+        # Validate nested configs first
         self.retry.validate()
         self.rate_limit.validate()
+
+        # Cross-field validations
+        if self.max_queue_size > 0 and self.max_queue_size < self.max_workers:
+            logger.warning(
+                f"max_queue_size ({self.max_queue_size}) is less than max_workers ({self.max_workers}). "
+                f"This may cause workers to starve waiting for work. "
+                f"Consider setting max_queue_size >= max_workers or 0 for unlimited."
+            )
+
+        if self.timeout_per_item < self.retry.initial_wait:
+            logger.warning(
+                f"timeout_per_item ({self.timeout_per_item}s) is less than retry.initial_wait ({self.retry.initial_wait}s). "
+                f"This means the timeout may occur before the first retry delay completes. "
+                f"Consider increasing timeout_per_item or decreasing retry.initial_wait."
+            )
+
+        # Calculate maximum possible retry wait time
+        max_total_retry_wait = 0.0
+        for attempt in range(self.retry.max_attempts - 1):  # -1 because first attempt has no wait
+            wait_time = min(
+                self.retry.initial_wait * (self.retry.exponential_base**attempt),
+                self.retry.max_wait,
+            )
+            max_total_retry_wait += wait_time
+
+        if max_total_retry_wait > 0 and self.timeout_per_item < max_total_retry_wait * 0.5:
+            logger.warning(
+                f"timeout_per_item ({self.timeout_per_item}s) may be too short for retry strategy. "
+                f"With {self.retry.max_attempts} attempts, retry delays could total up to {max_total_retry_wait:.1f}s. "
+                f"Consider increasing timeout_per_item to at least {max_total_retry_wait * 2:.1f}s."
+            )
