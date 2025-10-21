@@ -147,9 +147,7 @@ async def test_metrics_observer():
     metrics = MetricsObserver()
 
     config = ProcessorConfig(max_workers=2, timeout_per_item=10.0)
-    processor = ParallelBatchProcessor[str, BookSummary, None](
-        config=config, observers=[metrics]
-    )
+    processor = ParallelBatchProcessor[str, BookSummary, None](config=config, observers=[metrics])
 
     # Add 5 items
     for i in range(5):
@@ -196,4 +194,7 @@ async def test_timeout_handling():
     # Should timeout
     assert result.failed == 1
     assert result.succeeded == 0
-    assert "timeout" in result.results[0].error.lower() or "cancelled" in result.results[0].error.lower()
+    assert (
+        "timeout" in result.results[0].error.lower()
+        or "cancelled" in result.results[0].error.lower()
+    )

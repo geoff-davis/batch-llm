@@ -81,10 +81,7 @@ async def test_middleware_after_process():
             # Could modify result here if needed
             return result
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -120,10 +117,7 @@ async def test_middleware_can_skip_items():
                 return None  # Skip this item
             return work_item
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -159,10 +153,7 @@ async def test_middleware_on_error():
 
     class ErrorHandlingMiddleware(BaseMiddleware):
         async def on_error(self, work_item, error):
-            errors_handled.append({
-                "item_id": work_item.item_id,
-                "error": str(error)
-            })
+            errors_handled.append({"item_id": work_item.item_id, "error": str(error)})
             # Return None to let default error handling proceed
             return None
 
@@ -216,10 +207,7 @@ async def test_multiple_middlewares_execute_in_order():
             execution_order.append("second_after")
             return result
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -255,15 +243,9 @@ async def test_observer_receives_all_events():
 
     class TrackingObserver(BaseObserver):
         async def on_event(self, event: ProcessingEvent, data: dict[str, Any]):
-            events_received.append({
-                "event": event.name,
-                "data": data.copy()
-            })
+            events_received.append({"event": event.name, "data": data.copy()})
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -308,6 +290,7 @@ async def test_observer_receives_failure_events():
     class NonRetryableClassifier:
         def classify(self, exception):
             from batch_llm.strategies import ErrorInfo
+
             return ErrorInfo(
                 is_retryable=False,
                 is_rate_limit=False,
@@ -354,10 +337,7 @@ async def test_multiple_observers_all_receive_events():
         async def on_event(self, event: ProcessingEvent, data: dict[str, Any]):
             observer2_events.append(event.name)
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -391,10 +371,7 @@ async def test_observer_timeout_doesnt_break_processing():
             # Sleep longer than observer timeout (5s)
             await asyncio.sleep(10.0)
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -436,10 +413,7 @@ async def test_middleware_and_observers_work_together():
         async def on_event(self, event: ProcessingEvent, data: dict[str, Any]):
             observer_events.append(event.name)
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -482,10 +456,7 @@ async def test_middleware_returns_none_original_item_id_preserved():
         async def after_process(self, result):
             return result
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](

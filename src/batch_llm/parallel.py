@@ -85,9 +85,7 @@ class ParallelBatchProcessor(
             config = ProcessorConfig(
                 max_workers=max_workers or 5,
                 timeout_per_item=timeout_per_item or 120.0,
-                rate_limit=RateLimitConfig(
-                    cooldown_seconds=rate_limit_cooldown or 300.0
-                ),
+                rate_limit=RateLimitConfig(cooldown_seconds=rate_limit_cooldown or 300.0),
             )
         else:
             # Override config with explicit parameters if provided
@@ -153,9 +151,7 @@ class ParallelBatchProcessor(
         async with self._stats_lock:
             return self._stats.copy()
 
-    async def _emit_event(
-        self, event: ProcessingEvent, data: dict | None = None
-    ) -> None:
+    async def _emit_event(self, event: ProcessingEvent, data: dict | None = None) -> None:
         """Emit event to all observers."""
         if not self.observers:
             return
@@ -165,12 +161,10 @@ class ParallelBatchProcessor(
             try:
                 await asyncio.wait_for(
                     observer.on_event(event, event_data),
-                    timeout=5.0  # 5 second timeout for observer callbacks
+                    timeout=5.0,  # 5 second timeout for observer callbacks
                 )
             except TimeoutError:
-                logger.warning(
-                    f"⚠️  Observer callback timed out after 5s for event {event.name}"
-                )
+                logger.warning(f"⚠️  Observer callback timed out after 5s for event {event.name}")
             except Exception as e:
                 logger.warning(f"⚠️  Observer error: {e}")
 
@@ -186,9 +180,7 @@ class ParallelBatchProcessor(
                     return None  # Skip this item
                 current_item = result
             except Exception as e:
-                logger.warning(
-                    f"⚠️  Middleware before_process error for {work_item.item_id}: {e}"
-                )
+                logger.warning(f"⚠️  Middleware before_process error for {work_item.item_id}: {e}")
         return current_item
 
     async def _run_middlewares_after(
@@ -201,9 +193,7 @@ class ParallelBatchProcessor(
             try:
                 current_result = await middleware.after_process(current_result)
             except Exception as e:
-                logger.warning(
-                    f"⚠️  Middleware after_process error for {result.item_id}: {e}"
-                )
+                logger.warning(f"⚠️  Middleware after_process error for {result.item_id}: {e}")
         return current_result
 
     async def _run_middlewares_on_error(
@@ -216,9 +206,7 @@ class ParallelBatchProcessor(
                 if result is not None:
                     return result  # Middleware handled the error
             except Exception as e:
-                logger.warning(
-                    f"⚠️  Middleware on_error error for {work_item.item_id}: {e}"
-                )
+                logger.warning(f"⚠️  Middleware on_error error for {work_item.item_id}: {e}")
         return None
 
     async def _worker(self, worker_id: int):
@@ -236,9 +224,7 @@ class ParallelBatchProcessor(
             if work_item is None:  # Sentinel value
                 self._queue.task_done()
                 logger.info(f"✓ Worker {worker_id} finished (no more work)")
-                await self._emit_event(
-                    ProcessingEvent.WORKER_STOPPED, {"worker_id": worker_id}
-                )
+                await self._emit_event(ProcessingEvent.WORKER_STOPPED, {"worker_id": worker_id})
                 return
 
             logger.info(f"ℹ️  [Worker {worker_id}] Picked up {work_item.item_id} from queue")
@@ -252,10 +238,8 @@ class ParallelBatchProcessor(
 
             async with self._rate_limit_lock:
                 if self._slow_start_active:
-                    should_delay, delay = (
-                        self.rate_limit_strategy.should_apply_slow_start(
-                            self._items_since_resume
-                        )
+                    should_delay, delay = self.rate_limit_strategy.should_apply_slow_start(
+                        self._items_since_resume
                     )
                     if should_delay:
                         self._items_since_resume += 1
@@ -280,12 +264,14 @@ class ParallelBatchProcessor(
 
                 # Extract token usage from exception if available
                 failed_tokens = {}
-                if hasattr(e, '__dict__') and '_failed_token_usage' in e.__dict__:
-                    failed_tokens = e.__dict__['_failed_token_usage']
+                if hasattr(e, "__dict__") and "_failed_token_usage" in e.__dict__:
+                    failed_tokens = e.__dict__["_failed_token_usage"]
 
                 token_msg = ""
                 if failed_tokens.get("total_tokens", 0) > 0:
-                    token_msg = f" (consumed {failed_tokens['total_tokens']} tokens across all attempts)"
+                    token_msg = (
+                        f" (consumed {failed_tokens['total_tokens']} tokens across all attempts)"
+                    )
 
                 logger.error(
                     f"✗ Worker {worker_id} failed to process {work_item.item_id} after all retries: "
@@ -333,10 +319,15 @@ class ParallelBatchProcessor(
                     self._stats.total_input_tokens += result.token_usage.get("input_tokens", 0)
                     self._stats.total_output_tokens += result.token_usage.get("output_tokens", 0)
                     self._stats.total_tokens += result.token_usage.get("total_tokens", 0)
-                    self._stats.cached_input_tokens += result.token_usage.get("cached_input_tokens", 0)
+                    self._stats.cached_input_tokens += result.token_usage.get(
+                        "cached_input_tokens", 0
+                    )
 
                 # Check if we should call progress callback (based on progress_interval)
-                if self.progress_callback and self._stats.processed % self.config.progress_interval == 0:
+                if (
+                    self.progress_callback
+                    and self._stats.processed % self.config.progress_interval == 0
+                ):
                     should_call_progress = True
                     completed = self._stats.processed
                     total = self._stats.total
@@ -351,19 +342,17 @@ class ParallelBatchProcessor(
             # Most post-processors return early for failures, but some may want to
             # save failed items (e.g., dedupe_authors saves failed clusters as singletons)
             try:
-                await asyncio.wait_for(
-                    self._run_post_processor(result), timeout=90.0
-                )
+                await asyncio.wait_for(self._run_post_processor(result), timeout=90.0)
             except TimeoutError:
-                logger.error(
-                    f"⏱ Post-processor exceeded timeout for {work_item.item_id}"
-                )
+                logger.error(f"⏱ Post-processor exceeded timeout for {work_item.item_id}")
 
             self._queue.task_done()
 
             # Log completion
             status = "✓" if result.success else "✗"
-            logger.info(f"{status} [Worker {worker_id}] Completed {work_item.item_id} ({'success' if result.success else 'failed'})")
+            logger.info(
+                f"{status} [Worker {worker_id}] Completed {work_item.item_id} ({'success' if result.success else 'failed'})"
+            )
 
             # Log progress (thread-safe read of stats)
             async with self._stats_lock:
@@ -378,8 +367,7 @@ class ParallelBatchProcessor(
                 error_breakdown = ""
                 if stats_snapshot["error_counts"]:
                     error_strs = [
-                        f"{err}: {count}"
-                        for err, count in stats_snapshot["error_counts"].items()
+                        f"{err}: {count}" for err, count in stats_snapshot["error_counts"].items()
                     ]
                     error_breakdown = f" | Errors: {', '.join(error_strs)}"
 
@@ -397,7 +385,7 @@ class ParallelBatchProcessor(
 
                 logger.info(
                     f"ℹ️  Progress: {stats_snapshot['processed']}/{stats_snapshot['total']} "
-                    f"({stats_snapshot['processed']/stats_snapshot['total']*100:.1f}%) | "
+                    f"({stats_snapshot['processed'] / stats_snapshot['total'] * 100:.1f}%) | "
                     f"Succeeded: {stats_snapshot['succeeded']}, Failed: {stats_snapshot['failed']}"
                     f"{error_breakdown} | {calls_per_sec:.2f} calls/sec{token_summary}"
                 )
@@ -419,9 +407,7 @@ class ParallelBatchProcessor(
         cooldown_error: Exception | None = None
 
         try:
-            cooldown = await self.rate_limit_strategy.on_rate_limit(
-                worker_id, consecutive
-            )
+            cooldown = await self.rate_limit_strategy.on_rate_limit(worker_id, consecutive)
         except Exception as exc:
             cooldown_error = exc
             cooldown = 0.0
@@ -470,9 +456,7 @@ class ParallelBatchProcessor(
 
         await self._finalize_cooldown(pause_started_at, cooldown_error)
 
-    async def _finalize_cooldown(
-        self, start_time: float, error: Exception | None
-    ) -> None:
+    async def _finalize_cooldown(self, start_time: float, error: Exception | None) -> None:
         """Resume workers after cooldown and emit completion event."""
         actual_duration = max(0.0, time.time() - start_time)
 
@@ -515,34 +499,38 @@ class ParallelBatchProcessor(
         """
         try:
             # Strategy 1: PydanticAI-style exception with result in __cause__
-            if hasattr(exception, '__cause__') and exception.__cause__:
+            if hasattr(exception, "__cause__") and exception.__cause__:
                 cause = exception.__cause__
-                if hasattr(cause, 'result'):
+                if hasattr(cause, "result"):
                     result = cause.result
-                    if hasattr(result, 'usage') and callable(result.usage):
+                    if hasattr(result, "usage") and callable(result.usage):
                         usage = result.usage()
                         if usage:
                             return {
-                                "input_tokens": getattr(usage, 'request_tokens', 0),
-                                "output_tokens": getattr(usage, 'response_tokens', 0),
-                                "total_tokens": getattr(usage, 'total_tokens', 0),
+                                "input_tokens": getattr(usage, "request_tokens", 0),
+                                "output_tokens": getattr(usage, "response_tokens", 0),
+                                "total_tokens": getattr(usage, "total_tokens", 0),
                             }
 
             # Strategy 2: Direct usage attribute on exception
-            if hasattr(exception, 'usage'):
+            if hasattr(exception, "usage"):
                 usage = exception.usage
                 if callable(usage):
                     usage = usage()
                 if usage:
                     return {
-                        "input_tokens": getattr(usage, 'request_tokens', getattr(usage, 'input_tokens', 0)),
-                        "output_tokens": getattr(usage, 'response_tokens', getattr(usage, 'output_tokens', 0)),
-                        "total_tokens": getattr(usage, 'total_tokens', 0),
+                        "input_tokens": getattr(
+                            usage, "request_tokens", getattr(usage, "input_tokens", 0)
+                        ),
+                        "output_tokens": getattr(
+                            usage, "response_tokens", getattr(usage, "output_tokens", 0)
+                        ),
+                        "total_tokens": getattr(usage, "total_tokens", 0),
                     }
 
             # Strategy 3: Custom _failed_token_usage attribute (set by this framework)
-            if hasattr(exception, '__dict__') and '_failed_token_usage' in exception.__dict__:
-                failed_usage = exception.__dict__['_failed_token_usage']
+            if hasattr(exception, "__dict__") and "_failed_token_usage" in exception.__dict__:
+                failed_usage = exception.__dict__["_failed_token_usage"]
                 if isinstance(failed_usage, dict):
                     return failed_usage
 
@@ -555,7 +543,6 @@ class ParallelBatchProcessor(
             "output_tokens": 0,
             "total_tokens": 0,
         }
-
 
     async def _process_item_with_retries(
         self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int
@@ -577,20 +564,28 @@ class ParallelBatchProcessor(
         try:
             for attempt in range(1, self.config.retry.max_attempts + 1):
                 try:
-                    return await self._process_item(work_item, worker_id, attempt_number=attempt, strategy=strategy)
+                    return await self._process_item(
+                        work_item, worker_id, attempt_number=attempt, strategy=strategy
+                    )
                 except Exception as e:
                     # Try to extract token usage from this failed attempt using robust extraction
                     attempt_tokens = self._extract_token_usage(e)
                     if attempt_tokens:
-                        cumulative_failed_tokens["input_tokens"] += attempt_tokens.get("input_tokens", 0)
-                        cumulative_failed_tokens["output_tokens"] += attempt_tokens.get("output_tokens", 0)
-                        cumulative_failed_tokens["total_tokens"] += attempt_tokens.get("total_tokens", 0)
+                        cumulative_failed_tokens["input_tokens"] += attempt_tokens.get(
+                            "input_tokens", 0
+                        )
+                        cumulative_failed_tokens["output_tokens"] += attempt_tokens.get(
+                            "output_tokens", 0
+                        )
+                        cumulative_failed_tokens["total_tokens"] += attempt_tokens.get(
+                            "total_tokens", 0
+                        )
 
                     if not self._should_retry_error(e):
                         logger.debug(f"Error not retryable: {type(e).__name__}")
                         # Attach token usage to exception so it can be included in failed result
-                        if hasattr(e, '__dict__'):
-                            e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
+                        if hasattr(e, "__dict__"):
+                            e.__dict__["_failed_token_usage"] = cumulative_failed_tokens
                         raise
                     if attempt >= self.config.retry.max_attempts:
                         error_msg = str(e)
@@ -603,8 +598,8 @@ class ParallelBatchProcessor(
                             f"  Final error message: {error_msg[:500]}{token_summary}"
                         )
                         # Attach token usage to exception so it can be included in failed result
-                        if hasattr(e, '__dict__'):
-                            e.__dict__['_failed_token_usage'] = cumulative_failed_tokens
+                        if hasattr(e, "__dict__"):
+                            e.__dict__["_failed_token_usage"] = cumulative_failed_tokens
                         raise
 
                     # Classify error to determine if we should delay
@@ -615,11 +610,11 @@ class ParallelBatchProcessor(
                     # PydanticAI wraps validation errors in UnexpectedModelBehavior
                     error_msg_for_check = str(e)
                     is_validation_error = (
-                        'validation' in type(e).__name__.lower()
-                        or 'parse' in type(e).__name__.lower()
-                        or 'unexpectedmodelbehavior' in type(e).__name__.lower()
-                        or 'result validation' in error_msg_for_check.lower()
-                        or error_info.error_category == 'validation_error'
+                        "validation" in type(e).__name__.lower()
+                        or "parse" in type(e).__name__.lower()
+                        or "unexpectedmodelbehavior" in type(e).__name__.lower()
+                        or "result validation" in error_msg_for_check.lower()
+                        or error_info.error_category == "validation_error"
                     )
 
                     if is_validation_error:
@@ -649,7 +644,9 @@ class ParallelBatchProcessor(
                         await asyncio.sleep(wait_time)
 
             # Unreachable - all paths raise or return
-            raise RuntimeError(f"Unexpected: all retry attempts should have raised for {work_item.item_id}")
+            raise RuntimeError(
+                f"Unexpected: all retry attempts should have raised for {work_item.item_id}"
+            )
         finally:
             # Call cleanup() once after all retries complete (success or failure)
             try:
@@ -657,12 +654,18 @@ class ParallelBatchProcessor(
             except Exception as e:
                 logger.warning(f"⚠️  Strategy cleanup() failed for {work_item.item_id}: {e}")
 
-    def _get_strategy(self, work_item: LLMWorkItem[TInput, TOutput, TContext]) -> LLMCallStrategy[TOutput]:
+    def _get_strategy(
+        self, work_item: LLMWorkItem[TInput, TOutput, TContext]
+    ) -> LLMCallStrategy[TOutput]:
         """Get the LLM call strategy for this work item."""
         return work_item.strategy
 
     async def _process_item(  # type: ignore[override]
-        self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int, attempt_number: int = 1, strategy: LLMCallStrategy[TOutput] | None = None
+        self,
+        work_item: LLMWorkItem[TInput, TOutput, TContext],
+        worker_id: int,
+        attempt_number: int = 1,
+        strategy: LLMCallStrategy[TOutput] | None = None,
     ) -> WorkItemResult[TOutput, TContext]:
         """Process a single work item using the provided strategy."""
         start_time = time.time()
@@ -690,8 +693,12 @@ class ParallelBatchProcessor(
 
             # Execute the strategy
             if attempt_number > 1:
-                logger.info(f"ℹ️  [Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id}")
-            logger.debug(f"[STRATEGY] Starting strategy.execute() for {work_item.item_id} (attempt {attempt_number}, timeout={self.config.timeout_per_item}s)")
+                logger.info(
+                    f"ℹ️  [Worker {worker_id}] Retry attempt {attempt_number} for {work_item.item_id}"
+                )
+            logger.debug(
+                f"[STRATEGY] Starting strategy.execute() for {work_item.item_id} (attempt {attempt_number}, timeout={self.config.timeout_per_item}s)"
+            )
             llm_start_time = time.time()
 
             # Ensure strategy is not None (it shouldn't be since we always pass it)
@@ -705,8 +712,9 @@ class ParallelBatchProcessor(
                     await asyncio.sleep(0.1)  # Simulate brief processing
                     # Return mock output based on result_type
                     from pydantic import BaseModel
+
                     output: TOutput
-                    if hasattr(strategy, 'agent') and hasattr(strategy.agent, 'result_type'):
+                    if hasattr(strategy, "agent") and hasattr(strategy.agent, "result_type"):
                         result_type = strategy.agent.result_type
                         if isinstance(result_type, type) and issubclass(result_type, BaseModel):
                             # Create instance with default values
@@ -727,7 +735,7 @@ class ParallelBatchProcessor(
                         strategy.execute(
                             work_item.prompt, attempt_number, self.config.timeout_per_item
                         ),
-                        timeout=self.config.timeout_per_item
+                        timeout=self.config.timeout_per_item,
                     )
             except (TimeoutError, asyncio.TimeoutError):
                 elapsed = time.time() - llm_start_time
@@ -738,16 +746,20 @@ class ParallelBatchProcessor(
                 raise
 
             llm_duration = time.time() - llm_start_time
-            logger.debug(f"[STRATEGY] Completed strategy.execute() for {work_item.item_id} in {llm_duration:.1f}s")
+            logger.debug(
+                f"[STRATEGY] Completed strategy.execute() for {work_item.item_id} in {llm_duration:.1f}s"
+            )
 
             # Log success after previous failures
             if attempt_number > 1:
-                logger.info(f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number-1} failure(s), took {llm_duration:.1f}s)")
+                logger.info(
+                    f"✓ SUCCESS on attempt {attempt_number} for {work_item.item_id} (after {attempt_number - 1} failure(s), took {llm_duration:.1f}s)"
+                )
 
             # Log first few results for debugging
             if self._stats.succeeded < 3:
                 logger.info(
-                    f"ℹ️  \n{'='*80}\nRESULT for {work_item.item_id}:\n{'='*80}\n{output}\n{'='*80}"
+                    f"ℹ️  \n{'=' * 80}\nRESULT for {work_item.item_id}:\n{'=' * 80}\n{output}\n{'=' * 80}"
                 )
 
             # Create result
@@ -829,9 +841,9 @@ class ParallelBatchProcessor(
                 # For validation errors, try to extract field-level details
                 # PydanticAI wraps validation errors in UnexpectedModelBehavior
                 is_validation_type = (
-                    'validation' in error_name.lower()
-                    or 'unexpectedmodelbehavior' in error_name.lower()
-                    or 'result validation' in error_msg.lower()
+                    "validation" in error_name.lower()
+                    or "unexpectedmodelbehavior" in error_name.lower()
+                    or "result validation" in error_msg.lower()
                 )
 
                 if is_validation_type:
@@ -845,9 +857,9 @@ class ParallelBatchProcessor(
                         depth = 0
                         while exc_chain_current and depth < 10:
                             # Try to extract raw response
-                            if hasattr(exc_chain_current, 'response'):
+                            if hasattr(exc_chain_current, "response"):
                                 raw_response = str(exc_chain_current.response)[:1000]
-                            if hasattr(exc_chain_current, 'messages'):
+                            if hasattr(exc_chain_current, "messages"):
                                 try:
                                     raw_response = str(exc_chain_current.messages)[:1000]
                                 except Exception:
@@ -855,12 +867,13 @@ class ParallelBatchProcessor(
 
                             # Check if this is a ValidationError
                             from pydantic import ValidationError
+
                             if isinstance(exc_chain_current, ValidationError):
                                 underlying_validation_error = exc_chain_current
                                 break
 
                             # Move to cause
-                            next_cause = getattr(exc_chain_current, '__cause__', None)
+                            next_cause = getattr(exc_chain_current, "__cause__", None)
                             if next_cause is None or not isinstance(next_cause, BaseException):
                                 break
                             exc_chain_current = next_cause
@@ -871,11 +884,12 @@ class ParallelBatchProcessor(
                     # Try to parse Pydantic ValidationError for field details
                     try:
                         from pydantic import ValidationError
+
                         if underlying_validation_error or isinstance(e, ValidationError):
                             validation_err: ValidationError = underlying_validation_error or e  # type: ignore[assignment]
                             error_details = []
                             for err in validation_err.errors():
-                                field_path = ' -> '.join(str(loc) for loc in err['loc'])
+                                field_path = " -> ".join(str(loc) for loc in err["loc"])
                                 error_details.append(
                                     f"    Field: {field_path}\n"
                                     f"      Type: {err['type']}\n"
@@ -889,7 +903,9 @@ class ParallelBatchProcessor(
                                 f"  Field-level errors:\n" + "\n".join(error_details)
                             )
                             if raw_response:
-                                log_msg += f"\n  Raw LLM response (first 1000 chars):\n{raw_response}"
+                                log_msg += (
+                                    f"\n  Raw LLM response (first 1000 chars):\n{raw_response}"
+                                )
                             logger.error(log_msg)
                         else:
                             # Not a Pydantic ValidationError, log full error with more context
@@ -903,14 +919,18 @@ class ParallelBatchProcessor(
                             current: BaseException | None = e
                             depth = 0
                             while current and depth < 5:
-                                log_msg += f"\n    {depth}: {type(current).__name__}: {str(current)[:200]}"
-                                next_cause = getattr(current, '__cause__', None)
+                                log_msg += (
+                                    f"\n    {depth}: {type(current).__name__}: {str(current)[:200]}"
+                                )
+                                next_cause = getattr(current, "__cause__", None)
                                 if next_cause is None or not isinstance(next_cause, BaseException):
                                     break
                                 current = next_cause
                                 depth += 1
                             if raw_response:
-                                log_msg += f"\n  Raw LLM response (first 1000 chars):\n{raw_response}"
+                                log_msg += (
+                                    f"\n  Raw LLM response (first 1000 chars):\n{raw_response}"
+                                )
                             logger.error(log_msg)
                     except Exception as parse_error:
                         # Fallback if we can't parse the error

@@ -74,8 +74,7 @@ class ExponentialBackoffStrategy(RateLimitStrategy):
     async def on_rate_limit(self, worker_id: int, consecutive_count: int) -> float:
         """Calculate exponential backoff cooldown."""
         cooldown = min(
-            self.initial_cooldown
-            * (self.backoff_multiplier ** (consecutive_count - 1)),
+            self.initial_cooldown * (self.backoff_multiplier ** (consecutive_count - 1)),
             self.max_cooldown,
         )
         logger.info(
@@ -102,9 +101,7 @@ class ExponentialBackoffStrategy(RateLimitStrategy):
 class FixedDelayStrategy(RateLimitStrategy):
     """Simple fixed delay between requests after rate limit."""
 
-    def __init__(
-        self, cooldown: float = 300.0, delay_between_requests: float = 1.0
-    ):
+    def __init__(self, cooldown: float = 300.0, delay_between_requests: float = 1.0):
         """
         Initialize fixed delay strategy.
 
@@ -117,9 +114,7 @@ class FixedDelayStrategy(RateLimitStrategy):
 
     async def on_rate_limit(self, worker_id: int, consecutive_count: int) -> float:
         """Return fixed cooldown duration."""
-        logger.info(
-            f"Worker {worker_id} hit rate limit, cooling down for {self.cooldown:.1f}s"
-        )
+        logger.info(f"Worker {worker_id} hit rate limit, cooling down for {self.cooldown:.1f}s")
         return self.cooldown
 
     def should_apply_slow_start(self, items_since_resume: int) -> tuple[bool, float]:

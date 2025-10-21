@@ -214,7 +214,7 @@ async def test_validation_error_retries():
             # Raise validation error on first attempt
             raise ValidationError.from_exception_data(
                 "TestOutput",
-                [{"type": "missing", "loc": ("value",), "msg": "Field required", "input": {}}]
+                [{"type": "missing", "loc": ("value",), "msg": "Field required", "input": {}}],
             )
         return TestOutput(value="Success on retry")
 
@@ -350,21 +350,17 @@ async def test_token_usage_tracked_across_retries():
             self.call_count += 1
             # Create result with token usage
             usage = MockUsage(
-                request_tokens=100 * self.call_count,
-                response_tokens=50 * self.call_count
+                request_tokens=100 * self.call_count, response_tokens=50 * self.call_count
             )
             if self.call_count < 2:
                 # Fail first attempt but include token usage
                 result = MockResult(output=None, usage_info=usage)
                 # Simulate PydanticAI wrapping
                 error = Exception("Validation failed")
-                error.__cause__ = type('obj', (), {'result': result})()
+                error.__cause__ = type("obj", (), {"result": result})()
                 raise error
             # Succeed on second attempt
-            return MockResult(
-                output=TestOutput(value="Success"),
-                usage_info=usage
-            )
+            return MockResult(output=TestOutput(value="Success"), usage_info=usage)
 
     agent = TokenTrackingAgent()
 

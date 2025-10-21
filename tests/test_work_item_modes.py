@@ -214,6 +214,7 @@ async def test_custom_strategy_timeout_handling():
 
     # Use very short timeout and no retries to make test fast
     from batch_llm.core import RetryConfig
+
     config = ProcessorConfig(
         max_workers=1,
         timeout_per_item=0.05,  # Very short timeout (50ms)
@@ -245,10 +246,7 @@ async def test_context_preserved_across_strategies():
     context_data = {"user_id": 123, "request_id": "abc"}
 
     # Test PydanticAIStrategy
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, dict](config=config)

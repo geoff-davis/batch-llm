@@ -56,9 +56,7 @@ async def test_strategy_lifecycle():
     strategy = MockStrategy()
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
 
-    async with ParallelBatchProcessor[None, TestOutput, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
         await processor.add_work(
             LLMWorkItem(
                 item_id="test1",
@@ -104,9 +102,7 @@ async def test_strategy_with_retries():
         max_workers=1, timeout_per_item=10.0, retry=RetryConfig(max_attempts=3)
     )
 
-    async with ParallelBatchProcessor[None, TestOutput, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
         await processor.add_work(
             LLMWorkItem(
                 item_id="test1",
@@ -135,9 +131,7 @@ async def test_pydantic_ai_strategy():
     strategy = PydanticAIStrategy(agent=mock_agent)
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
 
-    async with ParallelBatchProcessor[None, TestOutput, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
         await processor.add_work(
             LLMWorkItem(
                 item_id="test1",
@@ -294,9 +288,7 @@ async def test_strategy_error_handling():
         max_workers=1, timeout_per_item=10.0, retry=RetryConfig(max_attempts=1)
     )
 
-    async with ParallelBatchProcessor[None, TestOutput, None](
-        config=config
-    ) as processor:
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
         await processor.add_work(
             LLMWorkItem(
                 item_id="test1",

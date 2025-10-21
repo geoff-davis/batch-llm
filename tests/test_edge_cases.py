@@ -43,10 +43,7 @@ async def test_empty_queue():
 async def test_single_item():
     """Test processing a single item."""
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=5, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
@@ -72,7 +69,7 @@ async def test_more_items_than_workers():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value=f"Response: {p}"),
-        latency=0.001  # Reduced from 0.01s
+        latency=0.001,  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=2, timeout_per_item=10.0)
@@ -164,7 +161,7 @@ async def test_very_short_timeout():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.1  # 100ms latency
+        latency=0.1,  # 100ms latency
     )
 
     config = ProcessorConfig(
@@ -191,10 +188,7 @@ async def test_very_short_timeout():
 async def test_very_long_timeout():
     """Test with very long timeout."""
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(
         max_workers=1,
@@ -223,10 +217,7 @@ async def test_post_processor_exception_doesnt_fail_item():
         if result.success:
             raise ValueError("Post-processor failed")
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.01
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.01)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](
@@ -256,7 +247,7 @@ async def test_large_batch():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.001  # Very fast
+        latency=0.001,  # Very fast
     )
 
     config = ProcessorConfig(max_workers=10, timeout_per_item=10.0)
@@ -287,7 +278,7 @@ async def test_special_characters_in_item_id():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.001  # Reduced from 0.01s
+        latency=0.001,  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
@@ -366,7 +357,7 @@ async def test_none_context():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.001  # Reduced from 0.01s
+        latency=0.001,  # Reduced from 0.01s
     )
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
@@ -392,7 +383,7 @@ async def test_complex_context_types():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.001  # Reduced from 0.01s
+        latency=0.001,  # Reduced from 0.01s
     )
 
     # Test with different context types
@@ -455,21 +446,20 @@ async def test_adding_work_after_processing_started():
     # This is an edge case - normally not recommended
     # but should work as queue is async
 
-    mock_agent = MockAgent(
-        response_factory=lambda p: TestOutput(value="test"),
-        latency=0.05
-    )
+    mock_agent = MockAgent(response_factory=lambda p: TestOutput(value="test"), latency=0.05)
 
     config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
     # Add first item
-    await processor.add_work(LLMWorkItem(
-        item_id="item_1",
-        strategy=PydanticAIStrategy(agent=mock_agent),
-        prompt="Test 1",
-        context=None,
-    ))
+    await processor.add_work(
+        LLMWorkItem(
+            item_id="item_1",
+            strategy=PydanticAIStrategy(agent=mock_agent),
+            prompt="Test 1",
+            context=None,
+        )
+    )
 
     # Start processing in background
     process_task = asyncio.create_task(processor.process_all())
@@ -494,11 +484,7 @@ async def test_max_queue_size_config_validation():
     """Test that max_queue_size configuration is properly validated."""
 
     # Test that negative max_queue_size is rejected
-    config = ProcessorConfig(
-        max_workers=1,
-        timeout_per_item=10.0,
-        max_queue_size=-1
-    )
+    config = ProcessorConfig(max_workers=1, timeout_per_item=10.0, max_queue_size=-1)
 
     with pytest.raises(ValueError, match="max_queue_size must be >= 0"):
         config.validate()
@@ -507,15 +493,11 @@ async def test_max_queue_size_config_validation():
     config_unlimited = ProcessorConfig(
         max_workers=1,
         timeout_per_item=10.0,
-        max_queue_size=0  # Unlimited
+        max_queue_size=0,  # Unlimited
     )
     config_unlimited.validate()  # Should not raise
 
-    config_limited = ProcessorConfig(
-        max_workers=1,
-        timeout_per_item=10.0,
-        max_queue_size=100
-    )
+    config_limited = ProcessorConfig(max_workers=1, timeout_per_item=10.0, max_queue_size=100)
     config_limited.validate()  # Should not raise
 
 
@@ -526,25 +508,27 @@ async def test_max_queue_size_zero_is_unlimited():
 
     mock_agent = MockAgent(
         response_factory=lambda p: TestOutput(value="test"),
-        latency=0.001  # Reduced from 0.01s
+        latency=0.001,  # Reduced from 0.01s
     )
 
     # Default max_queue_size=0 means unlimited
     config = ProcessorConfig(
         max_workers=2,
         timeout_per_item=10.0,
-        max_queue_size=0  # Unlimited
+        max_queue_size=0,  # Unlimited
     )
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
     # Add many items without blocking (reduced from 100 to 20)
     for i in range(20):
-        await processor.add_work(LLMWorkItem(
-            item_id=f"item_{i}",
-            strategy=PydanticAIStrategy(agent=mock_agent),
-            prompt=f"Test {i}",
-            context=None,
-        ))
+        await processor.add_work(
+            LLMWorkItem(
+                item_id=f"item_{i}",
+                strategy=PydanticAIStrategy(agent=mock_agent),
+                prompt=f"Test {i}",
+                context=None,
+            )
+        )
 
     result = await processor.process_all()
 

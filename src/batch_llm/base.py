@@ -99,18 +99,12 @@ class BatchResult(Generic[TOutput, TContext]):
         self.total_items = len(self.results)
         self.succeeded = sum(1 for r in self.results if r.success)
         self.failed = sum(1 for r in self.results if not r.success)
-        self.total_input_tokens = sum(
-            r.token_usage.get("input_tokens", 0) for r in self.results
-        )
-        self.total_output_tokens = sum(
-            r.token_usage.get("output_tokens", 0) for r in self.results
-        )
+        self.total_input_tokens = sum(r.token_usage.get("input_tokens", 0) for r in self.results)
+        self.total_output_tokens = sum(r.token_usage.get("output_tokens", 0) for r in self.results)
 
 
 # Type alias for post-processor function
-PostProcessorFunc = Callable[
-    [WorkItemResult[TOutput, TContext]], Awaitable[None] | None
-]
+PostProcessorFunc = Callable[[WorkItemResult[TOutput, TContext]], Awaitable[None] | None]
 
 # Type alias for progress callback function (completed, total, current_item_id)
 ProgressCallbackFunc = Callable[[int, int, str], Awaitable[None] | None]
@@ -184,14 +178,12 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         self.progress_callback_timeout = progress_callback_timeout
         self._progress_callback_is_async = False
         if progress_callback is not None:
-            self._progress_callback_is_async = asyncio.iscoroutinefunction(
-                progress_callback
-            ) or (
+            self._progress_callback_is_async = asyncio.iscoroutinefunction(progress_callback) or (
                 callable(progress_callback)
                 and asyncio.iscoroutinefunction(progress_callback.__call__)
             )
-        self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = (
-            asyncio.Queue(maxsize=max_queue_size)
+        self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = asyncio.Queue(
+            maxsize=max_queue_size
         )
         self._results: list[WorkItemResult[TOutput, TContext]] = []
         self._stats = ProcessingStats()
@@ -279,8 +271,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
 
         # Start workers and store them for cleanup
         self._workers = [
-            asyncio.create_task(self._worker(worker_id))
-            for worker_id in range(self.max_workers)
+            asyncio.create_task(self._worker(worker_id)) for worker_id in range(self.max_workers)
         ]
 
         # Wait for all work to complete
@@ -353,9 +344,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         """
         pass
 
-    async def _run_post_processor(
-        self, result: WorkItemResult[TOutput, TContext]
-    ) -> None:
+    async def _run_post_processor(self, result: WorkItemResult[TOutput, TContext]) -> None:
         """
         Run the post-processor callback if provided.
 
@@ -375,9 +364,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         except TimeoutError:
             import logging
 
-            logging.error(
-                f"✗ Post-processor execution timed out after 75s for {result.item_id}"
-            )
+            logging.error(f"✗ Post-processor execution timed out after 75s for {result.item_id}")
         except Exception as e:
             # Log error with full details - this is critical for debugging
             import logging
@@ -390,9 +377,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
                 f"  Full traceback:\n{traceback.format_exc()}"
             )
 
-    async def _run_progress_callback(
-        self, completed: int, total: int, current_item: str
-    ) -> None:
+    async def _run_progress_callback(self, completed: int, total: int, current_item: str) -> None:
         """Invoke progress callback with timeout and non-blocking handling."""
         if self.progress_callback is None:
             return
@@ -428,9 +413,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             monitor_task = asyncio.create_task(monitor())
             self._track_progress_task(monitor_task, log_exceptions=False)
 
-    def _track_progress_task(
-        self, task: asyncio.Task[Any], *, log_exceptions: bool
-    ) -> None:
+    def _track_progress_task(self, task: asyncio.Task[Any], *, log_exceptions: bool) -> None:
         """Track background tasks for progress callbacks and clean up on completion."""
         self._progress_tasks.add(task)
 

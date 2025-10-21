@@ -89,6 +89,7 @@ async def test_concurrent_rate_limit_handling():
 
     # Use fast rate limit config for testing (instead of default 300s cooldown)
     from batch_llm.core import RateLimitConfig
+
     fast_rate_limit = RateLimitConfig(
         cooldown_seconds=0.2,  # Very short cooldown for testing
         slow_start_items=2,  # Minimal slow start
@@ -102,9 +103,7 @@ async def test_concurrent_rate_limit_handling():
         rate_limit=fast_rate_limit,
     )
     metrics = MetricsObserver()
-    processor = ParallelBatchProcessor[str, TestOutput, None](
-        config=config, observers=[metrics]
-    )
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config, observers=[metrics])
 
     # Add just 3 items - rate limit triggers on 2nd call, so this tests the behavior
     for i in range(3):
@@ -203,9 +202,7 @@ async def test_rate_limit_strategy_failure_does_not_block_workers():
         def __init__(self) -> None:
             self.calls = 0
 
-        async def on_rate_limit(
-            self, worker_id: int, consecutive_limit_count: int
-        ) -> float:
+        async def on_rate_limit(self, worker_id: int, consecutive_limit_count: int) -> float:
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("strategy blew up")
@@ -311,9 +308,7 @@ async def test_progress_callback_timeout_for_async_function():
 
     call_counter = {"count": 0}
 
-    async def slow_async_callback(
-        completed: int, total: int, current_item: str
-    ) -> None:
+    async def slow_async_callback(completed: int, total: int, current_item: str) -> None:
         call_counter["count"] += 1
         await asyncio.sleep(0.2)
 
@@ -366,14 +361,10 @@ async def test_slow_start_skipped_before_rate_limit():
         def __init__(self) -> None:
             self.calls: list[int] = []
 
-        async def on_rate_limit(
-            self, worker_id: int, consecutive_limit_count: int
-        ) -> float:
+        async def on_rate_limit(self, worker_id: int, consecutive_limit_count: int) -> float:
             return 0.0
 
-        def should_apply_slow_start(
-            self, items_since_resume: int
-        ) -> tuple[bool, float]:
+        def should_apply_slow_start(self, items_since_resume: int) -> tuple[bool, float]:
             self.calls.append(items_since_resume)
             return (True, 0.0)
 
@@ -414,14 +405,10 @@ async def test_slow_start_engages_after_rate_limit():
             self.calls: list[int] = []
             self._slow_calls = slow_calls
 
-        async def on_rate_limit(
-            self, worker_id: int, consecutive_limit_count: int
-        ) -> float:
+        async def on_rate_limit(self, worker_id: int, consecutive_limit_count: int) -> float:
             return 0.0
 
-        def should_apply_slow_start(
-            self, items_since_resume: int
-        ) -> tuple[bool, float]:
+        def should_apply_slow_start(self, items_since_resume: int) -> tuple[bool, float]:
             self.calls.append(items_since_resume)
             if len(self.calls) > self._slow_calls:
                 return (False, 0.0)
@@ -432,9 +419,7 @@ async def test_slow_start_engages_after_rate_limit():
     def mock_response(prompt: str) -> TestOutput:
         return TestOutput(value=f"Response: {prompt}")
 
-    mock_agent = MockAgent(
-        response_factory=mock_response, latency=0.001, rate_limit_on_call=1
-    )
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.001, rate_limit_on_call=1)
 
     class TestRateLimitClassifier:
         def classify(self, exception: Exception) -> ErrorInfo:
@@ -490,9 +475,7 @@ async def test_metrics_observer_thread_safety():
 
     config = ProcessorConfig(max_workers=10, timeout_per_item=10.0)
     metrics = MetricsObserver()
-    processor = ParallelBatchProcessor[str, TestOutput, None](
-        config=config, observers=[metrics]
-    )
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config, observers=[metrics])
 
     # Add many items (reduced from 50 to 20 for faster execution)
     num_items = 20
@@ -511,15 +494,13 @@ async def test_metrics_observer_thread_safety():
     collected_metrics = await metrics.get_metrics()
 
     # Verify all metrics match expected values
-    assert (
-        collected_metrics["items_processed"] == num_items
-    ), "Metrics items_processed mismatch"
-    assert (
-        collected_metrics["items_succeeded"] == num_items
-    ), "Metrics items_succeeded mismatch"
+    assert collected_metrics["items_processed"] == num_items, "Metrics items_processed mismatch"
+    assert collected_metrics["items_succeeded"] == num_items, "Metrics items_succeeded mismatch"
     assert collected_metrics["items_failed"] == 0, "Metrics items_failed should be 0"
     assert collected_metrics["success_rate"] == 1.0, "Success rate should be 100%"
-    assert len(collected_metrics["processing_times"]) == num_items, "Processing times count mismatch"
+    assert len(collected_metrics["processing_times"]) == num_items, (
+        "Processing times count mismatch"
+    )
 
 
 @pytest.mark.asyncio

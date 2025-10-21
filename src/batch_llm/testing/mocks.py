@@ -101,10 +101,12 @@ class MockAgent(Generic[TOutput]):
             and not self._rate_limit_triggered
         ):
             self._rate_limit_triggered = True
+
             # Simulate Gemini rate limit error
             # Create a simple exception that looks like a rate limit error
             class MockRateLimitError(Exception):
                 """Mock rate limit error that mimics Gemini ClientError."""
+
                 pass
 
             # Make it look like a ClientError for the classifier
