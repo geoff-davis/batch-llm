@@ -11,6 +11,7 @@ This document contains important information about the `batch-llm` project for f
 **Current Version: v3.0** - Uses `LLMCallStrategy` for provider-agnostic LLM integration
 
 **Key Features:**
+
 - Parallel asyncio processing with configurable concurrency
 - Built-in rate limiting and exponential backoff retry logic
 - Thread-safe concurrent operations
@@ -26,22 +27,26 @@ This document contains important information about the `batch-llm` project for f
 ### Core Components
 
 **`LLMCallStrategy[TOutput]`** - Abstract base for all LLM integrations:
+
 - `async def prepare()` - Initialize resources (caches, connections)
 - `async def execute(prompt, attempt, timeout)` - Make LLM call
 - `async def cleanup()` - Clean up resources (delete caches)
 
 **Built-in Strategies:**
+
 - `PydanticAIStrategy` - Wraps PydanticAI agents
 - `GeminiStrategy` - Direct Google Gemini API calls
 - `GeminiCachedStrategy` - Gemini with context caching (great for RAG)
 
 **`LLMWorkItem[TInput, TOutput, TContext]`** - Work unit:
+
 - `item_id: str` - Unique identifier
 - `strategy: LLMCallStrategy[TOutput]` - How to call the LLM
 - `prompt: str` - The prompt/input
 - `context: TContext | None` - Optional context passed through
 
 **`ParallelBatchProcessor[TInput, TOutput, TContext]`** - Main processing engine:
+
 - Manages worker pool (default 5 workers)
 - Coordinates rate limiting across all workers
 - Handles retries with exponential backoff
@@ -49,6 +54,7 @@ This document contains important information about the `batch-llm` project for f
 - Collects results and metrics
 
 **Thread Safety:**
+
 - Uses `asyncio.Lock` for all shared mutable state
 - Three locks: `_rate_limit_lock`, `_stats_lock`, `_results_lock`
 - All locks are independent (no nesting = no deadlocks)
@@ -62,6 +68,7 @@ This document contains important information about the `batch-llm` project for f
 **Why:** Decouple framework from specific LLM providers.
 
 **Benefits:**
+
 - Support any LLM provider (OpenAI, Anthropic, Google, LangChain, custom)
 - Each strategy encapsulates provider-specific logic
 - Framework handles retry, timeout, rate limiting uniformly
@@ -69,6 +76,7 @@ This document contains important information about the `batch-llm` project for f
 - Resource lifecycle management (prepare/cleanup)
 
 **Migration from v2.x:**
+
 ```python
 # v2.x (removed)
 work_item = LLMWorkItem(item_id="1", agent=agent, prompt="...")
@@ -85,12 +93,14 @@ See `docs/MIGRATION_V3.md` for complete migration guide.
 **Problem:** Multiple workers hitting rate limits simultaneously.
 
 **Solution:**
+
 - One worker triggers cooldown via atomic check-and-set
 - All workers pause using `asyncio.Event`
 - Slow-start ramp after cooldown (progressive delays)
 - Consecutive rate limits trigger exponential backoff
 
 **Implementation:**
+
 ```python
 async with self._rate_limit_lock:
     if self._in_cooldown:
@@ -104,6 +114,7 @@ async with self._rate_limit_lock:
 **Why:** LLMs may fail validation at low temperature but succeed at higher temps.
 
 **Implementation in v3.0:**
+
 ```python
 class ProgressiveTempStrategy(LLMCallStrategy[Output]):
     def __init__(self, client, temps=None):
@@ -127,6 +138,7 @@ See `examples/example_gemini_direct.py` for complete example.
 **Challenge:** Track tokens even for failed attempts.
 
 **Solution:**
+
 - Extract usage from exception chain via `__cause__`
 - Accumulate across all retry attempts
 - Attach to final exception via `__dict__['_failed_token_usage']`
@@ -220,6 +232,7 @@ collected_metrics = await metrics.get_metrics()
 5. **Slow-start counter** - Undercounting items processed
 
 **Fix:** Added three `asyncio.Lock` instances:
+
 - `_rate_limit_lock` - Rate limit coordination
 - `_stats_lock` - Stats updates
 - `_results_lock` - Results list appends
@@ -227,6 +240,7 @@ collected_metrics = await metrics.get_metrics()
 **Impact:** <1% performance overhead, guaranteed correctness
 
 **Breaking Changes:**
+
 - `get_stats()` is now async
 - `MetricsObserver.get_metrics()` is now async
 
@@ -327,7 +341,8 @@ uv publish
 ## Important Files
 
 ### Package Structure
-```
+
+```text
 src/batch_llm/
 ├── __init__.py           # Public API exports
 ├── base.py               # Core data models
@@ -350,6 +365,7 @@ src/batch_llm/
 ```
 
 ### Documentation
+
 - `README.md` - User documentation
 - `RACE_CONDITION_ANALYSIS.md` - Original analysis
 - `RACE_CONDITION_FIXES.md` - Implementation details
@@ -572,9 +588,9 @@ See `examples/example_model_escalation.py` for complete implementation with cost
 
 ## Contact & Support
 
-- GitHub: https://github.com/yourusername/batch-llm
-- Issues: https://github.com/yourusername/batch-llm/issues
-- PyPI: https://pypi.org/project/batch-llm/
+- GitHub: <https://github.com/yourusername/batch-llm>
+- Issues: <https://github.com/yourusername/batch-llm/issues>
+- PyPI: <https://pypi.org/project/batch-llm/>
 
 ---
 
@@ -723,6 +739,7 @@ async with ParallelBatchProcessor[str, Output, None](config=config) as processor
 ### Full-Featured Example
 
 See `examples/example.py` for complete examples including:
+
 - Context passing
 - Post-processors
 - Middleware
