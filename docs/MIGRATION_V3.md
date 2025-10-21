@@ -1,11 +1,11 @@
-# Migration Guide: v2.x → v3.0
+# Migration Guide: v0.0.x → v0.1
 
-This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the new
+This guide helps you migrate from batch-llm v0.0.x to v0.1, which introduces the new
 **LLM call strategy pattern** to provide greater flexibility and cleaner separation of concerns.
 
 ## Overview of Changes
 
-**v3.0 Breaking Changes:**
+**v0.1 Breaking Changes:**
 
 - Replaced `agent=` parameter with `strategy=` in `LLMWorkItem`
 - Removed `client=` parameter from `LLMWorkItem`
@@ -24,7 +24,7 @@ This guide helps you migrate from batch-llm v2.x to v3.0, which introduces the n
 
 ### Pattern 1: PydanticAI Agent (Most Common)
 
-**v2.x Code:**
+**v0.0.x Code:**
 
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
@@ -35,12 +35,12 @@ agent = Agent("gemini-2.5-flash", result_type=MyOutput)
 
 work_item = LLMWorkItem(
     item_id="item_1",
-    agent=agent,  # ❌ Removed in v3.0
+    agent=agent,  # ❌ Removed in v0.1
     prompt="Test prompt",
 )
 ```
 
-**v3.0 Code:**
+**v0.1 Code:**
 
 ```python
 from batch_llm import (
@@ -72,7 +72,7 @@ work_item = LLMWorkItem(
 
 ### Pattern 2: Direct Gemini API Calls
 
-**v2.x Code:**
+**v0.0.x Code:**
 
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
@@ -83,12 +83,12 @@ client = genai.Client(api_key=API_KEY)
 # Old way - passing client directly
 work_item = LLMWorkItem(
     item_id="item_1",
-    client=client,  # ❌ Removed in v3.0
+    client=client,  # ❌ Removed in v0.1
     prompt="Test prompt",
 )
 ```
 
-**v3.0 Code:**
+**v0.1 Code:**
 
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
@@ -127,7 +127,7 @@ work_item = LLMWorkItem(
 
 ### Pattern 3: Gemini with Context Caching
 
-**v2.x Code:**
+**v0.0.x Code:**
 
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
@@ -143,7 +143,7 @@ work_item = LLMWorkItem(
 )
 ```
 
-**v3.0 Code:**
+**v0.1 Code:**
 
 ```python
 from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
@@ -193,7 +193,7 @@ work_item = LLMWorkItem(
 
 Here's a complete example showing before and after:
 
-### v2.x Complete Example
+### v0.0.x Complete Example
 
 ```python
 import asyncio
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### v3.0 Complete Example
+### v0.1 Complete Example
 
 ```python
 import asyncio
@@ -287,9 +287,9 @@ if __name__ == "__main__":
 
 ---
 
-## Custom Strategies (New in v3.0)
+## Custom Strategies (New in v0.1)
 
-One of the biggest benefits of v3.0 is the ability to create custom strategies for any LLM provider:
+One of the biggest benefits of v0.1 is the ability to create custom strategies for any LLM provider:
 
 ### Example: OpenAI Custom Strategy
 
@@ -338,7 +338,7 @@ See `examples/example_openai.py`, `examples/example_anthropic.py`, and `examples
 
 ---
 
-## Strategy Lifecycle (New in v3.0)
+## Strategy Lifecycle (New in v0.1)
 
 Strategies support a lifecycle with three methods:
 
@@ -380,10 +380,10 @@ class CachedStrategy(LLMCallStrategy[str]):
 
 ## Timeout Enforcement Improvements
 
-**v3.0 changes how timeouts work:**
+**v0.1 changes how timeouts work:**
 
-- **v2.x**: Each strategy was responsible for timeout enforcement
-- **v3.0**: Framework enforces timeout with `asyncio.wait_for()` wrapper
+- **v0.0.x**: Each strategy was responsible for timeout enforcement
+- **v0.1**: Framework enforces timeout with `asyncio.wait_for()` wrapper
 
 **Impact on custom strategies:**
 
@@ -394,14 +394,14 @@ class CachedStrategy(LLMCallStrategy[str]):
 **Example:**
 
 ```python
-# v2.x - Strategy had to handle timeout
+# v0.0.x - Strategy had to handle timeout
 async def execute(self, prompt: str, attempt: int, timeout: float):
     return await asyncio.wait_for(
         self.agent.run(prompt),
         timeout=timeout,  # ❌ No longer needed
     )
 
-# v3.0 - Framework handles timeout
+# v0.1 - Framework handles timeout
 async def execute(self, prompt: str, attempt: int, timeout: float):
     # Framework wraps this in asyncio.wait_for()
     return await self.agent.run(prompt)  # ✅ Simpler
@@ -411,7 +411,7 @@ async def execute(self, prompt: str, attempt: int, timeout: float):
 
 ## Summary Checklist
 
-To migrate from v2.x to v3.0:
+To migrate from v0.0.x to v0.1:
 
 - [ ] **For PydanticAI users:**
   - [ ] Import `PydanticAIStrategy` from `batch_llm`
@@ -449,7 +449,7 @@ To migrate from v2.x to v3.0:
 
 ---
 
-## Benefits of v3.0
+## Benefits of v0.1
 
 **Why upgrade?**
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "batch-llm"
-version = "3.0.0"
+version = "0.1.0"
 description = "Provider-agnostic framework for high-throughput LLM processing with async workers, automatic retries, rate limiting, and intelligent validation recovery."
 readme = "README.md"
 requires-python = ">=3.10"

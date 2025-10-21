@@ -6,9 +6,9 @@ This document contains important information about the `batch-llm` project for f
 
 ## Project Overview
 
-**batch-llm** is a Python package for processing multiple LLM requests efficiently using a **strategy pattern** (v3.0+).
+**batch-llm** is a Python package for processing multiple LLM requests efficiently using a **strategy pattern** (v0.1+).
 
-**Current Version: v3.0** - Uses `LLMCallStrategy` for provider-agnostic LLM integration
+**Current Version: v0.1.0** - Uses `LLMCallStrategy` for provider-agnostic LLM integration
 
 **Key Features:**
 
@@ -22,7 +22,7 @@ This document contains important information about the `batch-llm` project for f
 
 ---
 
-## Architecture (v3.0 Strategy Pattern)
+## Architecture (v0.1+ Strategy Pattern)
 
 ### Core Components
 
@@ -63,7 +63,7 @@ This document contains important information about the `batch-llm` project for f
 
 ## Critical Design Decisions
 
-### 1. Strategy Pattern (v3.0)
+### 1. Strategy Pattern (v0.1+)
 
 **Why:** Decouple framework from specific LLM providers.
 
@@ -75,18 +75,18 @@ This document contains important information about the `batch-llm` project for f
 - Easy to test with mock strategies
 - Resource lifecycle management (prepare/cleanup)
 
-**Migration from v2.x:**
+**Migration from v0.0.x:**
 
 ```python
-# v2.x (removed)
+# v0.0.x (removed)
 work_item = LLMWorkItem(item_id="1", agent=agent, prompt="...")
 
-# v3.0 (current)
+# v0.1+ (current)
 strategy = PydanticAIStrategy(agent=agent)
 work_item = LLMWorkItem(item_id="1", strategy=strategy, prompt="...")
 ```
 
-See `docs/MIGRATION_V3.md` for complete migration guide.
+See `docs/MIGRATION_V3.md` for complete migration guide (note: file still uses v3 naming for clarity).
 
 ### 2. Rate Limiting Strategy
 
@@ -109,11 +109,11 @@ async with self._rate_limit_lock:
     self._rate_limit_event.clear()  # Pause all
 ```
 
-### 3. Progressive Temperature Retry (v3.0)
+### 3. Progressive Temperature Retry (v0.1+)
 
 **Why:** LLMs may fail validation at low temperature but succeed at higher temps.
 
-**Implementation in v3.0:**
+**Implementation in v0.1:**
 
 ```python
 class ProgressiveTempStrategy(LLMCallStrategy[Output]):
@@ -146,7 +146,7 @@ See `examples/example_gemini_direct.py` for complete example.
 
 ---
 
-## Common Patterns (v3.0)
+## Common Patterns (v0.1+)
 
 ### Pattern 1: Using PydanticAI Strategy
 
@@ -397,7 +397,7 @@ src/batch_llm/
 
 ---
 
-## Common Pitfalls (v3.0)
+## Common Pitfalls (v0.1+)
 
 ### ❌ Don't: Forget to await async methods
 
@@ -409,17 +409,17 @@ stats = processor.get_stats()
 stats = await processor.get_stats()
 ```
 
-### ❌ Don't: Use old v2.x API
+### ❌ Don't: Use old v0.0.x API
 
 ```python
-# WRONG - v2.x API (removed)
+# WRONG - v0.0.x API (removed)
 work_item = LLMWorkItem(
     item_id="item_1",
     agent=agent,  # No longer supported
     prompt="..."
 )
 
-# RIGHT - v3.0 API (current)
+# RIGHT - v0.1 API (current)
 strategy = PydanticAIStrategy(agent=agent)
 work_item = LLMWorkItem(
     item_id="item_1",
@@ -524,9 +524,9 @@ assert len(result.results) == result.total_items
 
 ## Version History
 
-- **v2.0.0** - Initial PyPI release with full feature set
-- **v2.0.1** - Fixed 5 critical race conditions
-- **v3.0.0** - Strategy pattern refactor (current)
+- **v0.0.1.x** - Initial development versions (PydanticAI agent support)
+- **v0.0.2.x** - Added direct API call support, fixed race conditions
+- **v0.1.0** - Strategy pattern refactor (current)
   - Breaking: Replaced `agent=`, `agent_factory=`, `direct_call=` with `strategy=`
   - Added `LLMCallStrategy` abstract base class
   - Framework-level timeout enforcement
@@ -534,7 +534,7 @@ assert len(result.results) == result.total_items
 
 ---
 
-## Advanced Retry Patterns (v3.0)
+## Advanced Retry Patterns (v0.1+)
 
 ### Smart Retry with Validation Feedback
 
@@ -622,7 +622,7 @@ See `examples/example_model_escalation.py` for complete implementation with cost
    - Examples should be runnable (handle missing API keys gracefully)
 
 2. **Keep docs in sync with code:**
-   - When refactoring API (like v2.x → v3.0), update ALL docs
+   - When refactoring API (like v0.0.x → v0.1), update ALL docs
    - Search for old patterns: `agent=`, `agent_factory=`, `direct_call=`
    - Update: README, docs/, examples/, CLAUDE.md
 
@@ -703,7 +703,7 @@ See `examples/example_model_escalation.py` for complete implementation with cost
    - `example_openai.py`, `example_anthropic.py` - Other providers
 
 4. **Versioning:**
-   - Major version (v3.0) for breaking API changes
+   - Major version (v0.1+) for breaking API changes
    - Document breaking changes in `docs/MIGRATION_V3.md`
    - Update version history in `CLAUDE.md`
 
@@ -711,7 +711,7 @@ See `examples/example_model_escalation.py` for complete implementation with cost
 
 ## Quick Reference
 
-### Minimal Example (v3.0)
+### Minimal Example (v0.1+)
 
 ```python
 from batch_llm import ParallelBatchProcessor, LLMWorkItem, ProcessorConfig, PydanticAIStrategy

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - TBD
+## [0.1.0] - TBD
 
 ### ⚠️ Breaking Changes
 
@@ -20,14 +20,14 @@ This major release introduces the **LLM Call Strategy Pattern**, providing a fle
 All code using `LLMWorkItem` must be updated:
 
 ```python
-# ❌ Old (v2.x) - No longer works
+# ❌ Old (v0.0.x) - No longer works
 work_item = LLMWorkItem(
     item_id="item_1",
     agent=agent,  # or client=client
     prompt="Test prompt",
 )
 
-# ✅ New (v3.0) - Use strategy
+# ✅ New (v0.1) - Use strategy
 from batch_llm import PydanticAIStrategy
 
 strategy = PydanticAIStrategy(agent=agent)
@@ -61,7 +61,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 
 #### Documentation
 - **`docs/API.md`** - Complete API reference documentation
-- **`docs/MIGRATION_V3.md`** - Comprehensive v2.x → v3.0 migration guide
+- **`docs/MIGRATION_V3.md`** - Comprehensive v0.0.x → v0.1 migration guide
 - **`examples/example_openai.py`** - OpenAI integration examples
 - **`examples/example_anthropic.py`** - Anthropic Claude integration examples
 - **`examples/example_langchain.py`** - LangChain integration examples (including RAG)
@@ -109,7 +109,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 
 ### Migration Path
 
-**Upgrading from v2.x?** Follow these steps:
+**Upgrading from v0.0.x?** Follow these steps:
 
 1. **Read the Migration Guide**: `docs/MIGRATION_V3.md`
 2. **Update imports**: Add `PydanticAIStrategy`, `GeminiStrategy`, or `GeminiCachedStrategy`
@@ -128,7 +128,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 
 ---
 
-## [2.0.2] - 2025-10-20
+## [0.0.2] - 2025-10-20
 
 ### Fixed
 - Fixed crash when middleware's `before_process()` returns `None` - now properly preserves original `item_id`
@@ -155,7 +155,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - Updated code review with completion status
 - Cleaned up repository root (70% reduction in visible markdown files)
 
-## [2.0.1] - 2025-10-19
+## [0.0.1] - 2025-10-19
 
 ### Added
 - Optional dependencies: `pydantic-ai` and `google-genai` are now optional extras
@@ -174,10 +174,10 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 
 ### Documentation
 - `OPTIONAL_DEPENDENCIES.md` - Complete installation guide
-- Migration guide for v2.0.0 → v2.0.1
+- Migration guide for v0.0.0 → v0.0.1
 - Updated README with installation options
 
-## [2.0.0] - 2025-10-19
+## [0.0.0] - 2025-10-19
 
 ### Added
 - Initial PyPI package release
@@ -207,7 +207,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - Timeout support per item
 - Type-safe with generics support
 
-## [1.0.0] - Internal
+## [0.0.0-alpha] - Internal
 
 ### Added
 - Initial implementation for internal use

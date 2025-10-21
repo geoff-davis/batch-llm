@@ -1,6 +1,6 @@
 # batch-llm API Reference
 
-Complete API documentation for batch-llm v3.0.
+Complete API documentation for batch-llm v0.1.
 
 ## Table of Contents
 
@@ -47,7 +47,7 @@ class LLMWorkItem(Generic[TInput, TOutput, TContext]):
 
 **Type Parameters:**
 
-- `TInput`: Input data type (unused in v3.0, kept for backward compatibility)
+- `TInput`: Input data type (unused in v0.1, kept for backward compatibility)
 - `TOutput`: Expected output type from the LLM
 - `TContext`: Optional context data type passed through to results
 
@@ -934,6 +934,6 @@ if __name__ == "__main__":
 ## See Also
 
 - [README.md](../README.md) - Getting started guide
-- [MIGRATION_V3.md](./MIGRATION_V3.md) - Migration guide from v2.x
+- [MIGRATION_V3.md](./MIGRATION_V3.md) - Migration guide from v0.0.x
 - [GEMINI_INTEGRATION.md](./GEMINI_INTEGRATION.md) - Detailed Gemini integration guide
 - [CHANGELOG.md](../CHANGELOG.md) - Version history
