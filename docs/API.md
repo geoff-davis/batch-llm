@@ -197,6 +197,10 @@ class ParallelBatchProcessor(
 - `middlewares` (list[Middleware] | None): List of middleware for pre/post processing
 - `observers` (list[ProcessorObserver] | None): List of observers for monitoring events
 
+> **Post-processing:** The optional `post_processor` runs inline on the worker as soon as an item finishes.
+> It should hand off any heavy operations (long DB writes, expensive analytics, etc.) to another system;
+> if the function takes too long the worker sits idle until the 75 s timeout triggers, reducing overall throughput.
+
 **Methods:**
 
 #### `async def add_work(work_item: LLMWorkItem) -> None`

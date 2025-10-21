@@ -105,6 +105,7 @@ class ParallelBatchProcessor(
             post_processor,
             max_queue_size=config.max_queue_size,
             progress_callback=progress_callback,
+            progress_callback_timeout=config.progress_callback_timeout,
         )
         self.config = config
 
@@ -112,6 +113,7 @@ class ParallelBatchProcessor(
         self.error_classifier = error_classifier or DefaultErrorClassifier()
         self.rate_limit_strategy = rate_limit_strategy or ExponentialBackoffStrategy(
             initial_cooldown=config.rate_limit.cooldown_seconds,
+            backoff_multiplier=config.rate_limit.backoff_multiplier,
             slow_start_items=config.rate_limit.slow_start_items,
             slow_start_initial_delay=config.rate_limit.slow_start_initial_delay,
             slow_start_final_delay=config.rate_limit.slow_start_final_delay,
@@ -328,13 +330,8 @@ class ParallelBatchProcessor(
                     current_item = work_item.item_id
 
             # Invoke progress callback outside of lock
-            if should_call_progress and self.progress_callback is not None:
-                try:
-                    result_or_none = self.progress_callback(completed, total, current_item)
-                    if asyncio.iscoroutine(result_or_none):
-                        await result_or_none
-                except Exception as e:
-                    logger.warning(f"⚠️  Progress callback failed: {e}")
+            if should_call_progress:
+                await self._run_progress_callback(completed, total, current_item)
 
             # Run post-processor for both success AND failure
             # Note: Post-processors should check result.success and handle accordingly
@@ -393,7 +390,7 @@ class ParallelBatchProcessor(
                 )
 
     async def _handle_rate_limit(self, worker_id: int):
-        """Handle rate limit by pausing all workers and cooling down (thread-safe)."""
+        """Handle rate limit by pausing all workers and coordinating cooldown."""
         # Atomic check-and-set to prevent multiple workers from triggering cooldown
         async with self._rate_limit_lock:
             if self._in_cooldown:
@@ -404,10 +401,21 @@ class ParallelBatchProcessor(
             self._rate_limit_event.clear()  # Pause all workers
             consecutive = self._consecutive_rate_limits
 
-        # Get cooldown duration from strategy (outside lock - can be slow)
-        cooldown = await self.rate_limit_strategy.on_rate_limit(
-            worker_id, consecutive
-        )
+        pause_started_at = time.time()
+        cooldown_error: Exception | None = None
+
+        try:
+            cooldown = await self.rate_limit_strategy.on_rate_limit(
+                worker_id, consecutive
+            )
+        except Exception as exc:
+            cooldown_error = exc
+            cooldown = 0.0
+            logger.warning(
+                "⚠️  Rate limit strategy failed to determine cooldown: %s. "
+                "Resuming workers immediately.",
+                exc,
+            )
 
         await self._emit_event(
             ProcessingEvent.COOLDOWN_STARTED,
@@ -418,27 +426,60 @@ class ParallelBatchProcessor(
             },
         )
 
-        logger.warning(
-            f"🚫  Rate limit detected by worker {worker_id}. "
-            f"Pausing all workers for {cooldown:.1f}s..."
-        )
+        if cooldown_error is None and cooldown > 0:
+            logger.warning(
+                "🚫  Rate limit detected by worker %s. Pausing all workers for %.1fs...",
+                worker_id,
+                cooldown,
+            )
+        else:
+            logger.warning(
+                "🚫  Rate limit detected by worker %s. Skipping cooldown due to prior error.",
+                worker_id,
+            )
 
-        start_time = time.time()
-        await asyncio.sleep(cooldown)
-        actual_duration = time.time() - start_time
+        try:
+            if cooldown > 0:
+                await asyncio.sleep(cooldown)
+        except asyncio.CancelledError:
+            await asyncio.shield(self._finalize_cooldown(pause_started_at, None))
+            raise
+        except Exception as exc:
+            logger.warning(
+                "⚠️  Cooldown sleep interrupted for worker %s: %s. Resuming immediately.",
+                worker_id,
+                exc,
+            )
+            cooldown_error = cooldown_error or exc
+            await self._finalize_cooldown(pause_started_at, cooldown_error)
+            return
 
-        # Atomic reset
+        await self._finalize_cooldown(pause_started_at, cooldown_error)
+
+    async def _finalize_cooldown(
+        self, start_time: float, error: Exception | None
+    ) -> None:
+        """Resume workers after cooldown and emit completion event."""
+        actual_duration = max(0.0, time.time() - start_time)
+
         async with self._rate_limit_lock:
             self._items_since_resume = 0
             self._in_cooldown = False
             self._rate_limit_event.set()  # Resume all workers
 
-        await self._emit_event(
-            ProcessingEvent.COOLDOWN_ENDED,
-            {"duration": actual_duration},
-        )
+        payload = {"duration": actual_duration}
+        if error is not None:
+            payload["error"] = str(error)[:200]
 
-        logger.info("✓ Cooldown complete. Resuming with slow-start...")
+        await self._emit_event(ProcessingEvent.COOLDOWN_ENDED, payload)
+
+        if error is not None:
+            logger.warning(
+                "⚠️  Cooldown ended early due to error: %s. Workers resumed immediately.",
+                error,
+            )
+        else:
+            logger.info("✓ Cooldown complete. Resuming with slow-start...")
 
     def _should_retry_error(self, exception: Exception) -> bool:
         """Determine if error should be retried using error classifier."""
@@ -912,4 +953,3 @@ class ParallelBatchProcessor(
         """Clean up resources: flush observers and cancel pending tasks."""
         # Notify observers of shutdown
         await self._emit_event(ProcessingEvent.BATCH_COMPLETED, {})
-

@@ -84,6 +84,7 @@ class ProcessorConfig:
 
     # Progress reporting
     progress_interval: int = 10  # Log every N items
+    progress_callback_timeout: float | None = 5.0  # Timeout for progress callback (seconds)
 
     # Observability
     enable_detailed_logging: bool = False
@@ -110,6 +111,14 @@ class ProcessorConfig:
             raise ValueError(
                 f"progress_interval must be >= 1 (got {self.progress_interval}). "
                 f"Set config.progress_interval to a positive integer."
+            )
+        if (
+            self.progress_callback_timeout is not None
+            and self.progress_callback_timeout <= 0
+        ):
+            raise ValueError(
+                f"progress_callback_timeout must be > 0 (got {self.progress_callback_timeout}). "
+                f"Set config.progress_callback_timeout to None to disable or a positive number of seconds."
             )
         if self.max_queue_size < 0:
             raise ValueError(

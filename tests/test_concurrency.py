@@ -5,6 +5,8 @@ and doesn't have race conditions.
 """
 
 import asyncio
+import threading
+import time
 from typing import Annotated
 
 import pytest
@@ -17,6 +19,8 @@ from batch_llm import (
     ProcessorConfig,
     PydanticAIStrategy,
 )
+from batch_llm.strategies import ExponentialBackoffStrategy, RateLimitStrategy
+from batch_llm.strategies.errors import ErrorInfo
 from batch_llm.testing import MockAgent
 
 
@@ -124,6 +128,234 @@ async def test_concurrent_rate_limit_handling():
     if collected_metrics["rate_limits_hit"] > 0:
         # Verify rate limit was handled
         assert collected_metrics["total_cooldown_time"] > 0
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_requeue_completes_without_deadlock():
+    """Ensure items requeued after rate limiting still complete."""
+
+    class TestRateLimitClassifier:
+        def classify(self, exception: Exception) -> ErrorInfo:
+            message = str(exception).lower()
+            if "resource_exhausted" in message or "429" in message:
+                return ErrorInfo(
+                    is_retryable=False,
+                    is_rate_limit=True,
+                    is_timeout=False,
+                    error_category="rate_limit",
+                    suggested_wait=0.0,
+                )
+            return ErrorInfo(
+                is_retryable=True,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="unknown",
+            )
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(
+        response_factory=mock_response,
+        latency=0.01,
+        rate_limit_on_call=1,  # First call triggers rate limit once
+    )
+
+    from batch_llm.core import RateLimitConfig
+
+    config = ProcessorConfig(
+        max_workers=2,
+        timeout_per_item=1.0,
+        rate_limit=RateLimitConfig(
+            cooldown_seconds=0.01,
+            slow_start_items=0,
+            slow_start_initial_delay=0.0,
+            slow_start_final_delay=0.0,
+            backoff_multiplier=1.0,
+        ),
+    )
+
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        config=config,
+        error_classifier=TestRateLimitClassifier(),
+    )
+
+    for i in range(3):
+        work_item = LLMWorkItem(
+            item_id=f"item_{i}",
+            strategy=PydanticAIStrategy(agent=mock_agent),
+            prompt=f"Test {i}",
+            context=None,
+        )
+        await processor.add_work(work_item)
+
+    result = await asyncio.wait_for(processor.process_all(), timeout=1.0)
+
+    assert result.succeeded == 3
+    assert result.failed == 0
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_strategy_failure_does_not_block_workers():
+    """Rate limit strategies that raise should not leave workers paused."""
+
+    class FlakyRateLimitStrategy(RateLimitStrategy):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def on_rate_limit(
+            self, worker_id: int, consecutive_limit_count: int
+        ) -> float:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("strategy blew up")
+            return 0.0
+
+        def should_apply_slow_start(self, items_since_resume: int) -> tuple[bool, float]:
+            return (False, 0.0)
+
+    flaky_strategy = FlakyRateLimitStrategy()
+
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        rate_limit_strategy=flaky_strategy,
+    )
+
+    # Simulate rate limit handling directly to ensure internal coordination
+    await asyncio.wait_for(processor._handle_rate_limit(worker_id=0), timeout=0.1)
+
+    assert flaky_strategy.calls == 1
+    assert processor._rate_limit_event.is_set()
+    assert processor._in_cooldown is False
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_backoff_multiplier_config_applied():
+    """Configured backoff multiplier should reach the exponential strategy."""
+
+    from batch_llm.core import RateLimitConfig
+
+    rate_limit_config = RateLimitConfig(
+        cooldown_seconds=2.0,
+        backoff_multiplier=3.0,
+    )
+    config = ProcessorConfig(max_workers=1, rate_limit=rate_limit_config)
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
+
+    assert isinstance(processor.rate_limit_strategy, ExponentialBackoffStrategy)
+    strategy = processor.rate_limit_strategy
+
+    first = await strategy.on_rate_limit(0, 1)
+    second = await strategy.on_rate_limit(0, 2)
+
+    assert first == pytest.approx(2.0)
+    assert second == pytest.approx(6.0)
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_timeout_for_sync_function():
+    """Progress callback timeout should prevent synchronous hooks from blocking."""
+
+    call_counter = {"count": 0}
+    invoked = threading.Event()
+
+    def slow_progress_callback(completed: int, total: int, current_item: str) -> None:
+        call_counter["count"] += 1
+        invoked.set()
+        time.sleep(0.2)  # Would block the worker without timeout handling
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+
+    from batch_llm.core import RateLimitConfig
+
+    config = ProcessorConfig(
+        max_workers=1,
+        timeout_per_item=1.0,
+        progress_interval=1,
+        progress_callback_timeout=0.05,
+        rate_limit=RateLimitConfig(
+            cooldown_seconds=0.01,
+            slow_start_items=0,
+            slow_start_initial_delay=0.0,
+            slow_start_final_delay=0.0,
+            backoff_multiplier=1.0,
+        ),
+    )
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        config=config, progress_callback=slow_progress_callback
+    )
+
+    work_item = LLMWorkItem(
+        item_id="sync_timeout",
+        strategy=PydanticAIStrategy(agent=mock_agent),
+        prompt="Test",
+        context=None,
+    )
+    await processor.add_work(work_item)
+
+    start = time.perf_counter()
+    result = await asyncio.wait_for(processor.process_all(), timeout=2.0)
+    duration = time.perf_counter() - start
+
+    assert result.succeeded == 1
+    assert call_counter["count"] == 1
+    assert invoked.is_set()
+    assert duration < 0.3, f"Processing stalled for {duration:.2f}s despite timeout"
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_timeout_for_async_function():
+    """Progress callback timeout should cancel long async hooks."""
+
+    call_counter = {"count": 0}
+
+    async def slow_async_callback(
+        completed: int, total: int, current_item: str
+    ) -> None:
+        call_counter["count"] += 1
+        await asyncio.sleep(0.2)
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+
+    from batch_llm.core import RateLimitConfig
+
+    config = ProcessorConfig(
+        max_workers=1,
+        timeout_per_item=1.0,
+        progress_interval=1,
+        progress_callback_timeout=0.05,
+        rate_limit=RateLimitConfig(
+            cooldown_seconds=0.01,
+            slow_start_items=0,
+            slow_start_initial_delay=0.0,
+            slow_start_final_delay=0.0,
+            backoff_multiplier=1.0,
+        ),
+    )
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        config=config, progress_callback=slow_async_callback
+    )
+
+    work_item = LLMWorkItem(
+        item_id="async_timeout",
+        strategy=PydanticAIStrategy(agent=mock_agent),
+        prompt="Test",
+        context=None,
+    )
+    await processor.add_work(work_item)
+
+    start = time.perf_counter()
+    result = await asyncio.wait_for(processor.process_all(), timeout=2.0)
+    duration = time.perf_counter() - start
+
+    assert result.succeeded == 1
+    assert call_counter["count"] == 1
+    assert duration < 0.3, f"Processing stalled for {duration:.2f}s despite timeout"
 
 
 @pytest.mark.asyncio
