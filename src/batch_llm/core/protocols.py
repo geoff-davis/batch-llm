@@ -5,7 +5,8 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 
 # Constrain output to Pydantic models for validation
-TOutput = TypeVar("TOutput", bound=BaseModel)
+# Use covariant for protocols (output positions only)
+TOutput = TypeVar("TOutput", bound=BaseModel, covariant=True)
 
 
 class AgentLike(Protocol[TOutput]):

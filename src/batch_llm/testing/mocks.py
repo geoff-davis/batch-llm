@@ -3,7 +3,9 @@
 import asyncio
 import random
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+TOutput = TypeVar("TOutput")
 
 
 class MockUsage:
@@ -16,10 +18,10 @@ class MockUsage:
         self.total_tokens = request_tokens + response_tokens
 
 
-class MockResult:
+class MockResult(Generic[TOutput]):
     """Mock agent result."""
 
-    def __init__(self, output: Any, usage_info: MockUsage | None = None):
+    def __init__(self, output: TOutput, usage_info: MockUsage | None = None):
         """
         Initialize mock result.
 
@@ -39,12 +41,12 @@ class MockResult:
         return []
 
 
-class MockAgent:
+class MockAgent(Generic[TOutput]):
     """Mock agent for testing."""
 
     def __init__(
         self,
-        response_factory: Callable[[str], Any] | None = None,
+        response_factory: Callable[[str], TOutput] | None = None,
         latency: float = 0.1,
         failure_rate: float = 0.0,
         rate_limit_on_call: int | None = None,
@@ -60,7 +62,7 @@ class MockAgent:
             rate_limit_on_call: Call number to simulate rate limit (1-indexed, only triggers once)
             timeout_on_call: Call number to simulate timeout (1-indexed, only triggers once)
         """
-        self.response_factory = response_factory or self._default_response
+        self.response_factory: Callable[[str], TOutput] = response_factory or self._default_response  # type: ignore[assignment,unused-ignore]
         self.latency = latency
         self.failure_rate = failure_rate
         self.rate_limit_on_call = rate_limit_on_call
@@ -69,11 +71,11 @@ class MockAgent:
         self._rate_limit_triggered = False
         self._timeout_triggered = False
 
-    def _default_response(self, prompt: str) -> dict:
+    def _default_response(self, prompt: str) -> Any:
         """Default response generator."""
         return {"response": f"Mock response to: {prompt[:50]}"}
 
-    async def run(self, prompt: str, **kwargs) -> MockResult:
+    async def run(self, prompt: str, **kwargs) -> MockResult[TOutput]:
         """
         Simulate agent.run().
 

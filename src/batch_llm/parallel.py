@@ -328,7 +328,7 @@ class ParallelBatchProcessor(
                     current_item = work_item.item_id
 
             # Invoke progress callback outside of lock
-            if should_call_progress:
+            if should_call_progress and self.progress_callback is not None:
                 try:
                     result_or_none = self.progress_callback(completed, total, current_item)
                     if asyncio.iscoroutine(result_or_none):
@@ -487,13 +487,19 @@ class ParallelBatchProcessor(
 
             # Strategy 3: Custom _failed_token_usage attribute (set by this framework)
             if hasattr(exception, '__dict__') and '_failed_token_usage' in exception.__dict__:
-                return exception.__dict__['_failed_token_usage']
+                failed_usage = exception.__dict__['_failed_token_usage']
+                if isinstance(failed_usage, dict):
+                    return failed_usage
 
         except Exception:
             # Extraction failed - return empty dict
             pass
 
-        return {}
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+        }
 
 
     async def _process_item_with_retries(
@@ -586,6 +592,9 @@ class ParallelBatchProcessor(
 
                     if wait_time > 0:
                         await asyncio.sleep(wait_time)
+
+            # Unreachable - all paths raise or return
+            raise RuntimeError(f"Unexpected: all retry attempts should have raised for {work_item.item_id}")
         finally:
             # Call cleanup() once after all retries complete (success or failure)
             try:
@@ -597,7 +606,7 @@ class ParallelBatchProcessor(
         """Get the LLM call strategy for this work item."""
         return work_item.strategy
 
-    async def _process_item(
+    async def _process_item(  # type: ignore[override]
         self, work_item: LLMWorkItem[TInput, TOutput, TContext], worker_id: int, attempt_number: int = 1, strategy: LLMCallStrategy[TOutput] | None = None
     ) -> WorkItemResult[TOutput, TContext]:
         """Process a single work item using the provided strategy."""
@@ -630,6 +639,10 @@ class ParallelBatchProcessor(
             logger.debug(f"[STRATEGY] Starting strategy.execute() for {work_item.item_id} (attempt {attempt_number}, timeout={self.config.timeout_per_item}s)")
             llm_start_time = time.time()
 
+            # Ensure strategy is not None (it shouldn't be since we always pass it)
+            if strategy is None:
+                raise RuntimeError("Strategy is None in _process_item - this should not happen")
+
             try:
                 # Dry-run mode: skip actual API call
                 if self.config.dry_run:
@@ -637,15 +650,16 @@ class ParallelBatchProcessor(
                     await asyncio.sleep(0.1)  # Simulate brief processing
                     # Return mock output based on result_type
                     from pydantic import BaseModel
+                    output: TOutput
                     if hasattr(strategy, 'agent') and hasattr(strategy.agent, 'result_type'):
                         result_type = strategy.agent.result_type
                         if isinstance(result_type, type) and issubclass(result_type, BaseModel):
                             # Create instance with default values
-                            output = result_type()
+                            output = result_type()  # type: ignore[assignment]
                         else:
-                            output = f"[DRY-RUN] Mock output for {work_item.item_id}"
+                            output = f"[DRY-RUN] Mock output for {work_item.item_id}"  # type: ignore[assignment]
                     else:
-                        output = f"[DRY-RUN] Mock output for {work_item.item_id}"
+                        output = f"[DRY-RUN] Mock output for {work_item.item_id}"  # type: ignore[assignment]
                     token_usage = {
                         "input_tokens": 100,
                         "output_tokens": 50,
@@ -772,26 +786,29 @@ class ParallelBatchProcessor(
 
                     try:
                         # Walk the exception chain to find ValidationError and raw response
-                        current = e
+                        exc_chain_current = e
                         depth = 0
-                        while current and depth < 10:
+                        while exc_chain_current and depth < 10:
                             # Try to extract raw response
-                            if hasattr(current, 'response'):
-                                raw_response = str(current.response)[:1000]
-                            if hasattr(current, 'messages'):
+                            if hasattr(exc_chain_current, 'response'):
+                                raw_response = str(exc_chain_current.response)[:1000]
+                            if hasattr(exc_chain_current, 'messages'):
                                 try:
-                                    raw_response = str(current.messages)[:1000]
+                                    raw_response = str(exc_chain_current.messages)[:1000]
                                 except Exception:
                                     pass
 
                             # Check if this is a ValidationError
                             from pydantic import ValidationError
-                            if isinstance(current, ValidationError):
-                                underlying_validation_error = current
+                            if isinstance(exc_chain_current, ValidationError):
+                                underlying_validation_error = exc_chain_current
                                 break
 
                             # Move to cause
-                            current = getattr(current, '__cause__', None)
+                            next_cause = getattr(exc_chain_current, '__cause__', None)
+                            if next_cause is None or not isinstance(next_cause, BaseException):
+                                break
+                            exc_chain_current = next_cause
                             depth += 1
                     except Exception:
                         pass
@@ -800,7 +817,7 @@ class ParallelBatchProcessor(
                     try:
                         from pydantic import ValidationError
                         if underlying_validation_error or isinstance(e, ValidationError):
-                            validation_err = underlying_validation_error or e
+                            validation_err: ValidationError = underlying_validation_error or e  # type: ignore[assignment]
                             error_details = []
                             for err in validation_err.errors():
                                 field_path = ' -> '.join(str(loc) for loc in err['loc'])
@@ -828,11 +845,14 @@ class ParallelBatchProcessor(
                                 f"  Exception chain:"
                             )
                             # Show exception chain for debugging
-                            current = e
+                            current: BaseException | None = e
                             depth = 0
                             while current and depth < 5:
                                 log_msg += f"\n    {depth}: {type(current).__name__}: {str(current)[:200]}"
-                                current = getattr(current, '__cause__', None)
+                                next_cause = getattr(current, '__cause__', None)
+                                if next_cause is None or not isinstance(next_cause, BaseException):
+                                    break
+                                current = next_cause
                                 depth += 1
                             if raw_response:
                                 log_msg += f"\n  Raw LLM response (first 1000 chars):\n{raw_response}"

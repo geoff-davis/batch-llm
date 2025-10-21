@@ -145,10 +145,10 @@ class GeminiStrategy(LLMCallStrategy[TOutput]):
 
         # Extract token usage
         usage = response.usage_metadata
-        tokens = {
-            "input_tokens": usage.prompt_token_count if usage else 0,
-            "output_tokens": usage.candidates_token_count if usage else 0,
-            "total_tokens": usage.total_token_count if usage else 0,
+        tokens: dict[str, int] = {
+            "input_tokens": usage.prompt_token_count or 0 if usage else 0,
+            "output_tokens": usage.candidates_token_count or 0 if usage else 0,
+            "total_tokens": usage.total_token_count or 0 if usage else 0,
         }
 
         return output, tokens
@@ -201,12 +201,13 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
         self.cache_refresh_threshold = cache_refresh_threshold
         self.config = config
 
-        self._cache = None
-        self._cache_created_at = None
+        self._cache: Any = None  # Type: CachedContent after prepare()
+        self._cache_created_at: float | None = None
 
     async def prepare(self) -> None:
         """Create the Gemini cache."""
-        self._cache = await self.client.aio.caches.create(
+        # Google genai API - type stubs may be incomplete
+        self._cache = await self.client.aio.caches.create(  # type: ignore[call-arg]
             model=self.model,
             contents=self.cached_content,
             ttl=f"{self.cache_ttl_seconds}s",
@@ -225,18 +226,20 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
             raise RuntimeError("Cache not initialized - prepare() was not called")
 
         # Check if cache is close to expiring and refresh if needed
+        if self._cache_created_at is None:
+            raise RuntimeError("Cache timestamp not set - prepare() was not called properly")
         elapsed = time.time() - self._cache_created_at
         remaining = self.cache_ttl_seconds - elapsed
 
         if remaining < (self.cache_ttl_seconds * self.cache_refresh_threshold):
-            # Refresh cache TTL
-            self._cache = await self.client.aio.caches.update(
+            # Refresh cache TTL - Google genai API, type stubs may be incomplete
+            self._cache = await self.client.aio.caches.update(  # type: ignore[call-arg]
                 name=self._cache.name, ttl=f"{self.cache_ttl_seconds}s"
             )
             self._cache_created_at = time.time()
 
-        # Make the call using the cache
-        response = await self.client.aio.models.generate_content(
+        # Make the call using the cache - Google genai API, type stubs may be incomplete
+        response = await self.client.aio.models.generate_content(  # type: ignore[call-arg]
             model=self.model,
             contents=prompt,
             config=self.config,
@@ -248,12 +251,12 @@ class GeminiCachedStrategy(LLMCallStrategy[TOutput]):
 
         # Extract token usage (cached tokens counted separately)
         usage = response.usage_metadata
-        tokens = {
-            "input_tokens": usage.prompt_token_count if usage else 0,
-            "output_tokens": usage.candidates_token_count if usage else 0,
-            "total_tokens": usage.total_token_count if usage else 0,
+        tokens: dict[str, int] = {
+            "input_tokens": usage.prompt_token_count or 0 if usage else 0,
+            "output_tokens": usage.candidates_token_count or 0 if usage else 0,
+            "total_tokens": usage.total_token_count or 0 if usage else 0,
             "cached_input_tokens": (
-                usage.cached_content_token_count
+                usage.cached_content_token_count or 0
                 if usage and hasattr(usage, "cached_content_token_count")
                 else 0
             ),

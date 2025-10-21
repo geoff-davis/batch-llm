@@ -12,7 +12,7 @@ class MetricsObserver(BaseObserver):
 
     def __init__(self):
         """Initialize metrics collector."""
-        self.metrics = {
+        self.metrics: dict[str, Any] = {
             "items_processed": 0,
             "items_succeeded": 0,
             "items_failed": 0,
@@ -70,7 +70,15 @@ class MetricsObserver(BaseObserver):
 
     def reset(self) -> None:
         """Reset all metrics."""
-        self.__init__()
+        self.metrics = {
+            "items_processed": 0,
+            "items_succeeded": 0,
+            "items_failed": 0,
+            "rate_limits_hit": 0,
+            "total_cooldown_time": 0.0,
+            "processing_times": [],
+            "error_counts": {},
+        }
 
     async def export_json(self) -> str:
         """Export metrics as JSON string.
