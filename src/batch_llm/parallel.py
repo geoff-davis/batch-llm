@@ -465,7 +465,7 @@ class ParallelBatchProcessor(
             self._in_cooldown = False
             self._rate_limit_event.set()  # Resume all workers
 
-        payload = {"duration": actual_duration}
+        payload: dict[str, float | str] = {"duration": actual_duration}
         if error is not None:
             payload["error"] = str(error)[:200]
 

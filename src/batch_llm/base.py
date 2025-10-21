@@ -180,7 +180,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         if progress_callback is not None:
             self._progress_callback_is_async = asyncio.iscoroutinefunction(progress_callback) or (
                 callable(progress_callback)
-                and asyncio.iscoroutinefunction(progress_callback.__call__)
+                and asyncio.iscoroutinefunction(progress_callback.__call__)  # type: ignore[operator]
             )
         self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = asyncio.Queue(
             maxsize=max_queue_size
@@ -382,15 +382,17 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         if self.progress_callback is None:
             return
         if self._progress_callback_is_async:
-            callback_awaitable = self.progress_callback(  # type: ignore[misc]
-                completed, total, current_item
-            )
+            callback_awaitable = self.progress_callback(completed, total, current_item)
         else:
+            # Cast to sync callable since we know it's not async at this point
             callback_awaitable = asyncio.to_thread(
-                self.progress_callback, completed, total, current_item
+                self.progress_callback,  # type: ignore[arg-type]
+                completed,
+                total,
+                current_item,
             )
 
-        callback_task = asyncio.create_task(callback_awaitable)
+        callback_task: asyncio.Task[None] = asyncio.create_task(callback_awaitable)  # type: ignore[arg-type]
         self._track_progress_task(callback_task, log_exceptions=True)
 
         if self.progress_callback_timeout is not None:
