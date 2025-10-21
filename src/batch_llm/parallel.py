@@ -228,16 +228,18 @@ class ParallelBatchProcessor(
 
         while True:
             try:
-                work_item = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                if work_item is None:  # Sentinel value
-                    self._queue.task_done()
-                    logger.info(f"✓ Worker {worker_id} finished (no more work)")
-                    await self._emit_event(
-                        ProcessingEvent.WORKER_STOPPED, {"worker_id": worker_id}
-                    )
-                    return
-            except TimeoutError:
-                continue
+                work_item = await self._queue.get()
+            except asyncio.CancelledError:
+                logger.info(f"⚠️  Worker {worker_id} cancelled while waiting for work")
+                raise
+
+            if work_item is None:  # Sentinel value
+                self._queue.task_done()
+                logger.info(f"✓ Worker {worker_id} finished (no more work)")
+                await self._emit_event(
+                    ProcessingEvent.WORKER_STOPPED, {"worker_id": worker_id}
+                )
+                return
 
             logger.info(f"ℹ️  [Worker {worker_id}] Picked up {work_item.item_id} from queue")
 
