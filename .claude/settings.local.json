@@ -4,7 +4,8 @@
       "Bash(uv run pytest:*)",
       "Bash(uv run ruff:*)",
       "Bash(uv run:*)",
-      "Bash(markdownlint-cli2:*)"
+      "Bash(markdownlint-cli2:*)",
+      "Bash(make:*)"
     ],
     "deny": [],
     "ask": []
