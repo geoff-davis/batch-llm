@@ -128,6 +128,7 @@ class ParallelBatchProcessor(
         self._rate_limit_event.set()  # Start in "not paused" state
         self._in_cooldown = False
         self._items_since_resume = 0
+        self._slow_start_active = False
         self._consecutive_rate_limits = 0
 
         # Thread safety locks
@@ -244,12 +245,22 @@ class ParallelBatchProcessor(
             await self._rate_limit_event.wait()
 
             # Slow start after rate limit recovery (thread-safe)
+            should_delay = False
+            delay = 0.0
+
             async with self._rate_limit_lock:
-                should_delay, delay = self.rate_limit_strategy.should_apply_slow_start(
-                    self._items_since_resume
-                )
-                if should_delay:
-                    self._items_since_resume += 1
+                if self._slow_start_active:
+                    should_delay, delay = (
+                        self.rate_limit_strategy.should_apply_slow_start(
+                            self._items_since_resume
+                        )
+                    )
+                    if should_delay:
+                        self._items_since_resume += 1
+                    else:
+                        # Slow-start window finished; reset counters until next rate limit
+                        self._slow_start_active = False
+                        self._items_since_resume = 0
 
             if should_delay:
                 await asyncio.sleep(delay)
@@ -397,6 +408,7 @@ class ParallelBatchProcessor(
                 return  # Another worker is already handling it
 
             self._in_cooldown = True
+            self._slow_start_active = True
             self._consecutive_rate_limits += 1
             self._rate_limit_event.clear()  # Pause all workers
             consecutive = self._consecutive_rate_limits

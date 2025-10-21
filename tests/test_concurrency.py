@@ -359,6 +359,127 @@ async def test_progress_callback_timeout_for_async_function():
 
 
 @pytest.mark.asyncio
+async def test_slow_start_skipped_before_rate_limit():
+    """Slow-start delays should not run before any rate limit is encountered."""
+
+    class TrackingSlowStartStrategy(RateLimitStrategy):
+        def __init__(self) -> None:
+            self.calls: list[int] = []
+
+        async def on_rate_limit(
+            self, worker_id: int, consecutive_limit_count: int
+        ) -> float:
+            return 0.0
+
+        def should_apply_slow_start(
+            self, items_since_resume: int
+        ) -> tuple[bool, float]:
+            self.calls.append(items_since_resume)
+            return (True, 0.0)
+
+    strategy = TrackingSlowStartStrategy()
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.001)
+
+    config = ProcessorConfig(max_workers=1, timeout_per_item=5.0)
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        config=config, rate_limit_strategy=strategy
+    )
+
+    for i in range(5):
+        await processor.add_work(
+            LLMWorkItem(
+                item_id=f"no_rl_{i}",
+                strategy=PydanticAIStrategy(agent=mock_agent),
+                prompt=f"Test {i}",
+                context=None,
+            )
+        )
+
+    result = await processor.process_all()
+
+    assert result.succeeded == 5
+    assert strategy.calls == []
+
+
+@pytest.mark.asyncio
+async def test_slow_start_engages_after_rate_limit():
+    """Slow-start delays activate only after a rate limit event."""
+
+    class TrackingSlowStartStrategy(RateLimitStrategy):
+        def __init__(self, slow_calls: int = 2) -> None:
+            self.calls: list[int] = []
+            self._slow_calls = slow_calls
+
+        async def on_rate_limit(
+            self, worker_id: int, consecutive_limit_count: int
+        ) -> float:
+            return 0.0
+
+        def should_apply_slow_start(
+            self, items_since_resume: int
+        ) -> tuple[bool, float]:
+            self.calls.append(items_since_resume)
+            if len(self.calls) > self._slow_calls:
+                return (False, 0.0)
+            return (True, 0.0)
+
+    strategy = TrackingSlowStartStrategy()
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(
+        response_factory=mock_response, latency=0.001, rate_limit_on_call=1
+    )
+
+    class TestRateLimitClassifier:
+        def classify(self, exception: Exception) -> ErrorInfo:
+            message = str(exception).lower()
+            if "resource_exhausted" in message or "429" in message:
+                return ErrorInfo(
+                    is_retryable=False,
+                    is_rate_limit=True,
+                    is_timeout=False,
+                    error_category="rate_limit",
+                    suggested_wait=0.0,
+                )
+            return ErrorInfo(
+                is_retryable=True,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="unknown",
+            )
+
+    config = ProcessorConfig(max_workers=1, timeout_per_item=5.0)
+    processor = ParallelBatchProcessor[str, TestOutput, None](
+        config=config,
+        error_classifier=TestRateLimitClassifier(),
+        rate_limit_strategy=strategy,
+    )
+
+    for i in range(3):
+        await processor.add_work(
+            LLMWorkItem(
+                item_id=f"rl_{i}",
+                strategy=PydanticAIStrategy(agent=mock_agent),
+                prompt=f"Test {i}",
+                context=None,
+            )
+        )
+
+    result = await asyncio.wait_for(processor.process_all(), timeout=2.0)
+
+    assert result.succeeded == 3
+    assert strategy.calls != []
+    assert strategy.calls[0] == 0
+    assert strategy.calls[1] == 1
+
+
+@pytest.mark.asyncio
 async def test_metrics_observer_thread_safety():
     """Test that MetricsObserver correctly counts events under concurrent load."""
 
