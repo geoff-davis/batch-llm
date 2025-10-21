@@ -1,7 +1,7 @@
 """Error classification for different LLM providers."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol
 
 
 @dataclass
@@ -15,9 +15,10 @@ class ErrorInfo:
     suggested_wait: float | None = None
 
 
-class ErrorClassifier(Protocol):
-    """Protocol for classifying LLM provider errors."""
+class ErrorClassifier(ABC):
+    """Abstract base class for classifying LLM provider errors."""
 
+    @abstractmethod
     def classify(self, exception: Exception) -> ErrorInfo:
         """
         Classify an exception and determine handling strategy.
@@ -28,10 +29,10 @@ class ErrorClassifier(Protocol):
         Returns:
             ErrorInfo with classification details
         """
-        ...
+        pass
 
 
-class DefaultErrorClassifier:
+class DefaultErrorClassifier(ErrorClassifier):
     """Default error classifier that handles common error types."""
 
     def classify(self, exception: Exception) -> ErrorInfo:

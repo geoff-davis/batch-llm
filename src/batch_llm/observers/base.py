@@ -1,7 +1,8 @@
 """Observer system for processor events."""
 
+from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any
 
 
 class ProcessingEvent(Enum):
@@ -19,9 +20,10 @@ class ProcessingEvent(Enum):
     BATCH_COMPLETED = "batch_completed"
 
 
-class ProcessorObserver(Protocol):
-    """Observer for processor events."""
+class ProcessorObserver(ABC):
+    """Abstract base class for processor event observers."""
 
+    @abstractmethod
     async def on_event(
         self,
         event: ProcessingEvent,
@@ -34,10 +36,10 @@ class ProcessorObserver(Protocol):
             event: The event type
             data: Event-specific data
         """
-        ...
+        pass
 
 
-class BaseObserver:
+class BaseObserver(ProcessorObserver):
     """Base observer with no-op implementation."""
 
     async def on_event(

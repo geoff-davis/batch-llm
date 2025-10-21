@@ -1,13 +1,15 @@
 """Middleware system for batch processing pipeline."""
 
-from typing import Generic, Protocol
+from abc import ABC, abstractmethod
+from typing import Generic
 
 from ..base import LLMWorkItem, TContext, TInput, TOutput, WorkItemResult
 
 
-class Middleware(Protocol, Generic[TInput, TOutput, TContext]):
-    """Middleware for intercepting processing pipeline."""
+class Middleware(ABC, Generic[TInput, TOutput, TContext]):
+    """Abstract base class for middleware that intercepts the processing pipeline."""
 
+    @abstractmethod
     async def before_process(
         self, work_item: LLMWorkItem[TInput, TOutput, TContext]
     ) -> LLMWorkItem[TInput, TOutput, TContext] | None:
@@ -20,8 +22,9 @@ class Middleware(Protocol, Generic[TInput, TOutput, TContext]):
         Returns:
             Modified work item, or None to skip processing this item
         """
-        ...
+        pass
 
+    @abstractmethod
     async def after_process(
         self, result: WorkItemResult[TOutput, TContext]
     ) -> WorkItemResult[TOutput, TContext]:
@@ -34,8 +37,9 @@ class Middleware(Protocol, Generic[TInput, TOutput, TContext]):
         Returns:
             Modified result (can add metadata, modify output, etc.)
         """
-        ...
+        pass
 
+    @abstractmethod
     async def on_error(
         self,
         work_item: LLMWorkItem[TInput, TOutput, TContext],
@@ -51,10 +55,10 @@ class Middleware(Protocol, Generic[TInput, TOutput, TContext]):
         Returns:
             Custom result to use instead of error, or None to use default error handling
         """
-        ...
+        pass
 
 
-class BaseMiddleware(Generic[TInput, TOutput, TContext]):
+class BaseMiddleware(Middleware[TInput, TOutput, TContext]):
     """Base middleware with no-op implementations."""
 
     async def before_process(
