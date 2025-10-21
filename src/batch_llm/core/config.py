@@ -155,8 +155,11 @@ class ProcessorConfig:
             max_total_retry_wait += wait_time
 
         if max_total_retry_wait > 0 and self.timeout_per_item < max_total_retry_wait * 0.5:
+            jitter_note = (
+                " (with jitter, actual delays will be 50-100% of this)" if self.retry.jitter else ""
+            )
             logger.warning(
                 f"timeout_per_item ({self.timeout_per_item}s) may be too short for retry strategy. "
-                f"With {self.retry.max_attempts} attempts, retry delays could total up to {max_total_retry_wait:.1f}s. "
+                f"With {self.retry.max_attempts} attempts, retry delays could total up to {max_total_retry_wait:.1f}s{jitter_note}. "
                 f"Consider increasing timeout_per_item to at least {max_total_retry_wait * 2:.1f}s."
             )

@@ -627,6 +627,14 @@ class ParallelBatchProcessor(
                             self.config.retry.max_wait,
                         )
 
+                        # Apply jitter if enabled to prevent thundering herd
+                        if self.config.retry.jitter:
+                            import random
+
+                            # Apply jitter: multiply by random factor between 0.5 and 1.0
+                            # This reduces wait time by up to 50% to spread out retries
+                            wait_time = wait_time * (0.5 + random.random() * 0.5)
+
                     # Log retry attempt
                     error_snippet = str(e)[:150]
                     if is_validation_error:
