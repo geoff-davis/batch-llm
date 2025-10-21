@@ -553,7 +553,7 @@ processor = ParallelBatchProcessor(
 ## Documentation
 
 - **[API Reference](docs/API.md)** - Complete API documentation
-- **[Migration Guide](docs/MIGRATION_V3.md)** - Upgrading from v2.x
+- **[Migration Guide](docs/MIGRATION_V3.md)** - Upgrading from v0.0.x
 - **[Examples](examples/)** - Working examples for all providers
 
 ---
