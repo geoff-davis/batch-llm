@@ -28,6 +28,10 @@ from .strategies import (
 
 logger = logging.getLogger(__name__)
 
+# Timeout constants (seconds)
+OBSERVER_CALLBACK_TIMEOUT = 5.0  # Observer events should complete quickly
+POST_PROCESSOR_TIMEOUT = 90.0  # Post-processors may do database/IO work
+
 
 class RateLimitException(Exception):
     """Exception raised when rate limit is detected. Triggers cooldown and item re-queue."""
@@ -161,10 +165,12 @@ class ParallelBatchProcessor(
             try:
                 await asyncio.wait_for(
                     observer.on_event(event, event_data),
-                    timeout=5.0,  # 5 second timeout for observer callbacks
+                    timeout=OBSERVER_CALLBACK_TIMEOUT,
                 )
             except TimeoutError:
-                logger.warning(f"⚠️  Observer callback timed out after 5s for event {event.name}")
+                logger.warning(
+                    f"⚠️  Observer callback timed out after {OBSERVER_CALLBACK_TIMEOUT}s for event {event.name}"
+                )
             except Exception as e:
                 logger.warning(f"⚠️  Observer error: {e}")
 
@@ -342,7 +348,9 @@ class ParallelBatchProcessor(
             # Most post-processors return early for failures, but some may want to
             # save failed items (e.g., dedupe_authors saves failed clusters as singletons)
             try:
-                await asyncio.wait_for(self._run_post_processor(result), timeout=90.0)
+                await asyncio.wait_for(
+                    self._run_post_processor(result), timeout=POST_PROCESSOR_TIMEOUT
+                )
             except TimeoutError:
                 logger.error(f"⏱ Post-processor exceeded timeout for {work_item.item_id}")
 

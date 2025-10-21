@@ -20,6 +20,12 @@ TContext = TypeVar("TContext")  # Optional context passed through
 # Module-level logger
 logger = logging.getLogger(__name__)
 
+# Timeout constants (seconds)
+WORKER_CANCELLATION_TIMEOUT = 2.0  # Time to wait for workers to cancel gracefully
+WORKER_SHUTDOWN_TIMEOUT = 30.0  # Time to wait for workers to finish after queue is done
+POST_PROCESSOR_EXECUTION_TIMEOUT = 75.0  # Maximum time for post-processor to execute
+PROGRESS_TASK_CANCELLATION_TIMEOUT = 2.0  # Time to wait for progress callbacks to cancel
+
 
 @dataclass
 class LLMWorkItem(Generic[TInput, TOutput, TContext]):
@@ -220,7 +226,8 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             # Wait briefly for cancellations
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self._workers, return_exceptions=True), timeout=2.0
+                    asyncio.gather(*self._workers, return_exceptions=True),
+                    timeout=WORKER_CANCELLATION_TIMEOUT,
                 )
             except TimeoutError:
                 logger.warning("Some workers did not cancel within timeout")
@@ -240,7 +247,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             try:
                 await asyncio.wait_for(
                     asyncio.gather(*self._progress_tasks, return_exceptions=True),
-                    timeout=2.0,
+                    timeout=PROGRESS_TASK_CANCELLATION_TIMEOUT,
                 )
             except asyncio.TimeoutError:
                 logger.warning("⚠️  Some progress callbacks did not cancel in time")
@@ -287,12 +294,12 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         try:
             await asyncio.wait_for(
                 asyncio.gather(*self._workers),
-                timeout=30.0,  # 30 second timeout for workers to clean up
+                timeout=WORKER_SHUTDOWN_TIMEOUT,
             )
             logger.info(f"✓ All {len(self._workers)} workers finished successfully")
         except TimeoutError:
             logger.error(
-                "⚠️  Workers did not finish within 30 seconds after queue.join(). "
+                f"⚠️  Workers did not finish within {WORKER_SHUTDOWN_TIMEOUT}s after queue.join(). "
                 "Cancelling workers and proceeding..."
             )
             # Cancel any workers that are still running
@@ -302,7 +309,8 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             # Wait briefly for cancellations to complete
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self._workers, return_exceptions=True), timeout=5.0
+                    asyncio.gather(*self._workers, return_exceptions=True),
+                    timeout=WORKER_CANCELLATION_TIMEOUT * 2.5,  # Allow more time during shutdown
                 )
             except TimeoutError:
                 logger.error("⚠️  Some workers could not be cancelled")
@@ -355,9 +363,11 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             if asyncio.iscoroutine(await_result):
                 # Inner timeout for the post-processor execution itself
                 # (Outer timeout at worker level handles semaphore waits)
-                await asyncio.wait_for(await_result, timeout=75.0)
+                await asyncio.wait_for(await_result, timeout=POST_PROCESSOR_EXECUTION_TIMEOUT)
         except TimeoutError:
-            logger.error(f"✗ Post-processor execution timed out after 75s for {result.item_id}")
+            logger.error(
+                f"✗ Post-processor execution timed out after {POST_PROCESSOR_EXECUTION_TIMEOUT}s for {result.item_id}"
+            )
         except Exception as e:
             # Log error with full details - this is critical for debugging
             import traceback
