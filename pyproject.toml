@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "batch-llm"
-version = "2.0.2"
-description = "A flexible framework for processing multiple LLM requests efficiently with support for PydanticAI agents, direct API calls, and custom factories"
+version = "3.0.0"
+description = "Provider-agnostic framework for high-throughput LLM processing with async workers, automatic retries, rate limiting, and intelligent validation recovery."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -13,25 +13,39 @@ authors = [
     {name = "Geoff Davis", email = "geoff@keksi.ai"}
 ]
 keywords = [
-    "llm",
+    "LLM",
+    "asyncio",
     "batch-processing",
-    "pydantic-ai",
-    "async",
+    "AI",
+    "orchestration",
+    "pydantic",
+    "gemini",
+    "openai",
+    "anthropic",
+    "langchain",
     "parallel",
-    "ai",
-    "machine-learning",
+    "rate-limiting",
+    "retry",
+    "structured-output",
+    "prompt-engineering"
 ]
+
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Libraries",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: AsyncIO",
+    "Operating System :: OS Independent"
 ]
+
 dependencies = [
     "pydantic>=2.0.0",
 ]
@@ -56,10 +70,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/batch-llm"
-Documentation = "https://github.com/yourusername/batch-llm#readme"
-Repository = "https://github.com/yourusername/batch-llm"
-Issues = "https://github.com/yourusername/batch-llm/issues"
+Homepage = "https://github.com/geoff-davis/batch-llm"
+Documentation = "https://github.com/geoff-davis/batch-llm#readme"
+Repository = "https://github.com/geoff-davis/batch-llm"
+Issues = "https://github.com/geoff-davis/batch-llm/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/batch_llm"]
