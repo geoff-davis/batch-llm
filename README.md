@@ -22,6 +22,45 @@ with built-in error handling, retry logic, and observability.
 
 ---
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [Basic Example (PydanticAI)](#basic-example-pydanticai)
+- [Features](#features)
+  - [Strategy Pattern for Any LLM Provider](#-strategy-pattern-for-any-llm-provider)
+  - [Automatic Retry Logic](#-automatic-retry-logic)
+  - [Rate Limiting](#-rate-limiting)
+  - [Middleware & Observers](#-middleware--observers)
+  - [Token Tracking](#-token-tracking)
+- [Automatic Retry on Validation Errors](#automatic-retry-on-validation-errors)
+- [Provider Examples](#provider-examples)
+  - [OpenAI](#openai)
+  - [Anthropic Claude](#anthropic-claude)
+  - [Google Gemini with Caching (RAG)](#google-gemini-with-caching-rag)
+  - [LangChain Integration](#langchain-integration)
+- [Core Concepts](#core-concepts)
+  - [Strategy Pattern](#strategy-pattern)
+  - [Work Items](#work-items)
+  - [Results](#results)
+- [Advanced Usage](#advanced-usage)
+  - [Progressive Temperature on Retries](#progressive-temperature-on-retries)
+  - [Smart Retry with Validation Feedback](#smart-retry-with-validation-feedback)
+  - [Model Escalation for Cost Optimization](#model-escalation-for-cost-optimization)
+  - [Context and Post-Processing](#context-and-post-processing)
+  - [Error Classification](#error-classification)
+- [Configuration Reference](#configuration-reference)
+- [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
+- [Testing](#testing)
+- [Performance](#performance)
+- [FAQ](#faq)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Quick Start
 
 ### Installation
@@ -146,19 +185,79 @@ When any worker hits a rate limit (429 error), **all workers pause** during cool
 
 Extend functionality with middleware and observers:
 
-```python
-from batch_llm import BaseMiddleware, MetricsObserver
+**Middleware** - Transform work items before/after processing:
 
-# Create custom middleware by extending BaseMiddleware
-class CustomMiddleware(BaseMiddleware):
+```python
+from batch_llm import BaseMiddleware
+
+class LoggingMiddleware(BaseMiddleware):
     async def before_process(self, work_item):
-        print(f"Processing {work_item.item_id}")
-        return work_item
+        """Called before processing each item."""
+        print(f"Starting {work_item.item_id}")
+        return work_item  # Return modified or original item
+
+    async def after_process(self, work_item, result):
+        """Called after processing succeeds."""
+        print(f"Completed {work_item.item_id}: {result.success}")
+        return result
+
+    async def on_error(self, work_item, error):
+        """Called when processing fails permanently."""
+        print(f"Failed {work_item.item_id}: {error}")
+```
+
+**Observers** - Monitor events without modifying data:
+
+```python
+from batch_llm import BaseObserver, ProcessingEvent, MetricsObserver
+
+class CustomObserver(BaseObserver):
+    async def on_event(self, event: ProcessingEvent, data: dict):
+        """Receive all processing events."""
+        if event == ProcessingEvent.ITEM_COMPLETED:
+            print(f"Item {data['item_id']} completed")
+        elif event == ProcessingEvent.RATE_LIMIT_HIT:
+            print(f"Rate limit hit at {data['timestamp']}")
+
+# Built-in MetricsObserver collects statistics
+metrics = MetricsObserver()
 
 processor = ParallelBatchProcessor(
     config=config,
-    middlewares=[CustomMiddleware()],
-    observers=[MetricsObserver()],
+    middlewares=[LoggingMiddleware()],
+    observers=[metrics, CustomObserver()],
+)
+
+# After processing, retrieve collected metrics
+result = await processor.process_all()
+collected_metrics = await metrics.get_metrics()
+# Returns: {
+#   "total_items": 100,
+#   "successful": 95,
+#   "failed": 5,
+#   "avg_duration": 1.2,
+#   ...
+# }
+```
+
+**Available Events**:
+- `PROCESSING_STARTED` - Batch processing begins
+- `ITEM_STARTED` - Item processing starts
+- `ITEM_COMPLETED` - Item succeeds
+- `ITEM_FAILED` - Item fails
+- `RATE_LIMIT_HIT` - Rate limit encountered
+- `PROCESSING_COMPLETED` - Batch processing ends
+
+**Progress Callbacks** - Monitor progress in real-time:
+
+```python
+def progress_callback(completed: int, total: int, current_item: str):
+    """Called after each item completes."""
+    print(f"Progress: {completed}/{total} ({100*completed/total:.1f}%) - Current: {current_item}")
+
+config = ProcessorConfig(
+    progress_callback=progress_callback,
+    progress_callback_timeout=5.0,  # Timeout per callback
 )
 ```
 
@@ -236,6 +335,7 @@ async with ParallelBatchProcessor[str, StructuredData, None](config=config) as p
 
 ```python
 from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
 from openai import AsyncOpenAI
 
 class OpenAIStrategy(LLMCallStrategy[str]):
@@ -245,14 +345,14 @@ class OpenAIStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
         )
 
         output = response.choices[0].message.content or ""
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": response.usage.prompt_tokens,
             "output_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
@@ -270,6 +370,8 @@ See [`examples/example_openai.py`](examples/example_openai.py) for complete exam
 ### Anthropic Claude
 
 ```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
 from anthropic import AsyncAnthropic
 
 class AnthropicStrategy(LLMCallStrategy[str]):
@@ -279,7 +381,7 @@ class AnthropicStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=1024,
@@ -287,7 +389,7 @@ class AnthropicStrategy(LLMCallStrategy[str]):
         )
 
         output = response.content[0].text
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
             "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
@@ -333,6 +435,8 @@ strategy = GeminiCachedStrategy(
 ### LangChain Integration
 
 ```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
 from langchain.chains import LLMChain
 from langchain_openai import ChatOpenAI
 
@@ -342,10 +446,15 @@ class LangChainStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         result = await self.chain.arun(input=prompt)
-        # Return result and token usage
-        return result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        # Return result and token usage (if LangChain provides it)
+        tokens: TokenUsage = {
+            "input_tokens": 0,  # Extract from LangChain if available
+            "output_tokens": 0,
+            "total_tokens": 0,
+        }
+        return result, tokens
 
 # Create LangChain components
 llm = ChatOpenAI(model="gpt-4o-mini")
@@ -366,6 +475,9 @@ See [`examples/example_langchain.py`](examples/example_langchain.py) for RAG pip
 All LLM calls go through a `LLMCallStrategy`:
 
 ```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
+
 class LLMCallStrategy(ABC):
     async def prepare(self) -> None:
         """Called once before processing starts. Initialize resources here."""
@@ -373,8 +485,13 @@ class LLMCallStrategy(ABC):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]:
-        """Execute the LLM call. Called for each retry attempt."""
+    ) -> tuple[TOutput, TokenUsage]:
+        """Execute the LLM call. Called for each retry attempt.
+
+        Returns:
+            Tuple of (output, token_usage) where token_usage is a TokenUsage dict
+            with optional keys: input_tokens, output_tokens, total_tokens, cached_input_tokens
+        """
         pass
 
     async def cleanup(self) -> None:
@@ -425,20 +542,33 @@ for item_result in result.results:
 ### Progressive Temperature on Retries
 
 ```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
+
 class ProgressiveTempStrategy(LLMCallStrategy[str]):
     """Increase temperature with each retry attempt."""
 
-    def __init__(self, client, temps=[0.0, 0.5, 1.0]):
+    def __init__(self, client, temps: list[float] | None = None):
         self.client = client
-        self.temps = temps
+        self.temps = temps if temps is not None else [0.0, 0.5, 1.0]
 
-    async def execute(self, prompt: str, attempt: int, timeout: float):
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[str, TokenUsage]:
         # Use higher temperature for retries
         temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
 
         # Make call with progressive temperature
         response = await self.client.generate(prompt, temperature=temp)
-        return response.text, response.token_usage
+
+        # Extract token usage from response
+        tokens: TokenUsage = {
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+        return response.text, tokens
 ```
 
 ### Smart Retry with Validation Feedback
@@ -562,6 +692,556 @@ processor = ParallelBatchProcessor(
 
 ---
 
+## Configuration Reference
+
+### ProcessorConfig
+
+Complete configuration options for `ProcessorConfig`:
+
+```python
+from batch_llm import ProcessorConfig
+from batch_llm.core import RetryConfig, RateLimitConfig
+
+config = ProcessorConfig(
+    # === Core Settings ===
+    max_workers=5,              # Number of parallel workers (default: 5)
+    timeout_per_item=120.0,     # Max seconds per item including retries (default: 120.0)
+
+    # === Retry Configuration ===
+    retry=RetryConfig(
+        max_attempts=3,          # Maximum retry attempts (default: 3)
+        initial_wait=1.0,        # Initial retry delay in seconds (default: 1.0)
+        max_wait=60.0,           # Maximum retry delay (default: 60.0)
+        exponential_base=2.0,    # Backoff multiplier (default: 2.0)
+        jitter=True,             # Add random jitter to prevent thundering herd (default: True)
+    ),
+
+    # === Rate Limit Configuration ===
+    rate_limit=RateLimitConfig(
+        cooldown_seconds=300.0,        # Cooldown after rate limit (default: 300.0 / 5 min)
+        backoff_multiplier=1.5,        # Increase cooldown on repeated limits (default: 1.5)
+        slow_start_items=50,           # Items to ramp up after cooldown (default: 50)
+        slow_start_initial_delay=2.0,  # Initial delay during slow start (default: 2.0)
+        slow_start_final_delay=0.1,    # Final delay after ramp up (default: 0.1)
+    ),
+
+    # === Progress Reporting ===
+    progress_interval=10,              # Log progress every N items (default: 10)
+    progress_callback_timeout=5.0,     # Timeout for progress callbacks (default: 5.0)
+
+    # === Queue Management ===
+    max_queue_size=0,                  # Max items in queue (0 = unlimited, default: 0)
+
+    # === Testing ===
+    dry_run=False,                     # Skip API calls, use mock data (default: False)
+
+    # === Logging ===
+    enable_detailed_logging=False,     # Enable verbose debug logs (default: False)
+)
+```
+
+### Key Configuration Tips
+
+**Worker Count:**
+- **CPU-bound tasks**: `max_workers = cpu_count()`
+- **I/O-bound (LLM calls)**: `max_workers = 5-10`
+- **Rate-limited APIs**: Start with `max_workers = 3-5`, increase gradually
+
+**Timeout Settings:**
+- Set `timeout_per_item` > sum of all retry delays
+- Formula: `timeout_per_item ≥ max_attempts × max_wait × 2`
+- Framework will warn you if timeout is too short
+
+**Retry Strategy:**
+- `jitter=True` prevents all workers retrying simultaneously
+- Exponential backoff: delay = `initial_wait × (exponential_base ^ attempt)`
+- Example: attempt 1 = 1s, attempt 2 = 2s, attempt 3 = 4s
+
+**Rate Limiting:**
+- When any worker hits 429 error, all workers pause
+- `slow_start` gradually resumes processing to avoid immediate re-limiting
+- `backoff_multiplier` increases cooldown if limits persist
+
+**Dry Run Mode:**
+- Set `dry_run=True` to test configuration without API calls
+- Strategies return mock data via `dry_run()` method
+- Useful for validating workflow before spending API credits
+
+---
+
+## Best Practices
+
+### Choosing Worker Count
+
+```python
+import multiprocessing
+
+# For I/O-bound LLM calls (recommended starting point)
+config = ProcessorConfig(max_workers=5)
+
+# For CPU-bound pre/post-processing
+config = ProcessorConfig(max_workers=multiprocessing.cpu_count())
+
+# For rate-limited APIs (start conservatively)
+config = ProcessorConfig(max_workers=3)
+```
+
+### Resource Management
+
+**Always use context managers** for automatic cleanup:
+
+```python
+# ✅ GOOD - Automatic cleanup
+async with ParallelBatchProcessor(config=config) as processor:
+    await processor.add_work(work_item)
+    result = await processor.process_all()
+# Cleanup happens automatically here
+
+# ❌ BAD - Manual cleanup required
+processor = ParallelBatchProcessor(config=config)
+result = await processor.process_all()
+await processor.cleanup()  # Easy to forget!
+```
+
+### Error Handling Strategy
+
+```python
+# Use provider-specific error classifiers when available
+from batch_llm.classifiers import GeminiErrorClassifier
+
+processor = ParallelBatchProcessor(
+    config=config,
+    error_classifier=GeminiErrorClassifier(),  # Better error detection
+)
+
+# Or implement custom classifier for your provider
+from batch_llm import ErrorClassifier, ErrorInfo
+
+class CustomErrorClassifier(ErrorClassifier):
+    def classify(self, exception: Exception) -> ErrorInfo:
+        # Classify provider-specific errors
+        if "RateLimitError" in str(type(exception)):
+            return ErrorInfo(
+                is_retryable=False,
+                is_rate_limit=True,
+                is_timeout=False,
+                error_category="rate_limit",
+                suggested_wait=60.0,
+            )
+        # ... more classifications
+```
+
+### Memory Considerations
+
+Each worker holds one work item in memory at a time. For large batches:
+
+```python
+# For 10,000 items with 10 workers:
+# - In-flight: ~10 items in memory
+# - Results: All 10,000 accumulated in results list
+# - Peak memory: ~10-50MB depending on output size
+
+# If memory is a concern, use post-processor to save results immediately
+async def save_and_clear(result):
+    await db.save(result)
+    # Result will be GC'd after this function returns
+
+processor = ParallelBatchProcessor(
+    config=config,
+    post_processor=save_and_clear,
+)
+```
+
+### Progressive Strategies
+
+Combine multiple strategies for optimal cost/quality:
+
+```python
+class SmartEscalationStrategy(LLMCallStrategy[Output]):
+    """Escalate both model and temperature on retries."""
+
+    CONFIGS = [
+        ("gpt-4o-mini", 0.0),      # Attempt 1: Cheap + deterministic
+        ("gpt-4o-mini", 0.7),      # Attempt 2: Cheap + creative
+        ("gpt-4o", 0.0),           # Attempt 3: Expensive + deterministic
+    ]
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        model, temp = self.CONFIGS[min(attempt - 1, len(self.CONFIGS) - 1)]
+        # Make call with escalated config...
+```
+
+### Testing Before Production
+
+```python
+# 1. Test with dry_run mode
+config = ProcessorConfig(dry_run=True)
+result = await processor.process_all()
+# No API calls made, validates workflow
+
+# 2. Test with MockAgent
+from batch_llm.testing import MockAgent
+
+mock = MockAgent(
+    response_factory=lambda p: YourOutput(...),
+    latency=0.01,
+)
+strategy = PydanticAIStrategy(agent=mock)
+# Fast testing without API
+
+# 3. Test with small batch first
+test_items = your_items[:10]  # Try 10 items first
+# Verify success before processing full batch
+```
+
+---
+
+## Troubleshooting
+
+### Common Errors
+
+#### `FrameworkTimeoutError: Framework timeout after X.Xs`
+
+**Cause**: Item exceeded `timeout_per_item` seconds.
+
+**Solutions**:
+```python
+# 1. Increase timeout
+config = ProcessorConfig(timeout_per_item=300.0)  # 5 minutes
+
+# 2. Check if retry delays fit within timeout
+# timeout_per_item should be > sum of all retry delays
+
+# 3. Review retry configuration
+config = ProcessorConfig(
+    timeout_per_item=120.0,
+    retry=RetryConfig(
+        max_attempts=2,      # Reduce attempts
+        max_wait=20.0,       # Reduce max wait
+    ),
+)
+```
+
+#### `Rate Limit Errors (429)`
+
+**Symptoms**: Logs show "Rate limit detected", all workers pause.
+
+**Solutions**:
+```python
+# 1. Increase cooldown period
+config = ProcessorConfig(
+    rate_limit=RateLimitConfig(
+        cooldown_seconds=600.0,  # 10 minutes
+    ),
+)
+
+# 2. Reduce worker count
+config = ProcessorConfig(max_workers=2)
+
+# 3. Add delays between requests (slow start)
+config = ProcessorConfig(
+    rate_limit=RateLimitConfig(
+        slow_start_items=100,          # Longer ramp up
+        slow_start_initial_delay=5.0,  # Slower start
+    ),
+)
+```
+
+#### `Validation Errors Keep Failing`
+
+**Cause**: LLM consistently returns invalid structured output.
+
+**Solutions**:
+```python
+# 1. Use progressive temperature
+class ProgressiveTempStrategy(LLMCallStrategy[Output]):
+    def __init__(self, agent):
+        self.agent = agent
+        self.temps = [0.0, 0.5, 1.0]
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
+        # Use higher temperature on retries
+        ...
+
+# 2. Improve prompt clarity
+prompt = f"""Extract data in this EXACT JSON format:
+{{
+    "name": "string",
+    "age": integer between 0-150,
+    "email": "valid email address"
+}}
+
+Input: {input_text}
+"""
+
+# 3. Use smart retry with validation feedback
+# See examples/example_gemini_smart_retry.py
+```
+
+#### `Workers Hanging / Not Finishing`
+
+**Symptoms**: `process_all()` never completes, workers timeout warning.
+
+**Debug steps**:
+```python
+import logging
+
+# Enable debug logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Check for:
+# - Deadlocks in post-processor
+# - Infinite loops in middleware
+# - Blocking I/O in callbacks
+```
+
+**Solutions**:
+```python
+# 1. Add timeouts to post-processors
+async def safe_post_processor(result):
+    try:
+        async with asyncio.timeout(10.0):  # 10 second timeout
+            await your_post_processor(result)
+    except asyncio.TimeoutError:
+        logger.warning(f"Post-processor timeout for {result.item_id}")
+
+# 2. Use progress callbacks to monitor
+def progress(completed, total, current):
+    print(f"Progress: {completed}/{total} - Current: {current}")
+
+processor = ParallelBatchProcessor(
+    config=config,
+    progress_callback=progress,
+)
+```
+
+### Performance Issues
+
+#### **Slow Throughput**
+
+```python
+# 1. Check worker count
+config = ProcessorConfig(max_workers=10)  # Increase if CPU allows
+
+# 2. Profile LLM latency
+import time
+
+class TimingStrategy(LLMCallStrategy[Output]):
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        start = time.time()
+        result = await self.base_strategy.execute(prompt, attempt, timeout)
+        logger.info(f"LLM call took {time.time() - start:.2f}s")
+        return result
+
+# 3. Check for rate limiting (look for cooldown logs)
+```
+
+#### **High Memory Usage**
+
+```python
+# Use post-processor to stream results instead of accumulating
+async def stream_to_disk(result):
+    with open(f"results/{result.item_id}.json", "w") as f:
+        json.dump(result.output, f)
+    # Don't keep results in memory
+
+processor = ParallelBatchProcessor(
+    config=config,
+    post_processor=stream_to_disk,
+)
+```
+
+### Debug Logging
+
+```python
+import logging
+
+# Enable detailed framework logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Or enable only for batch_llm
+logging.getLogger('batch_llm').setLevel(logging.DEBUG)
+
+# Enable detailed config validation warnings
+config = ProcessorConfig(
+    enable_detailed_logging=True,
+    # ... other config
+)
+```
+
+---
+
+## FAQ
+
+### General Questions
+
+**Q: How is this different from using threading or multiprocessing?**
+
+A: `batch-llm` uses asyncio for concurrency, which is ideal for I/O-bound LLM API calls:
+- **Threading**: Limited by GIL, complex synchronization
+- **Multiprocessing**: High overhead, can't share data easily
+- **Asyncio (batch-llm)**: Lightweight, efficient for I/O, built-in coordination
+
+**Q: Can I use this with synchronous LLM clients?**
+
+A: Yes, but you need to wrap sync calls in `asyncio.to_thread()`:
+```python
+class SyncClientStrategy(LLMCallStrategy[str]):
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Run sync call in thread pool
+        output = await asyncio.to_thread(
+            self.sync_client.generate, prompt
+        )
+        return output, tokens
+```
+
+**Q: What happens if my process crashes mid-batch?**
+
+A: In-flight items are lost. For critical workloads:
+```python
+# Use post-processor to mark items as completed
+async def mark_complete(result):
+    if result.success:
+        await db.mark_processed(result.item_id)
+
+# On restart, skip already processed items
+unprocessed_items = await db.get_unprocessed()
+```
+
+**Q: How do I handle API key rotation?**
+
+A: Strategies are instantiated once, so update the client:
+```python
+class RotatingKeyStrategy(LLMCallStrategy[Output]):
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Refresh API key if needed
+        if self.should_rotate():
+            self.client.api_key = self.get_next_key()
+        # Make call...
+```
+
+### Configuration Questions
+
+**Q: What's the optimal worker count?**
+
+A: Start with 5, adjust based on:
+- **Too low**: Underutilized resources, slow throughput
+- **Too high**: Rate limits, high memory, diminishing returns
+- **Monitor**: If hitting rate limits, reduce workers; if CPU idle, increase
+
+**Q: Why do I see "timeout may be too short" warnings?**
+
+A: Framework validates that `timeout_per_item` can accommodate retry delays:
+```python
+# Warning triggered if:
+# timeout_per_item < sum_of_retry_delays
+
+# Fix by increasing timeout or reducing retry config
+config = ProcessorConfig(
+    timeout_per_item=180.0,  # Increase
+    retry=RetryConfig(max_attempts=2),  # Or reduce
+)
+```
+
+**Q: What does `dry_run` mode do?**
+
+A: Skips actual API calls, uses mock data:
+```python
+config = ProcessorConfig(dry_run=True)
+# - No API calls made
+# - Strategies return mock via dry_run() method
+# - Useful for testing workflow logic
+```
+
+### Advanced Questions
+
+**Q: Can I mix different strategies in one batch?**
+
+A: Yes! Each work item can have its own strategy:
+```python
+gpt4_strategy = OpenAIStrategy(client, "gpt-4o")
+gpt4_mini_strategy = OpenAIStrategy(client, "gpt-4o-mini")
+
+# Use expensive model for complex items
+await processor.add_work(LLMWorkItem(
+    item_id="complex_1",
+    strategy=gpt4_strategy,
+    prompt="Complex analysis...",
+))
+
+# Use cheap model for simple items
+await processor.add_work(LLMWorkItem(
+    item_id="simple_1",
+    strategy=gpt4_mini_strategy,
+    prompt="Simple summary...",
+))
+```
+
+**Q: How do I implement caching for identical prompts?**
+
+A: Use middleware or custom strategy:
+```python
+class CachingStrategy(LLMCallStrategy[Output]):
+    def __init__(self, base_strategy, cache):
+        self.base_strategy = base_strategy
+        self.cache = cache  # e.g., Redis
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Check cache
+        cached = await self.cache.get(prompt)
+        if cached:
+            return cached, {"cached_input_tokens": 100, ...}
+
+        # Call LLM
+        result, tokens = await self.base_strategy.execute(prompt, attempt, timeout)
+
+        # Cache result
+        await self.cache.set(prompt, result)
+        return result, tokens
+```
+
+**Q: Can I pause/resume processing?**
+
+A: Not directly, but you can implement checkpointing:
+```python
+processed_ids = set()
+
+async def checkpoint(result):
+    if result.success:
+        processed_ids.add(result.item_id)
+        await save_checkpoint(processed_ids)
+
+# On resume
+checkpoint_data = await load_checkpoint()
+unprocessed = [item for item in all_items if item.id not in checkpoint_data]
+```
+
+**Q: How do I implement retries with different prompts?**
+
+A: Store retry state and modify prompt:
+```python
+class AdaptivePromptStrategy(LLMCallStrategy[Output]):
+    def __init__(self):
+        self.last_error = None
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        if attempt > 1 and self.last_error:
+            # Modify prompt based on previous error
+            prompt = f"{prompt}\n\nNote: Previous attempt failed with: {self.last_error}"
+
+        try:
+            return await self.call_llm(prompt)
+        except Exception as e:
+            self.last_error = str(e)
+            raise
+```
+
+---
+
 ## Documentation
 
 - **[API Reference](docs/API.md)** - Complete API documentation
@@ -572,18 +1252,81 @@ processor = ParallelBatchProcessor(
 
 ## Testing
 
-### Mock Strategies
+### Three Testing Approaches
+
+**1. Dry-Run Mode (Recommended for Quick Tests)**
+
+Test your workflow without making any API calls:
+
+```python
+from batch_llm import ParallelBatchProcessor, ProcessorConfig
+
+# Enable dry-run mode
+config = ProcessorConfig(
+    max_workers=5,
+    dry_run=True,  # ← No API calls will be made
+)
+
+async with ParallelBatchProcessor(config=config) as processor:
+    # Add work items as normal
+    await processor.add_work(work_item)
+
+    # Process returns mock data
+    result = await processor.process_all()
+
+# Validates workflow logic without spending API credits
+# Useful for testing configuration, error handling, post-processors, etc.
+```
+
+**2. Mock Strategies (For Unit Tests)**
+
+Use `MockAgent` for fast, controlled testing:
 
 ```python
 from batch_llm.testing import MockAgent
+from batch_llm import PydanticAIStrategy, LLMWorkItem
 
+# Create mock agent with custom responses
 mock_agent = MockAgent(
-    response_factory=lambda p: Summary(title="Test", key_points=["A", "B"]),
-    latency=0.01,  # Simulate 10ms latency
+    response_factory=lambda p: Summary(
+        title="Test Summary",
+        key_points=["Point A", "Point B"]
+    ),
+    latency=0.01,              # Simulate 10ms latency
+    rate_limit_on_call=None,   # Optional: Simulate rate limit on Nth call
+    timeout_on_call=None,      # Optional: Simulate timeout on Nth call
 )
 
 strategy = PydanticAIStrategy(agent=mock_agent)
-# Test your code without API calls!
+
+# Use in tests - fast, predictable, no API calls
+await processor.add_work(LLMWorkItem(
+    item_id="test_1",
+    strategy=strategy,
+    prompt="Test input",
+))
+```
+
+**3. Integration Tests with Small Batches**
+
+Test with real API but limit scope:
+
+```python
+# Start with a tiny batch
+test_items = your_full_dataset[:5]  # Just 5 items
+
+config = ProcessorConfig(
+    max_workers=2,            # Low concurrency for testing
+    timeout_per_item=30.0,
+    retry=RetryConfig(max_attempts=2),  # Fewer retries
+)
+
+# Verify everything works before processing thousands
+result = await process_batch(test_items, config)
+
+if result.succeeded == len(test_items):
+    # Good! Now process full batch
+    full_result = await process_batch(your_full_dataset, config)
 ```
 
 ### Run Tests
@@ -591,6 +1334,9 @@ strategy = PydanticAIStrategy(agent=mock_agent)
 ```bash
 # Using uv (recommended)
 uv run pytest
+
+# Run with coverage
+uv run pytest --cov=batch_llm
 
 # Or using pytest directly
 pytest
