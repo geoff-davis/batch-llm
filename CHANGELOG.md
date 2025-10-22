@@ -61,11 +61,28 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 
 #### Documentation
 - **`docs/API.md`** - Complete API reference documentation
+  - Added `TokenUsage` TypedDict documentation
+  - Added `FrameworkTimeoutError` exception documentation
+  - Documented `LLMCallStrategy.dry_run()` method
+  - Updated `ErrorInfo` field documentation (error_category, is_timeout)
+  - Added missing `ProcessorConfig.progress_callback_timeout` field
+  - Updated all code examples to use `TokenUsage`
 - **`docs/MIGRATION_V3.md`** - Comprehensive v0.0.x → v0.1 migration guide
+- **`README.md`** - Comprehensive improvements
+  - Added complete table of contents with 40+ section links
+  - Added **Configuration Reference** section (200+ lines)
+  - Added **Best Practices** section (120+ lines)
+  - Added **Troubleshooting** section (180+ lines)
+  - Added **FAQ** section (180+ lines) with 15+ Q&A
+  - Enhanced Middleware & Observers documentation
+  - Improved Testing section with 3 approaches
+  - Updated all code examples to use `TokenUsage` TypedDict
+  - Fixed mutable default argument in progressive temperature example
 - **`examples/example_openai.py`** - OpenAI integration examples
 - **`examples/example_anthropic.py`** - Anthropic Claude integration examples
 - **`examples/example_langchain.py`** - LangChain integration examples (including RAG)
 - **`examples/example_llm_strategies.py`** - All built-in strategies with examples
+- **All example files** - Updated to use `TokenUsage` TypedDict consistently
 
 #### Testing
 - **`batch_llm.testing.MockAgent`** - Mock agent for testing without API calls
