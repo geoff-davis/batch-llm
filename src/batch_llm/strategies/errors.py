@@ -3,6 +3,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+# Common error pattern constants
+RATE_LIMIT_PATTERNS = ("429", "resource_exhausted", "quota", "rate limit")
+DEFAULT_RATE_LIMIT_WAIT = 300.0  # 5 minutes
+
 
 class FrameworkTimeoutError(TimeoutError):
     """
@@ -47,9 +51,24 @@ class ErrorClassifier(ABC):
 class DefaultErrorClassifier(ErrorClassifier):
     """Default error classifier that handles common error types."""
 
+    def _matches_rate_limit(self, error_str: str) -> bool:
+        """Return True if the error string looks like a rate limit."""
+        lowered = error_str.lower()
+        return any(pattern in lowered for pattern in RATE_LIMIT_PATTERNS)
+
     def classify(self, exception: Exception) -> ErrorInfo:
         """Classify common errors with conservative defaults."""
         error_str = str(exception).lower()
+
+        # Detect rate limit errors from message patterns (works for simple Exception mocks)
+        if self._matches_rate_limit(error_str):
+            return ErrorInfo(
+                is_retryable=False,
+                is_rate_limit=True,
+                is_timeout=False,
+                error_category="rate_limit",
+                suggested_wait=DEFAULT_RATE_LIMIT_WAIT,
+            )
 
         # Check for framework timeout (retryable but indicates timeout config may need adjustment)
         if isinstance(exception, FrameworkTimeoutError):

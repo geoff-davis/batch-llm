@@ -162,6 +162,13 @@ async def test_error_classification_default():
     assert info.is_retryable
     assert not info.is_rate_limit
 
+    # Test generic rate limit via message pattern
+    rate_limit_error = Exception("429 RESOURCE_EXHAUSTED: quota exceeded")
+    info = classifier.classify(rate_limit_error)
+    assert info.is_rate_limit
+    assert not info.is_retryable
+    assert info.error_category == "rate_limit"
+
     # Test connection error
     conn_error = ConnectionError("Connection failed")
     info = classifier.classify(conn_error)
