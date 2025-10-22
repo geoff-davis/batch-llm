@@ -15,7 +15,7 @@ from langchain.prompts import PromptTemplate
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.llm_strategies import LLMCallStrategy
 
 
@@ -33,7 +33,7 @@ class LangChainStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         """Execute LangChain chain.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -44,7 +44,7 @@ class LangChainStrategy(LLMCallStrategy[str]):
 
         # LangChain doesn't always provide token usage in a standard way
         # For production use, you'd want to extract this from the LLM callbacks
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": 0,  # Would need callback handler to track
             "output_tokens": 0,
             "total_tokens": 0,
@@ -202,11 +202,11 @@ async def example_langchain_rag():
 
         async def execute(
             self, prompt: str, attempt: int, timeout: float
-        ) -> tuple[str, dict[str, int]]:
+        ) -> tuple[str, TokenUsage]:
             # Run the RAG chain
             result = await self.qa_chain.arun(prompt)
 
-            tokens = {
+            tokens: TokenUsage = {
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "total_tokens": 0,

@@ -17,7 +17,7 @@ from google import genai
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.llm_strategies import (
     GeminiCachedStrategy,
     GeminiStrategy,
@@ -249,7 +249,7 @@ async def example_custom_strategy():
 
         async def execute(
             self, prompt: str, attempt: int, timeout: float
-        ) -> tuple[str, dict[str, int]]:
+        ) -> tuple[str, TokenUsage]:
             """Execute the LLM call."""
             self.call_count += 1
             print(

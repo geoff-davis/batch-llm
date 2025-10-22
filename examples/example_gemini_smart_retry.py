@@ -29,7 +29,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field, ValidationError
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.core import RetryConfig
 from batch_llm.llm_strategies import LLMCallStrategy
 
@@ -67,7 +67,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[PersonData]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[PersonData, dict[str, int]]:
+    ) -> tuple[PersonData, TokenUsage]:
         temp = self.temps[min(attempt - 1, len(self.temps) - 1)]
 
         config = GenerateContentConfig(
@@ -86,7 +86,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[PersonData]):
         output = PersonData.model_validate_json(response.text)
 
         usage = response.usage_metadata
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_token_count or 0,
             "output_tokens": usage.candidates_token_count or 0,
             "total_tokens": usage.total_token_count or 0,
@@ -118,7 +118,7 @@ class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[PersonData, dict[str, int]]:
+    ) -> tuple[PersonData, TokenUsage]:
         # Adjust prompt based on attempt
         if attempt == 1:
             # First attempt: use original prompt
@@ -145,7 +145,7 @@ class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
         try:
             output = PersonData.model_validate_json(response.text)
             usage = response.usage_metadata
-            tokens = {
+            tokens: TokenUsage = {
                 "input_tokens": usage.prompt_token_count or 0,
                 "output_tokens": usage.candidates_token_count or 0,
                 "total_tokens": usage.total_token_count or 0,

@@ -37,7 +37,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.core import RetryConfig
 from batch_llm.llm_strategies import LLMCallStrategy
 
@@ -94,7 +94,7 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[Analysis, dict[str, int]]:
+    ) -> tuple[Analysis, TokenUsage]:
         # Select model based on attempt number
         model = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
 
@@ -123,7 +123,7 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
 
         # Extract token usage
         usage = response.usage_metadata
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_token_count or 0,
             "output_tokens": usage.candidates_token_count or 0,
             "total_tokens": usage.total_token_count or 0,
@@ -161,7 +161,7 @@ class ModelAndTempEscalationStrategy(LLMCallStrategy[Analysis]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[Analysis, dict[str, int]]:
+    ) -> tuple[Analysis, TokenUsage]:
         # Select model and temperature based on attempt
         model, temp = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
 
@@ -183,7 +183,7 @@ class ModelAndTempEscalationStrategy(LLMCallStrategy[Analysis]):
         output = Analysis.model_validate_json(response.text)
 
         usage = response.usage_metadata
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_token_count or 0,
             "output_tokens": usage.candidates_token_count or 0,
             "total_tokens": usage.total_token_count or 0,
@@ -302,7 +302,7 @@ async def example_cost_comparison():
             )
             output = Analysis.model_validate_json(response.text)
             usage = response.usage_metadata
-            tokens = {
+            tokens: TokenUsage = {
                 "input_tokens": usage.prompt_token_count or 0,
                 "output_tokens": usage.candidates_token_count or 0,
                 "total_tokens": usage.total_token_count or 0,

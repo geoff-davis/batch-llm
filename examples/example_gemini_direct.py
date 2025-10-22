@@ -44,7 +44,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.llm_strategies import GeminiStrategy, LLMCallStrategy
 
 
@@ -76,7 +76,7 @@ class ProgressiveTempGeminiStrategy(LLMCallStrategy[SummaryOutput]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[SummaryOutput, dict[str, int]]:
+    ) -> tuple[SummaryOutput, TokenUsage]:
         """
         Execute Gemini call with temperature based on attempt.
 

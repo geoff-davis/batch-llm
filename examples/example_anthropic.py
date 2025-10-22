@@ -13,7 +13,7 @@ import os
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.llm_strategies import LLMCallStrategy
 
 
@@ -54,7 +54,7 @@ class AnthropicStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         """Execute Anthropic API call.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -79,7 +79,7 @@ class AnthropicStrategy(LLMCallStrategy[str]):
 
         # Extract token usage
         usage = response.usage
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.input_tokens if usage else 0,
             "output_tokens": usage.output_tokens if usage else 0,
             "total_tokens": (usage.input_tokens + usage.output_tokens) if usage else 0,
@@ -286,7 +286,7 @@ async def example_anthropic_progressive_temperature():
 
         async def execute(
             self, prompt: str, attempt: int, timeout: float
-        ) -> tuple[str, dict[str, int]]:
+        ) -> tuple[str, TokenUsage]:
             # Use progressively higher temperature for retries
             temp = self.base_temps[min(attempt - 1, len(self.base_temps) - 1)]
 
@@ -301,7 +301,7 @@ async def example_anthropic_progressive_temperature():
 
             output = response.content[0].text if response.content else ""
             usage = response.usage
-            tokens = {
+            tokens: TokenUsage = {
                 "input_tokens": usage.input_tokens if usage else 0,
                 "output_tokens": usage.output_tokens if usage else 0,
                 "total_tokens": (usage.input_tokens + usage.output_tokens)

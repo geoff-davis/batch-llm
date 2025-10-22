@@ -13,7 +13,7 @@ import os
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig
+from batch_llm import LLMWorkItem, ParallelBatchProcessor, ProcessorConfig, TokenUsage
 from batch_llm.llm_strategies import LLMCallStrategy
 
 
@@ -51,7 +51,7 @@ class OpenAIStrategy(LLMCallStrategy[str]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         """Execute OpenAI API call.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -70,7 +70,7 @@ class OpenAIStrategy(LLMCallStrategy[str]):
 
         # Extract token usage
         usage = response.usage
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_tokens if usage else 0,
             "output_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0,
@@ -102,7 +102,7 @@ class OpenAIStructuredStrategy(LLMCallStrategy[SummaryOutput]):
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[SummaryOutput, dict[str, int]]:
+    ) -> tuple[SummaryOutput, TokenUsage]:
         """Execute OpenAI API call with structured output.
 
         Note: timeout parameter is provided for information but timeout enforcement
@@ -123,7 +123,7 @@ class OpenAIStructuredStrategy(LLMCallStrategy[SummaryOutput]):
 
         # Extract token usage
         usage = response.usage
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": usage.prompt_tokens if usage else 0,
             "output_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0,
