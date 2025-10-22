@@ -149,5 +149,8 @@ Thumbs.db
 # uv
 .uv/
 
+# Node
+node_modules/
+
 # Internal documentation (development history)
 docs/internal/

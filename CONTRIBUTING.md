@@ -23,7 +23,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras
 ```
 
-4. **Run tests**
+4. **Install markdown lint tooling** (requires Node 18+)
+
+```bash
+npm install --save-dev markdownlint-cli2
+```
+
+5. **Run tests**
 
 ```bash
 uv run pytest
@@ -60,6 +66,9 @@ uv run ruff check src/ tests/ examples/
 
 # Type check
 uv run mypy src/batch_llm/
+
+# Markdown lint (requires npm install --save-dev markdownlint-cli2)
+npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
 ```
 
 ### Running Examples

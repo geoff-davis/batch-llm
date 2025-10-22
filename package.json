@@ -1,0 +1,29 @@
+{
+  "name": "batch-llm",
+  "version": "1.0.0",
+  "description": "**Provider-agnostic parallel LLM processing with automatic retries, rate limiting, and flexible strategies.**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geoff-davis/batch-llm.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/geoff-davis/batch-llm/issues"
+  },
+  "homepage": "https://github.com/geoff-davis/batch-llm#readme",
+  "devDependencies": {
+    "markdownlint-cli2": "^0.18.1"
+  }
+}
