@@ -26,7 +26,12 @@ Complete API documentation for batch-llm v0.1.
   - [Middleware](#middleware)
   - [ProcessorObserver](#processorobserver)
   - [MetricsObserver](#metricsobserver)
+- [Core Types](#core-types)
+  - [TokenUsage](#tokenusage)
+  - [FrameworkTimeoutError](#frameworktimeouterror)
 - [Type Aliases](#type-aliases)
+  - [PostProcessorFunc](#postprocessorfunc)
+  - [ProgressCallbackFunc](#progresscallbackfunc)
 
 ---
 
@@ -94,7 +99,7 @@ class WorkItemResult(Generic[TOutput, TContext]):
     output: TOutput | None = None
     error: str | None = None
     context: TContext | None = None
-    token_usage: dict[str, int] = field(default_factory=dict)
+    token_usage: TokenUsage = field(default_factory=dict)  # type: ignore[assignment]
     gemini_safety_ratings: dict[str, str] | None = None
 ```
 
@@ -105,8 +110,11 @@ class WorkItemResult(Generic[TOutput, TContext]):
 - `output` (TOutput | None): LLM output if successful, None if failed
 - `error` (str | None): Error message if failed, None if successful
 - `context` (TContext | None): Context data from the work item
-- `token_usage` (dict[str, int]): Token usage statistics
-  - Keys: `input_tokens`, `output_tokens`, `total_tokens`, `cached_input_tokens` (Gemini only)
+- `token_usage` ([TokenUsage](#tokenusage)): Token usage statistics with optional fields:
+  - `input_tokens` (int): Number of tokens in the input/prompt
+  - `output_tokens` (int): Number of tokens in the output/completion
+  - `total_tokens` (int): Total tokens used (input + output)
+  - `cached_input_tokens` (int): Number of input tokens served from cache (Gemini context caching)
 - `gemini_safety_ratings` (dict[str, str] | None): Gemini API safety ratings if available
 
 **Example:**
@@ -284,15 +292,17 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     @abstractmethod
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[TOutput, dict[str, int]]: ...
+    ) -> tuple[TOutput, TokenUsage]: ...
 
     async def cleanup(self) -> None: ...
+
+    async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]: ...
 ```
 
 **Lifecycle:**
 
 1. `prepare()` - Called once before any retry attempts
-2. `execute()` - Called for each attempt (including retries)
+2. `execute()` - Called for each attempt (including retries), or `dry_run()` if `config.dry_run=True`
 3. `cleanup()` - Called once after all attempts complete
 
 **Methods:**
@@ -303,7 +313,7 @@ Initialize resources before making LLM calls (e.g., create caches, initialize cl
 
 **Default:** No-op
 
-#### `async def execute(prompt: str, attempt: int, timeout: float) -> tuple[TOutput, dict[str, int]]`
+#### `async def execute(prompt: str, attempt: int, timeout: float) -> tuple[TOutput, TokenUsage]`
 
 Execute an LLM call.
 
@@ -312,14 +322,45 @@ Execute an LLM call.
 - `prompt` (str): The prompt to send to the LLM
 - `attempt` (int): Which retry attempt this is (1, 2, 3, ...)
 - `timeout` (float): Maximum time to wait for response (seconds)
-  - Note: Timeout enforcement is handled by the framework wrapping this call
+  - Note: Timeout enforcement is handled by the framework wrapping this call in `asyncio.wait_for()`
 
 **Returns:** Tuple of `(output, token_usage)`
 
 - `output` (TOutput): The LLM response
-- `token_usage` (dict[str, int]): Token usage with keys: `input_tokens`, `output_tokens`, `total_tokens`
+- `token_usage` ([TokenUsage](#tokenusage)): Token usage dict with optional keys: `input_tokens`, `output_tokens`, `total_tokens`, `cached_input_tokens`
 
 **Raises:** Any exception to trigger retry (if retryable) or failure
+
+#### `async def dry_run(prompt: str) -> tuple[TOutput, TokenUsage]`
+
+Return mock output for dry-run mode (testing without API calls).
+
+Called when `ProcessorConfig(dry_run=True)` is set. Override this method to provide realistic mock data for testing.
+
+**Parameters:**
+
+- `prompt` (str): The prompt that would have been sent to the LLM
+
+**Returns:** Tuple of `(mock_output, mock_token_usage)`
+
+**Default behavior:**
+- Returns string `"[DRY-RUN] Mock output for prompt: {prompt[:50]}..."` as output
+- Returns mock token usage: 100 input, 50 output, 150 total tokens
+
+**Example override:**
+
+```python
+class MyStrategy(LLMCallStrategy[Output]):
+    async def dry_run(self, prompt: str) -> tuple[Output, TokenUsage]:
+        # Return realistic mock data
+        mock_output = Output(result="Test result")
+        mock_tokens: TokenUsage = {
+            "input_tokens": len(prompt.split()),
+            "output_tokens": 50,
+            "total_tokens": len(prompt.split()) + 50,
+        }
+        return mock_output, mock_tokens
+```
 
 #### `async def cleanup() -> None`
 
@@ -330,16 +371,16 @@ Clean up resources after all attempts complete (e.g., delete caches, close clien
 **Custom Strategy Example:**
 
 ```python
-from batch_llm import LLMCallStrategy
+from batch_llm import LLMCallStrategy, TokenUsage
 
 class MyCustomStrategy(LLMCallStrategy[str]):
     async def execute(
         self, prompt: str, attempt: int, timeout: float
-    ) -> tuple[str, dict[str, int]]:
+    ) -> tuple[str, TokenUsage]:
         # Your custom LLM API call
         response = await my_llm_api.generate(prompt)
 
-        tokens = {
+        tokens: TokenUsage = {
             "input_tokens": response.input_tokens,
             "output_tokens": response.output_tokens,
             "total_tokens": response.total_tokens,
@@ -523,6 +564,7 @@ class ProcessorConfig:
     retry: RetryConfig = field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     progress_interval: int = 10
+    progress_callback_timeout: float | None = 5.0
     enable_detailed_logging: bool = False
     max_queue_size: int = 0
     dry_run: bool = False
@@ -531,13 +573,14 @@ class ProcessorConfig:
 **Fields:**
 
 - `max_workers` (int): Maximum number of concurrent workers. Default: 5
-- `timeout_per_item` (float): Timeout per item in seconds. Default: 120.0
-- `retry` (RetryConfig): Retry configuration
-- `rate_limit` (RateLimitConfig): Rate limit handling configuration
+- `timeout_per_item` (float): Timeout per item in seconds (includes retries). Default: 120.0
+- `retry` ([RetryConfig](#retryconfig)): Retry configuration
+- `rate_limit` ([RateLimitConfig](#ratelimitconfig)): Rate limit handling configuration
 - `progress_interval` (int): Log progress every N items. Default: 10
+- `progress_callback_timeout` (float | None): Max seconds to wait for progress callback. Default: 5.0. Set to `None` for no timeout.
 - `enable_detailed_logging` (bool): Enable detailed debug logging. Default: False
 - `max_queue_size` (int): Max queue size (0 = unlimited). Default: 0
-- `dry_run` (bool): Skip actual API calls, return mock data. Default: False
+- `dry_run` (bool): Skip actual API calls, use mock data from `strategy.dry_run()`. Default: False
 
 **Example:**
 
@@ -677,17 +720,50 @@ Information about a classified error.
 @dataclass
 class ErrorInfo:
     is_retryable: bool
-    is_rate_limit: bool = False
-    category: str = "unknown"
+    is_rate_limit: bool
+    is_timeout: bool
+    error_category: str
     suggested_wait: float | None = None
 ```
 
 **Fields:**
 
 - `is_retryable` (bool): Whether the error should trigger a retry
-- `is_rate_limit` (bool): Whether this is a rate limit error
-- `category` (str): Error category for logging/metrics
-- `suggested_wait` (float | None): Suggested wait time before retry
+- `is_rate_limit` (bool): Whether this is a rate limit error (429, resource_exhausted, etc.)
+- `is_timeout` (bool): Whether this is a timeout error (framework or API timeout)
+- `error_category` (str): Error category for logging/metrics. Common values:
+  - `"framework_timeout"` - Framework timeout (exceeded `timeout_per_item`)
+  - `"api_timeout"` - API-level timeout
+  - `"rate_limit"` - Rate limit error
+  - `"validation_error"` - Pydantic validation error
+  - `"client_error"` - 4xx client error
+  - `"server_error"` - 5xx server error
+  - `"connection_error"` - Network connection error
+  - `"unknown"` - Unclassified error
+- `suggested_wait` (float | None): Suggested wait time before retry (seconds). Used for rate limits.
+
+**Example:**
+
+```python
+from batch_llm import ErrorInfo
+
+# Rate limit error
+rate_limit_info = ErrorInfo(
+    is_retryable=False,  # Don't retry via exponential backoff
+    is_rate_limit=True,  # Trigger rate limit cooldown
+    is_timeout=False,
+    error_category="rate_limit",
+    suggested_wait=300.0,  # 5 minute cooldown
+)
+
+# Framework timeout (retryable, might succeed if faster)
+timeout_info = ErrorInfo(
+    is_retryable=True,
+    is_rate_limit=False,
+    is_timeout=True,
+    error_category="framework_timeout",
+)
+```
 
 ---
 
@@ -816,6 +892,111 @@ print(f"Success rate: {metrics_data['success_rate']:.1%}")
 
 # Export for monitoring
 prometheus_text = await metrics.export_prometheus()
+```
+
+---
+
+## Core Types
+
+### TokenUsage
+
+TypedDict for token usage statistics from LLM API calls.
+
+```python
+class TokenUsage(TypedDict, total=False):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cached_input_tokens: int
+```
+
+**Fields (all optional):**
+
+- `input_tokens` (int): Number of tokens in the input/prompt
+- `output_tokens` (int): Number of tokens in the output/completion
+- `total_tokens` (int): Total tokens used (input + output)
+- `cached_input_tokens` (int): Number of input tokens served from cache (Gemini context caching)
+
+**Notes:**
+
+- All fields are optional to accommodate different provider APIs
+- Different providers may return different subsets of these fields
+- Use `.get()` method for safe access: `tokens.get("input_tokens", 0)`
+
+**Example:**
+
+```python
+from batch_llm import TokenUsage
+
+tokens: TokenUsage = {
+    "input_tokens": 150,
+    "output_tokens": 75,
+    "total_tokens": 225,
+}
+
+# Safe access
+input_tokens = tokens.get("input_tokens", 0)
+
+# Gemini with caching
+gemini_tokens: TokenUsage = {
+    "input_tokens": 50,  # New tokens only
+    "output_tokens": 75,
+    "total_tokens": 125,
+    "cached_input_tokens": 1000,  # Tokens served from cache
+}
+```
+
+---
+
+### FrameworkTimeoutError
+
+Exception raised when framework-level timeout is exceeded.
+
+```python
+class FrameworkTimeoutError(TimeoutError):
+    """
+    Timeout enforced by the batch-llm framework (asyncio.wait_for).
+
+    This distinguishes framework-level timeouts from API-level timeouts.
+    Framework timeouts indicate the configured timeout_per_item was exceeded,
+    whereas API timeouts indicate the LLM provider returned a timeout error.
+    """
+```
+
+**Purpose:**
+
+Differentiates between:
+- **Framework timeout**: `asyncio.wait_for()` timed out (exceeded `timeout_per_item`)
+- **API timeout**: LLM provider returned timeout error (network issue, slow response)
+
+**Error Classification:**
+
+- `is_retryable`: `True` (might succeed if LLM is faster on retry)
+- `is_timeout`: `True`
+- `error_category`: `"framework_timeout"`
+
+**When to increase `timeout_per_item`:**
+
+If you see frequent `FrameworkTimeoutError`, it indicates:
+1. LLM calls are taking longer than configured timeout
+2. Retry delays don't fit within timeout window
+3. Solution: Increase `timeout_per_item` or reduce retry configuration
+
+**Example:**
+
+```python
+from batch_llm import FrameworkTimeoutError
+
+try:
+    result = await processor.process_all()
+except FrameworkTimeoutError as e:
+    print(f"Framework timeout: {e}")
+    print("Consider increasing timeout_per_item in config")
+
+# Or check in results
+for item_result in result.results:
+    if not item_result.success and "FrameworkTimeoutError" in item_result.error:
+        print(f"{item_result.item_id} exceeded timeout")
 ```
 
 ---
