@@ -168,6 +168,14 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Previously, custom strategies could ignore timeout parameter
   - All 61 tests now pass (was 60 passing, 1 skipped)
 - **Test coverage** - Fixed `test_custom_strategy_timeout_handling` (previously skipped)
+- **Error classification logic bug handling** - Error classifiers now properly distinguish logic bugs from transient failures
+  - `DefaultErrorClassifier` and `GeminiErrorClassifier` now explicitly check for logic bug exceptions (`ValueError`, `TypeError`, `AttributeError`, etc.)
+  - Logic bugs are marked as non-retryable to avoid wasting retry attempts and tokens on deterministic failures
+  - Pydantic `ValidationError` is explicitly marked as retryable (LLM might generate valid output on retry)
+  - Generic `Exception` instances remain retryable (allows custom transient errors and test mocks)
+  - Prevents wasting `max_attempts` retries on programming errors that won't be fixed by retrying
+  - Added regression test `test_logic_bugs_fail_fast` to ensure logic bugs fail after 1 attempt
+  - Fixed `test_token_usage_tracked_across_retries` exception chain construction
 
 ---
 

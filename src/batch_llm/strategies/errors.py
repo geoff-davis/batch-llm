@@ -78,9 +78,45 @@ class DefaultErrorClassifier(ErrorClassifier):
                 error_category="connection_error",
             )
 
-        # Default: treat as retryable but not a rate limit
+        # Check for Pydantic validation errors (retryable - LLM might generate valid output on retry)
+        try:
+            from pydantic import ValidationError
+
+            if isinstance(exception, ValidationError):
+                return ErrorInfo(
+                    is_retryable=True,
+                    is_rate_limit=False,
+                    is_timeout=False,
+                    error_category="validation_error",
+                )
+        except ImportError:
+            pass
+
+        # Check for logic bugs (deterministic errors that won't be fixed by retrying)
+        # These are usually programming errors, not transient failures
+        logic_bug_types = (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            IndexError,
+            NameError,
+            ZeroDivisionError,
+            AssertionError,
+        )
+        if isinstance(exception, logic_bug_types):
+            return ErrorInfo(
+                is_retryable=False,  # Don't retry logic bugs (deterministic failures)
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="logic_error",
+            )
+
+        # Default: treat unknown generic exceptions as retryable
+        # This allows custom transient errors and test mocks to work
+        # Users with non-retryable custom errors should implement a custom ErrorClassifier
         return ErrorInfo(
-            is_retryable=True,
+            is_retryable=True,  # Retry unknown exceptions (might be transient)
             is_rate_limit=False,
             is_timeout=False,
             error_category="unknown",

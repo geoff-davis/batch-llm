@@ -90,7 +90,7 @@ async def test_strategy_with_retries():
         ) -> tuple[TestOutput, dict[str, int]]:
             self.attempt_count += 1
             if self.attempt_count < self.fail_count:
-                raise ValueError("Simulated failure")
+                raise Exception("Simulated transient failure")
             return TestOutput(text="Success"), {
                 "input_tokens": 10,
                 "output_tokens": 20,
@@ -336,7 +336,7 @@ async def test_on_error_callback_called():
             self, prompt: str, attempt: int, timeout: float
         ) -> tuple[TestOutput, dict[str, int]]:
             if attempt < 3:
-                raise ValueError(f"Error on attempt {attempt}")
+                raise Exception(f"Transient error on attempt {attempt}")
             return TestOutput(text="Success"), {
                 "input_tokens": 10,
                 "output_tokens": 20,
@@ -371,9 +371,9 @@ async def test_on_error_callback_called():
     assert strategy.attempts_received[1] == 2
 
     # Check that errors were passed correctly
-    assert all(isinstance(e, ValueError) for e in strategy.errors_received)
-    assert "Error on attempt 1" in str(strategy.errors_received[0])
-    assert "Error on attempt 2" in str(strategy.errors_received[1])
+    assert all(isinstance(e, Exception) for e in strategy.errors_received)
+    assert "Transient error on attempt 1" in str(strategy.errors_received[0])
+    assert "Transient error on attempt 2" in str(strategy.errors_received[1])
 
 
 @pytest.mark.asyncio
@@ -388,7 +388,8 @@ async def test_on_error_callback_with_state():
 
         async def on_error(self, exception: Exception, attempt: int) -> None:
             self.last_error = exception
-            if isinstance(exception, ValueError):
+            # Track different error types
+            if "validation" in str(exception).lower():
                 self.validation_errors += 1
             elif isinstance(exception, ConnectionError):
                 self.network_errors += 1
@@ -397,7 +398,7 @@ async def test_on_error_callback_with_state():
             self, prompt: str, attempt: int, timeout: float
         ) -> tuple[TestOutput, dict[str, int]]:
             if attempt == 1:
-                raise ValueError("Validation error")
+                raise Exception("Validation error")  # Generic exception (retryable)
             elif attempt == 2:
                 raise ConnectionError("Network error")
             else:
@@ -450,7 +451,7 @@ async def test_on_error_callback_exception_handling():
         ) -> tuple[TestOutput, dict[str, int]]:
             self.execute_count += 1
             if attempt < 2:
-                raise ValueError("First attempt fails")
+                raise Exception("First attempt fails")  # Generic exception (retryable)
             return TestOutput(text="Success"), {
                 "input_tokens": 10,
                 "output_tokens": 20,

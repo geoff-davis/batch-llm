@@ -169,11 +169,12 @@ async def test_error_classification_default():
     assert info.is_retryable
     assert not info.is_rate_limit
 
-    # Test unknown error
-    unknown_error = ValueError("Some error")
-    info = classifier.classify(unknown_error)
-    assert info.is_retryable
+    # Test logic bug (should not be retryable)
+    logic_bug = ValueError("Some error")
+    info = classifier.classify(logic_bug)
+    assert not info.is_retryable  # Logic bugs are non-retryable
     assert not info.is_rate_limit
+    assert info.error_category == "logic_error"
 
 
 @pytest.mark.asyncio
@@ -195,11 +196,12 @@ async def test_error_classification_gemini():
     assert info.is_timeout
     assert info.is_retryable
 
-    # Test unknown error
+    # Test unknown error (generic exceptions are retryable)
     unknown_error = Exception("Some random error")
     info = classifier.classify(unknown_error)
-    assert info.is_retryable
+    assert info.is_retryable  # Unknown exceptions are retryable (might be transient)
     assert not info.is_rate_limit
+    assert info.error_category == "unknown"
 
 
 @pytest.mark.asyncio
@@ -295,6 +297,59 @@ async def test_non_retryable_error_fails_immediately():
 
 
 @pytest.mark.asyncio
+async def test_logic_bugs_fail_fast():
+    """Test that logic bugs (ValueError, TypeError, etc.) fail immediately without retries.
+
+    This is a regression test to ensure the default error classifier treats unknown
+    errors as non-retryable. Logic bugs are deterministic and won't be fixed by
+    retrying - they just waste API calls and tokens.
+    """
+
+    call_count = []
+
+    def raise_logic_bug(prompt: str) -> TestOutput:
+        call_count.append(1)
+        # Simulate various logic bugs that should NOT be retried
+        if len(call_count) == 1:
+            raise ValueError("Invalid value in strategy logic")
+        # Should never get here
+        return TestOutput(value="Should not reach")
+
+    mock_agent = MockAgent(response_factory=raise_logic_bug, latency=0.01)
+
+    config = ProcessorConfig(
+        max_workers=1,
+        timeout_per_item=10.0,
+        retry=RetryConfig(max_attempts=3),  # Configure 3 retries
+    )
+
+    # Use default error classifier (no custom classifier)
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
+
+    work_item = LLMWorkItem(
+        item_id="item_1",
+        strategy=PydanticAIStrategy(agent=mock_agent),
+        prompt="Test",
+        context=None,
+    )
+    await processor.add_work(work_item)
+
+    result = await processor.process_all()
+
+    # Should fail immediately without retries
+    assert result.failed == 1
+    assert len(call_count) == 1, (
+        f"Logic bug (ValueError) should not be retried. "
+        f"Expected 1 call, got {len(call_count)} calls. "
+        f"This wastes {len(call_count) - 1} retry attempts and tokens."
+    )
+
+    # Verify the error is surfaced
+    assert result.results[0].error is not None
+    assert "Invalid value" in str(result.results[0].error)
+
+
+@pytest.mark.asyncio
 async def test_retry_succeeds_on_final_attempt():
     """Test success on the last allowed attempt."""
 
@@ -356,9 +411,12 @@ async def test_token_usage_tracked_across_retries():
                 # Fail first attempt but include token usage
                 result = MockResult(output=None, usage_info=usage)
                 # Simulate PydanticAI wrapping
-                error = Exception("Validation failed")
-                error.__cause__ = type("obj", (), {"result": result})()
-                raise error
+                # Create a proper exception chain where __cause__ is a BaseException
+                inner_error = Exception("Inner validation error")
+                inner_error.result = result  # Attach result as attribute
+                outer_error = Exception("Validation failed")
+                outer_error.__cause__ = inner_error
+                raise outer_error
             # Succeed on second attempt
             return MockResult(output=TestOutput(value="Success"), usage_info=usage)
 
