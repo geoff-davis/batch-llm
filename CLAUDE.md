@@ -30,6 +30,7 @@ This document contains important information about the `batch-llm` project for f
 
 - `async def prepare()` - Initialize resources (caches, connections)
 - `async def execute(prompt, attempt, timeout)` - Make LLM call
+- `async def on_error(exception, attempt)` - Handle errors and adjust retry behavior
 - `async def cleanup()` - Clean up resources (delete caches)
 
 **Built-in Strategies:**
@@ -143,6 +144,68 @@ See `examples/example_gemini_direct.py` for complete example.
 - Accumulate across all retry attempts
 - Attach to final exception via `__dict__['_failed_token_usage']`
 - Include in `WorkItemResult.token_usage`
+
+### 5. Error-Aware Retry with on_error Callback (v0.1+)
+
+**Challenge:** Different error types require different retry strategies.
+
+**Problem:**
+- Validation errors mean LLM output quality issue → Should escalate to smarter model or adjust prompt
+- Network errors are transient → Should retry with same model
+- Rate limit errors need cooldown → Should retry with same model after waiting
+- Traditional retry logic can't distinguish these cases
+
+**Solution:** Use `on_error()` callback to track error types and adjust retry behavior.
+
+**Implementation:**
+
+```python
+from pydantic import ValidationError
+
+class SmartRetryStrategy(LLMCallStrategy[Output]):
+    def __init__(self, client):
+        self.client = client
+        self.validation_failures = 0
+        self.last_error = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track error type for intelligent retry decisions."""
+        self.last_error = exception
+        if isinstance(exception, ValidationError):
+            self.validation_failures += 1
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Use validation_failures to make smart decisions
+        # e.g., only escalate model on validation errors
+        model_index = min(self.validation_failures, len(MODELS) - 1)
+        model = MODELS[model_index]
+        # Make call...
+```
+
+**Key Use Cases:**
+
+1. **Smart Model Escalation** - Only escalate to expensive models on validation errors
+   - Validation error → Use better model (quality issue)
+   - Network error → Retry same cheap model (transient issue)
+   - Rate limit error → Retry same cheap model (API quota issue)
+   - Result: 60-80% cost savings vs. always using best model
+
+2. **Smart Retry Prompts** - Build targeted retry prompts based on what failed
+   - Parse validation errors to see which fields succeeded vs. failed
+   - Create focused retry prompt telling LLM what to fix
+   - Higher success rate, lower token usage
+
+3. **Error Tracking** - Count different error types for analytics
+   - Track validation vs. network vs. rate limit errors separately
+   - Monitor patterns to optimize configuration
+   - Debug production issues with detailed error breakdown
+
+**Benefits:**
+
+- Framework automatically calls `on_error()` before retry logic
+- Exceptions in `on_error()` are caught and logged (won't crash)
+- Non-breaking: Default no-op implementation
+- Clean separation: Error handling separate from execution logic
 
 ---
 
@@ -538,36 +601,65 @@ assert len(result.results) == result.total_items
 
 ### Smart Retry with Validation Feedback
 
-When Pydantic validation fails, create targeted retry prompts:
+When Pydantic validation fails, use `on_error` to create targeted retry prompts:
 
 ```python
+from pydantic import ValidationError
+
 class SmartRetryStrategy(LLMCallStrategy[PersonData]):
     """On validation failure, tell LLM which fields succeeded vs failed."""
 
-    def _create_retry_prompt(self, original_prompt: str) -> str:
-        # Parse validation errors
-        # Create focused prompt with:
-        # - Fields that succeeded (keep these)
-        # - Fields that failed (fix these with specific error messages)
-        return retry_prompt
+    def __init__(self, client):
+        self.client = client
+        self.last_error = None
+        self.last_response = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track validation errors for smart retry prompt generation."""
+        if isinstance(exception, ValidationError):
+            self.last_error = exception
+            # last_response saved in execute() before raising
 
     async def execute(self, prompt: str, attempt: int, timeout: float):
         if attempt == 1:
             final_prompt = prompt
         else:
+            # Use error information to create smart retry prompt
             final_prompt = self._create_retry_prompt(prompt)
-        # Make LLM call with focused prompt
+
+        try:
+            response = await self.client.generate(final_prompt)
+            output = PersonData.model_validate_json(response.text)
+            return output, tokens
+        except ValidationError as e:
+            # Save response for retry prompt generation
+            self.last_response = response.text
+            raise  # Framework calls on_error, then retries
+
+    def _create_retry_prompt(self, original_prompt: str) -> str:
+        # Parse validation errors from self.last_error
+        # Create focused prompt with:
+        # - Fields that succeeded (keep these)
+        # - Fields that failed (fix these with specific error messages)
+        return retry_prompt
 ```
+
+**Benefits:**
+- `on_error` cleanly captures failure context before retry
+- LLM knows exactly what went wrong
+- Higher success rate, lower token usage
 
 See `examples/example_gemini_smart_retry.py` for complete implementation.
 
-### Model Escalation for Cost Optimization
+### Smart Model Escalation for Cost Optimization
 
-Start with cheap models, escalate only when needed:
+Start with cheap models, escalate **only on validation errors** (not network/rate limit errors):
 
 ```python
-class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
-    """Start with cheapest model, escalate on failure."""
+from pydantic import ValidationError
+
+class SmartModelEscalationStrategy(LLMCallStrategy[Analysis]):
+    """Escalate to smarter models ONLY on validation errors."""
 
     MODELS = [
         "gemini-2.5-flash-lite",  # Attempt 1: Cheapest
@@ -575,14 +667,34 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
         "gemini-2.5-pro",         # Attempt 3: Most capable
     ]
 
+    def __init__(self, client):
+        self.client = client
+        self.validation_failures = 0  # Track validation errors only
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Only escalate model on validation errors, not network/rate limit errors."""
+        if isinstance(exception, ValidationError):
+            self.validation_failures += 1
+        # Network/rate limit errors don't increment counter
+
     async def execute(self, prompt: str, attempt: int, timeout: float):
-        model = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
-        # Make call with escalated model
+        # Select model based on VALIDATION failures, not total attempts
+        model_index = min(self.validation_failures, len(self.MODELS) - 1)
+        model = self.MODELS[model_index]
+
+        # Network error on attempt 2? Retry with same (cheap) model
+        # Validation error on attempt 2? Escalate to better model
+        response = await self.client.generate(prompt, model=model)
+        return parsed_output, tokens
 ```
 
-**Cost savings:** ~60-80% vs always using best model, since most tasks succeed on first (cheap) attempt.
+**Cost savings breakdown:**
+- Validation error → Escalate to smarter model ✅ (quality issue)
+- Network error → Retry same cheap model ✅ (transient issue)
+- Rate limit error → Retry same cheap model ✅ (API quota issue)
+- Result: **~60-80% cost reduction** vs always using best model
 
-See `examples/example_model_escalation.py` for complete implementation with cost comparisons.
+See `examples/example_smart_model_escalation.py` for complete implementation with cost comparisons.
 
 ---
 

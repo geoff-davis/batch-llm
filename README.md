@@ -494,6 +494,10 @@ class LLMCallStrategy(ABC):
         """
         pass
 
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Called when execute() raises an exception. Use to track errors and adjust retry behavior."""
+        pass
+
     async def cleanup(self) -> None:
         """Called once after processing. Clean up resources here."""
         pass
@@ -504,6 +508,7 @@ This design:
 - ✅ Decouples framework from LLM providers
 - ✅ Enables resource lifecycle management (caches, connections)
 - ✅ Supports progressive temperature strategies on retries
+- ✅ Enables smart retry logic based on error type (via `on_error`)
 - ✅ Makes testing easy with mock strategies
 
 ### Work Items
@@ -573,50 +578,69 @@ class ProgressiveTempStrategy(LLMCallStrategy[str]):
 
 ### Smart Retry with Validation Feedback
 
-When validation fails, create smarter retry prompts that tell the LLM exactly which fields succeeded and which failed:
+When validation fails, use the `on_error` callback to create smarter retry prompts that tell the LLM exactly which fields succeeded and which failed:
 
 ```python
+from pydantic import ValidationError
+
 class SmartRetryStrategy(LLMCallStrategy[PersonData]):
     """On validation failure, tell LLM which fields succeeded vs failed."""
 
+    def __init__(self, client):
+        self.client = client
+        self.last_error = None
+        self.last_response = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track validation errors for smart retry prompt generation."""
+        if isinstance(exception, ValidationError):
+            self.last_error = exception
+            # last_response saved in execute() before raising
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        if attempt == 1:
+            final_prompt = prompt
+        else:
+            # Use error information to create smart retry prompt
+            final_prompt = self._create_retry_prompt(prompt)
+
+        try:
+            response = await self.client.generate(final_prompt)
+            # Parse and validate
+            output = PersonData.model_validate_json(response.text)
+            return output, tokens
+        except ValidationError as e:
+            # Save response for retry prompt generation
+            self.last_response = response.text
+            raise  # Framework calls on_error, then retries
+
     def _create_retry_prompt(self, original_prompt: str) -> str:
-        """Create targeted retry prompt with specific field feedback."""
-        retry_prompt = f"""The previous extraction had validation errors.
-
-ORIGINAL REQUEST:
-{original_prompt}
-
-PREVIOUS ATTEMPT RESULTS:
-
-Successfully extracted (KEEP THESE):
-  - name: John Smith
-  - age: 32
-
-Failed validation (FIX THESE):
-  - email: String should match pattern '^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$'
-  - phone: String should match pattern '^\\+?1?\\d{{10,14}}$'
-
-Please provide a COMPLETE JSON response with all fields corrected."""
+        """Create targeted retry prompt using self.last_error and self.last_response."""
+        # Parse which fields succeeded vs failed from self.last_error
+        # Build focused prompt telling LLM what to fix
         return retry_prompt
 ```
 
 This approach is more efficient than blind retries because:
 
-- LLM knows exactly what went wrong
-- LLM can focus on fixing specific fields
-- Reduces token usage with shorter, focused prompts
-- Higher success rate on retries
+- ✅ **`on_error` callback captures failure context** before retry
+- ✅ LLM knows exactly what went wrong
+- ✅ LLM can focus on fixing specific fields
+- ✅ Reduces token usage with shorter, focused prompts
+- ✅ Higher success rate on retries
 
 See [`examples/example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) for complete
 implementation with automatic error parsing.
 
 ### Model Escalation for Cost Optimization
 
-Start with cheap models and escalate to expensive ones only when needed:
+Start with cheap models and escalate to expensive ones **only on validation errors** (not network/rate limit errors). Use the `on_error` callback to distinguish error types:
 
 ```python
-class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
-    """Start with cheapest model, escalate on failure."""
+from pydantic import ValidationError
+
+class SmartModelEscalationStrategy(LLMCallStrategy[Analysis]):
+    """Escalate to smarter models ONLY on validation errors."""
 
     MODELS = [
         "gemini-2.5-flash-lite",  # Attempt 1: Cheapest/fastest
@@ -624,20 +648,37 @@ class ModelEscalationStrategy(LLMCallStrategy[Analysis]):
         "gemini-2.5-pro",         # Attempt 3: Most capable
     ]
 
+    def __init__(self, client):
+        self.client = client
+        self.validation_failures = 0  # Track validation errors only
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Only escalate model on validation errors, not network/rate limit errors."""
+        if isinstance(exception, ValidationError):
+            self.validation_failures += 1
+        # Network/rate limit errors don't increment counter
+
     async def execute(self, prompt: str, attempt: int, timeout: float):
-        model = self.MODELS[min(attempt - 1, len(self.MODELS) - 1)]
-        # Make call with escalated model...
+        # Select model based on VALIDATION failures, not total attempts
+        model_index = min(self.validation_failures, len(self.MODELS) - 1)
+        model = self.MODELS[model_index]
+
+        # Network error on attempt 2? Retry with same (cheap) model
+        # Validation error on attempt 2? Escalate to better model
 ```
 
 **Cost savings example:**
 
+- Validation error → Escalate to smarter model ✅
+- Network error → Retry same cheap model ✅
+- Rate limit error → Retry same cheap model ✅
 - Most tasks succeed on attempt 1 (cheap model)
-- Only difficult tasks escalate to expensive models
-- Result: ~60-80% cost reduction vs. always using best model
+- Only quality issues trigger expensive models
+- Result: **~60-80% cost reduction** vs. always using best model
 
 You can also combine model escalation with temperature escalation for even better results.
 
-See [`examples/example_model_escalation.py`](examples/example_model_escalation.py) for complete examples including cost comparisons.
+See [`examples/example_smart_model_escalation.py`](examples/example_smart_model_escalation.py) for complete implementation with cost comparisons.
 
 ### Context and Post-Processing
 
@@ -1222,23 +1263,28 @@ unprocessed = [item for item in all_items if item.id not in checkpoint_data]
 
 **Q: How do I implement retries with different prompts?**
 
-A: Store retry state and modify prompt:
+A: Use the `on_error` callback to track errors and modify prompts on retries:
 ```python
 class AdaptivePromptStrategy(LLMCallStrategy[Output]):
     def __init__(self):
         self.last_error = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track error for next retry attempt."""
+        self.last_error = str(exception)
 
     async def execute(self, prompt: str, attempt: int, timeout: float):
         if attempt > 1 and self.last_error:
             # Modify prompt based on previous error
             prompt = f"{prompt}\n\nNote: Previous attempt failed with: {self.last_error}"
 
-        try:
-            return await self.call_llm(prompt)
-        except Exception as e:
-            self.last_error = str(e)
-            raise
+        # Make LLM call with modified prompt
+        return await self.call_llm(prompt)
 ```
+
+The `on_error` callback is called automatically by the framework when `execute()` raises an exception, making it cleaner than try/except in `execute()`.
+
+For validation errors specifically, see [`examples/example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) for a complete example that parses which fields succeeded vs. failed and creates targeted retry prompts.
 
 ---
 
@@ -1401,8 +1447,9 @@ Check out the [`examples/`](examples/) directory:
 - [`example_anthropic.py`](examples/example_anthropic.py) - Anthropic Claude
 - [`example_langchain.py`](examples/example_langchain.py) - LangChain & RAG
 - [`example_gemini_direct.py`](examples/example_gemini_direct.py) - Direct Gemini API
-- [`example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) - Smart retry with validation feedback
-- [`example_model_escalation.py`](examples/example_model_escalation.py) - Model escalation for cost optimization
+- [`example_gemini_smart_retry.py`](examples/example_gemini_smart_retry.py) - Smart retry with validation feedback using `on_error`
+- [`example_model_escalation.py`](examples/example_model_escalation.py) - Basic model escalation
+- [`example_smart_model_escalation.py`](examples/example_smart_model_escalation.py) - Smart model escalation (validation errors only) using `on_error`
 - [`example_context_manager.py`](examples/example_context_manager.py) - Resource management
 
 ---

@@ -795,6 +795,17 @@ class ParallelBatchProcessor(
             return work_result
 
         except Exception as e:
+            # Notify strategy about the error before handling it
+            # This allows strategy to adjust behavior for next retry
+            if strategy is not None:  # Type guard for mypy
+                try:
+                    await strategy.on_error(e, attempt_number)
+                except Exception as callback_error:
+                    # Log but don't fail if on_error callback has bugs
+                    logger.warning(
+                        f"Strategy.on_error callback failed for {work_item.item_id}: {callback_error}"
+                    )
+
             # Delegate error handling to separate method
             return await self._handle_execution_error(e, work_item, worker_id, attempt_number)
 

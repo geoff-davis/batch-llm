@@ -314,3 +314,204 @@ async def test_work_item_validation():
         prompt="Test",
     )
     assert item.strategy is not None
+
+
+# Test on_error callback
+
+
+@pytest.mark.asyncio
+async def test_on_error_callback_called():
+    """Test that on_error callback is called when execute raises exception."""
+
+    class ErrorTrackingStrategy(LLMCallStrategy[TestOutput]):
+        def __init__(self):
+            self.errors_received = []
+            self.attempts_received = []
+
+        async def on_error(self, exception: Exception, attempt: int) -> None:
+            self.errors_received.append(exception)
+            self.attempts_received.append(attempt)
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            if attempt < 3:
+                raise ValueError(f"Error on attempt {attempt}")
+            return TestOutput(text="Success"), {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            }
+
+    strategy = ErrorTrackingStrategy()
+    config = ProcessorConfig(
+        max_workers=1, timeout_per_item=10.0, retry=RetryConfig(max_attempts=3)
+    )
+
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
+        await processor.add_work(
+            LLMWorkItem(
+                item_id="test1",
+                strategy=strategy,
+                prompt="Test",
+            )
+        )
+
+        result = await processor.process_all()
+
+    # Should succeed on 3rd attempt
+    assert result.succeeded == 1
+
+    # on_error should have been called twice (for attempts 1 and 2)
+    assert len(strategy.errors_received) == 2
+    assert len(strategy.attempts_received) == 2
+
+    # Check that correct attempt numbers were passed
+    assert strategy.attempts_received[0] == 1
+    assert strategy.attempts_received[1] == 2
+
+    # Check that errors were passed correctly
+    assert all(isinstance(e, ValueError) for e in strategy.errors_received)
+    assert "Error on attempt 1" in str(strategy.errors_received[0])
+    assert "Error on attempt 2" in str(strategy.errors_received[1])
+
+
+@pytest.mark.asyncio
+async def test_on_error_callback_with_state():
+    """Test using on_error to track state for smart retry logic."""
+
+    class SmartRetryStrategy(LLMCallStrategy[TestOutput]):
+        def __init__(self):
+            self.validation_errors = 0
+            self.network_errors = 0
+            self.last_error = None
+
+        async def on_error(self, exception: Exception, attempt: int) -> None:
+            self.last_error = exception
+            if isinstance(exception, ValueError):
+                self.validation_errors += 1
+            elif isinstance(exception, ConnectionError):
+                self.network_errors += 1
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            if attempt == 1:
+                raise ValueError("Validation error")
+            elif attempt == 2:
+                raise ConnectionError("Network error")
+            else:
+                # On 3rd attempt, use state to create custom response
+                return TestOutput(
+                    text=f"Recovered after {self.validation_errors} validation "
+                    f"and {self.network_errors} network errors"
+                ), {
+                    "input_tokens": 10,
+                    "output_tokens": 20,
+                    "total_tokens": 30,
+                }
+
+    strategy = SmartRetryStrategy()
+    config = ProcessorConfig(
+        max_workers=1, timeout_per_item=10.0, retry=RetryConfig(max_attempts=3)
+    )
+
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
+        await processor.add_work(
+            LLMWorkItem(
+                item_id="test1",
+                strategy=strategy,
+                prompt="Test",
+            )
+        )
+
+        result = await processor.process_all()
+
+    assert result.succeeded == 1
+    assert strategy.validation_errors == 1
+    assert strategy.network_errors == 1
+    assert "Recovered after 1 validation and 1 network errors" in result.results[0].output.text
+
+
+@pytest.mark.asyncio
+async def test_on_error_callback_exception_handling():
+    """Test that exceptions in on_error callback don't crash the processor."""
+
+    class BuggyCallbackStrategy(LLMCallStrategy[TestOutput]):
+        def __init__(self):
+            self.execute_count = 0
+
+        async def on_error(self, exception: Exception, attempt: int) -> None:
+            # Intentionally buggy callback
+            raise RuntimeError("Buggy on_error callback")
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            self.execute_count += 1
+            if attempt < 2:
+                raise ValueError("First attempt fails")
+            return TestOutput(text="Success"), {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            }
+
+    strategy = BuggyCallbackStrategy()
+    config = ProcessorConfig(
+        max_workers=1, timeout_per_item=10.0, retry=RetryConfig(max_attempts=2)
+    )
+
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
+        await processor.add_work(
+            LLMWorkItem(
+                item_id="test1",
+                strategy=strategy,
+                prompt="Test",
+            )
+        )
+
+        result = await processor.process_all()
+
+    # Should still succeed despite buggy callback
+    assert result.succeeded == 1
+    assert strategy.execute_count == 2
+
+
+@pytest.mark.asyncio
+async def test_on_error_not_called_on_success():
+    """Test that on_error is not called when execute succeeds."""
+
+    class CallbackTrackingStrategy(LLMCallStrategy[TestOutput]):
+        def __init__(self):
+            self.on_error_called = False
+
+        async def on_error(self, exception: Exception, attempt: int) -> None:
+            self.on_error_called = True
+
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float
+        ) -> tuple[TestOutput, dict[str, int]]:
+            # Always succeed
+            return TestOutput(text="Success"), {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "total_tokens": 30,
+            }
+
+    strategy = CallbackTrackingStrategy()
+    config = ProcessorConfig(max_workers=1, timeout_per_item=10.0)
+
+    async with ParallelBatchProcessor[None, TestOutput, None](config=config) as processor:
+        await processor.add_work(
+            LLMWorkItem(
+                item_id="test1",
+                strategy=strategy,
+                prompt="Test",
+            )
+        )
+
+        result = await processor.process_all()
+
+    assert result.succeeded == 1
+    assert not strategy.on_error_called

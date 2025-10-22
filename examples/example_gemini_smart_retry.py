@@ -110,11 +110,26 @@ class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
     2. LLM can focus on fixing specific fields
     3. Reduces token usage (shorter focused prompts)
     4. Higher success rate on retries
+
+    Uses on_error callback to track failures cleanly.
     """
 
     def __init__(self, client: genai.Client):
         self.client = client
         self.last_response = None  # Track last response for smart retry
+        self.last_error = None  # Track last error for smart retry
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """
+        Track validation errors and failed responses for smart retry.
+
+        This callback captures the error information before the retry,
+        allowing us to build a more targeted prompt for the next attempt.
+        """
+        if isinstance(exception, ValidationError):
+            self.last_error = exception
+            # Note: We can't access response.text here because the exception
+            # is raised after parsing. We need to save it during execute().
 
     async def execute(
         self, prompt: str, attempt: int, timeout: float
@@ -153,9 +168,10 @@ class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
             return output, tokens
 
         except ValidationError as e:
-            # Save the error for retry prompt generation
+            # Save the response text for retry prompt generation
+            # Note: on_error callback is called by framework after this raises
             self.last_response = response.text
-            self.last_error = e
+            self.last_error = e  # Also save here for immediate access
             raise  # Re-raise so framework can retry
 
     def _create_retry_prompt(self, original_prompt: str) -> str:

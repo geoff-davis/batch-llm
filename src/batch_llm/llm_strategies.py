@@ -96,6 +96,34 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         """
         pass
 
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """
+        Handle errors that occur during execute().
+
+        Called by the framework when execute() raises an exception, before
+        deciding whether to retry. This allows strategies to:
+        - Inspect the error type to adjust retry behavior
+        - Store error information for use in next attempt
+        - Modify prompts based on validation errors
+        - Track error patterns across attempts
+
+        Args:
+            exception: The exception that was raised during execute()
+            attempt: Which attempt number failed (1, 2, 3, ...)
+
+        Default: no-op
+
+        Example:
+            async def on_error(self, exception: Exception, attempt: int) -> None:
+                # Store last error for smart retry logic
+                self.last_error = exception
+
+                # Track validation errors vs network errors
+                if isinstance(exception, ValidationError):
+                    self.should_escalate_model = True
+        """
+        pass
+
     async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]:
         """
         Return mock output for dry-run mode (testing without API calls).

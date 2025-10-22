@@ -48,7 +48,18 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - **`LLMCallStrategy` abstract base class** - Universal interface for any LLM provider
   - `prepare()` - Initialize resources before processing
   - `execute()` - Execute LLM call with retry support
+  - `on_error()` - Handle errors and adjust retry behavior (new in this release)
   - `cleanup()` - Clean up resources after processing
+- **`on_error()` callback for intelligent retry strategies**
+  - Called automatically when `execute()` raises an exception
+  - Enables error-type-aware retry logic (validation vs. network vs. rate limit errors)
+  - Allows state tracking across retry attempts
+  - Use cases:
+    - **Smart model escalation**: Only escalate to expensive models on validation errors, not network errors
+    - **Smart retry prompts**: Build better retry prompts based on which fields failed validation
+    - **Error tracking**: Distinguish and count different error types
+  - Non-breaking: Default no-op implementation
+  - Framework catches and logs exceptions in `on_error()` to prevent crashes
 
 #### Built-in Strategies
 - **`PydanticAIStrategy`** - Wraps PydanticAI agents for batch processing
@@ -64,6 +75,11 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Added `TokenUsage` TypedDict documentation
   - Added `FrameworkTimeoutError` exception documentation
   - Documented `LLMCallStrategy.dry_run()` method
+  - **Documented `LLMCallStrategy.on_error()` callback** with 3 complete use case examples
+    - Smart model escalation (validation errors only)
+    - Smart retry with partial parsing
+    - Error type tracking
+  - Updated strategy lifecycle description to include `on_error` call sequence
   - Updated `ErrorInfo` field documentation (error_category, is_timeout)
   - Added missing `ProcessorConfig.progress_callback_timeout` field
   - Updated all code examples to use `TokenUsage`
@@ -74,6 +90,10 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Added **Best Practices** section (120+ lines)
   - Added **Troubleshooting** section (180+ lines)
   - Added **FAQ** section (180+ lines) with 15+ Q&A
+  - **Updated Strategy Pattern section** to include `on_error` method
+  - **Updated Smart Retry section** to demonstrate `on_error` callback usage
+  - **Updated Model Escalation section** to show smart escalation with `on_error`
+  - **Updated FAQ** with `on_error` callback approach for adaptive prompts
   - Enhanced Middleware & Observers documentation
   - Improved Testing section with 3 approaches
   - Updated all code examples to use `TokenUsage` TypedDict
@@ -82,12 +102,25 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - **`examples/example_anthropic.py`** - Anthropic Claude integration examples
 - **`examples/example_langchain.py`** - LangChain integration examples (including RAG)
 - **`examples/example_llm_strategies.py`** - All built-in strategies with examples
+- **`examples/example_smart_model_escalation.py`** - Smart model escalation using `on_error` callback
+  - Only escalates to expensive models on validation errors
+  - Retries with same cheap model on network/rate limit errors
+  - Demonstrates 60-80% cost savings vs. always using best model
+  - Includes comparison with blind escalation strategy
+- **`examples/example_gemini_smart_retry.py`** - Enhanced with `on_error` callback documentation
+  - Shows how to use `on_error` to track validation errors cleanly
+  - Demonstrates building targeted retry prompts based on which fields failed
 - **All example files** - Updated to use `TokenUsage` TypedDict consistently
 
 #### Testing
 - **`batch_llm.testing.MockAgent`** - Mock agent for testing without API calls
 - Comprehensive test coverage for all strategies
 - Strategy lifecycle tests (prepare/execute/cleanup)
+- **New `on_error` callback tests** (4 comprehensive tests):
+  - `test_on_error_callback_called` - Verifies callback is invoked with correct parameters
+  - `test_on_error_callback_with_state` - Tests state tracking across retries (validation vs. network errors)
+  - `test_on_error_callback_exception_handling` - Ensures buggy callbacks don't crash processor
+  - `test_on_error_not_called_on_success` - Confirms callback only runs on errors
 
 ---
 
@@ -102,6 +135,11 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Consistent behavior across all strategies
   - Timeout parameter still passed to `execute()` for informational purposes
   - Removed redundant timeout wrappers from built-in strategies
+- **Enhanced strategy execution lifecycle** to include error callback
+  - Framework now calls `strategy.on_error(exception, attempt)` when `execute()` raises
+  - Error callback invoked before retry logic, allowing strategies to adjust behavior
+  - Exceptions in `on_error()` are caught and logged (won't crash processing)
+  - Type guard added for mypy compliance
 
 #### Type System
 - **`LLMWorkItem` now accepts `strategy=`** instead of `agent=` or `client=`

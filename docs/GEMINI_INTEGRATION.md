@@ -523,6 +523,178 @@ asyncio.TimeoutError
 config = ProcessorConfig(timeout_per_item=60.0)  # 60 seconds
 ```
 
+## Advanced: Smart Retry with on_error
+
+Use the `on_error` callback to handle Gemini-specific errors intelligently:
+
+### Smart Model Escalation for Gemini
+
+Only escalate to expensive Gemini models on validation errors, not network/rate limit errors:
+
+```python
+from batch_llm.llm_strategies import LLMCallStrategy
+from batch_llm import TokenUsage
+from pydantic import ValidationError
+from google import genai
+
+class SmartGeminiStrategy(LLMCallStrategy[PersonData]):
+    """Smart model escalation for Gemini API."""
+
+    MODELS = [
+        "gemini-2.5-flash-lite",  # Cheapest, fastest
+        "gemini-2.5-flash",       # Production-ready
+        "gemini-2.5-pro",         # Most capable
+    ]
+
+    def __init__(self, client: genai.Client):
+        self.client = client
+        self.validation_failures = 0  # Track quality issues only
+        self.safety_blocks = 0        # Track Gemini safety blocks
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track Gemini-specific error types."""
+        if isinstance(exception, ValidationError):
+            self.validation_failures += 1
+        elif "SAFETY" in str(exception) or "BLOCKED" in str(exception):
+            self.safety_blocks += 1
+            # Note: Could adjust safety_settings on retry
+
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[PersonData, TokenUsage]:
+        # Select model based on validation failures (not total attempts)
+        model_index = min(self.validation_failures, len(self.MODELS) - 1)
+        model = self.MODELS[model_index]
+
+        # Adjust safety settings if we've hit safety blocks
+        config = genai.types.GenerateContentConfig(
+            temperature=0.7,
+            response_mime_type="application/json",
+            response_schema=PersonData,
+        )
+
+        if self.safety_blocks > 0:
+            # Could make safety_settings more permissive
+            # config.safety_settings = [...]
+            pass
+
+        response = await self.client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+
+        output = PersonData.model_validate_json(response.text)
+        usage = response.usage_metadata
+        tokens: TokenUsage = {
+            "input_tokens": usage.prompt_token_count or 0,
+            "output_tokens": usage.candidates_token_count or 0,
+            "total_tokens": usage.total_token_count or 0,
+        }
+
+        return output, tokens
+```
+
+**Cost Savings:**
+
+- Validation error → Escalate to gemini-2.5-pro (quality issue)
+- Network error → Retry with gemini-2.5-flash-lite (transient issue)
+- Rate limit error → Retry with gemini-2.5-flash-lite (API quota)
+- Safety block → Retry with same model, adjusted safety settings
+- Result: **60-80% cost reduction** vs. always using gemini-2.5-pro
+
+### Smart Retry Prompts for Gemini
+
+Build targeted retry prompts based on Gemini validation errors:
+
+```python
+class SmartRetryGeminiStrategy(LLMCallStrategy[PersonData]):
+    """Tell Gemini exactly what failed in previous attempt."""
+
+    def __init__(self, client: genai.Client):
+        self.client = client
+        self.last_error = None
+        self.last_response = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        """Track validation errors for smart retry."""
+        if isinstance(exception, ValidationError):
+            self.last_error = exception
+
+    async def execute(
+        self, prompt: str, attempt: int, timeout: float
+    ) -> tuple[PersonData, TokenUsage]:
+        if attempt == 1:
+            final_prompt = prompt
+        else:
+            # Build focused retry prompt
+            final_prompt = self._create_retry_prompt(prompt)
+
+        config = genai.types.GenerateContentConfig(
+            temperature=0.7,
+            response_mime_type="application/json",
+            response_schema=PersonData,
+        )
+
+        response = await self.client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=final_prompt,
+            config=config,
+        )
+
+        try:
+            output = PersonData.model_validate_json(response.text)
+            usage = response.usage_metadata
+            tokens: TokenUsage = {
+                "input_tokens": usage.prompt_token_count or 0,
+                "output_tokens": usage.candidates_token_count or 0,
+                "total_tokens": usage.total_token_count or 0,
+            }
+            return output, tokens
+        except ValidationError as e:
+            self.last_response = response.text
+            raise  # Framework calls on_error, then retries
+
+    def _create_retry_prompt(self, original_prompt: str) -> str:
+        """Create targeted retry prompt with field-specific feedback."""
+        if not self.last_error:
+            return original_prompt
+
+        # Parse which fields succeeded vs failed
+        failed_fields = []
+        for error in self.last_error.errors():
+            field = ".".join(str(loc) for loc in error["loc"])
+            msg = error["msg"]
+            failed_fields.append(f"  - {field}: {msg}")
+
+        retry_prompt = f"""RETRY REQUEST: The previous response had validation errors.
+
+ORIGINAL REQUEST:
+{original_prompt}
+
+VALIDATION ERRORS TO FIX:
+{chr(10).join(failed_fields)}
+
+Please provide a complete, valid JSON response that fixes these specific validation errors.
+Ensure all fields match the required schema exactly."""
+
+        return retry_prompt
+```
+
+**Benefits:**
+
+- Gemini knows exactly what went wrong
+- Focused on fixing specific fields
+- Higher success rate on retries
+- Lower token usage (shorter prompts)
+
+**Complete Examples:**
+
+- `examples/example_smart_model_escalation.py` - Full implementation
+- `examples/example_gemini_smart_retry.py` - Complete smart retry example
+
+---
+
 ## Resources
 
 - **Gemini API Docs**: <https://ai.google.dev/gemini-api/docs>

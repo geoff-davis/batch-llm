@@ -294,6 +294,8 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         self, prompt: str, attempt: int, timeout: float
     ) -> tuple[TOutput, TokenUsage]: ...
 
+    async def on_error(self, exception: Exception, attempt: int) -> None: ...
+
     async def cleanup(self) -> None: ...
 
     async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]: ...
@@ -302,7 +304,9 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
 **Lifecycle:**
 
 1. `prepare()` - Called once before any retry attempts
-2. `execute()` - Called for each attempt (including retries), or `dry_run()` if `config.dry_run=True`
+2. For each attempt (including retries):
+   - `execute()` is called (or `dry_run()` if `config.dry_run=True`)
+   - If `execute()` raises an exception, `on_error()` is called before retry logic
 3. `cleanup()` - Called once after all attempts complete
 
 **Methods:**
@@ -361,6 +365,94 @@ class MyStrategy(LLMCallStrategy[Output]):
         }
         return mock_output, mock_tokens
 ```
+
+#### `async def on_error(exception: Exception, attempt: int) -> None`
+
+Handle errors that occur during execute().
+
+Called by the framework when `execute()` raises an exception, before deciding whether to retry. This allows strategies to:
+- Inspect the error type to adjust retry behavior
+- Store error information for use in the next attempt
+- Modify prompts based on validation errors
+- Track error patterns across attempts
+- Make intelligent decisions (e.g., escalate to smarter model only on validation errors)
+
+**Parameters:**
+
+- `exception` (Exception): The exception that was raised during `execute()`
+- `attempt` (int): Which attempt number failed (1, 2, 3, ...)
+
+**Default:** No-op
+
+**Use Cases:**
+
+1. **Smart Model Escalation** - Only escalate to expensive models on validation errors, not network errors:
+
+```python
+class SmartModelEscalationStrategy(LLMCallStrategy[Output]):
+    def __init__(self):
+        self.validation_failures = 0
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        if isinstance(exception, ValidationError):
+            self.validation_failures += 1
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        # Only escalate model on validation errors
+        model_index = min(self.validation_failures, len(MODELS) - 1)
+        model = MODELS[model_index]
+        # Make call with appropriate model...
+```
+
+2. **Smart Retry with Partial Parsing** - Build better retry prompts based on what failed:
+
+```python
+class SmartRetryStrategy(LLMCallStrategy[Output]):
+    def __init__(self):
+        self.last_error = None
+        self.last_response = None
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        if isinstance(exception, ValidationError):
+            self.last_error = exception
+            # last_response set in execute() before raising
+
+    async def execute(self, prompt: str, attempt: int, timeout: float):
+        if attempt > 1 and self.last_error:
+            # Build smart retry prompt with partial parsing feedback
+            prompt = self._create_retry_prompt_with_partial_data(prompt)
+        # Make call with improved prompt...
+```
+
+3. **Error Type Tracking** - Distinguish between different error types:
+
+```python
+class ErrorTrackingStrategy(LLMCallStrategy[Output]):
+    def __init__(self):
+        self.validation_errors = 0
+        self.network_errors = 0
+        self.rate_limit_errors = 0
+
+    async def on_error(self, exception: Exception, attempt: int) -> None:
+        if isinstance(exception, ValidationError):
+            self.validation_errors += 1
+        elif isinstance(exception, ConnectionError):
+            self.network_errors += 1
+        elif "429" in str(exception):
+            self.rate_limit_errors += 1
+```
+
+**Important Notes:**
+
+- Exceptions in `on_error()` are caught and logged by the framework - they won't crash processing
+- `on_error()` is only called when `execute()` raises an exception, not on success
+- The error is still propagated to the framework's retry logic after `on_error()` returns
+- For stateful strategies, each work item should use a separate strategy instance
+
+**See Also:**
+
+- [examples/example_smart_model_escalation.py](../examples/example_smart_model_escalation.py) - Complete smart model escalation example
+- [examples/example_gemini_smart_retry.py](../examples/example_gemini_smart_retry.py) - Smart retry with partial parsing
 
 #### `async def cleanup() -> None`
 

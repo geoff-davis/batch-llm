@@ -102,7 +102,7 @@ async def example_simple():
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
-    from batch_llm import PydanticAIStrategy, TokenUsage
+    from batch_llm import PydanticAIStrategy
     strategy = PydanticAIStrategy(agent=agent)
 
     # Create processor with new configuration system
@@ -167,7 +167,7 @@ async def example_with_context_and_postprocessor():
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
-    from batch_llm import PydanticAIStrategy, TokenUsage
+    from batch_llm import PydanticAIStrategy
     strategy = PydanticAIStrategy(agent=agent)
 
     # Create configuration with custom retry settings
@@ -260,7 +260,7 @@ async def example_error_handling():
         output_type=BookSummary,
         system_prompt="You are a book summarization expert.",
     )
-    from batch_llm import PydanticAIStrategy, TokenUsage
+    from batch_llm import PydanticAIStrategy
     strategy = PydanticAIStrategy(agent=agent)
 
     # Create processor with custom rate limit configuration
@@ -339,7 +339,7 @@ async def example_testing_with_mocks():
         # Note: rate_limit_on_call is disabled for this simple example
         # You can enable it by setting rate_limit_on_call=3
     )
-    from batch_llm import PydanticAIStrategy, TokenUsage
+    from batch_llm import PydanticAIStrategy
     strategy = PydanticAIStrategy(agent=mock_agent)
 
     # Create processor with fast configuration for testing
