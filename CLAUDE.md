@@ -150,6 +150,7 @@ See `examples/example_gemini_direct.py` for complete example.
 **Challenge:** Different error types require different retry strategies.
 
 **Problem:**
+
 - Validation errors mean LLM output quality issue → Should escalate to smarter model or adjust prompt
 - Network errors are transient → Should retry with same model
 - Rate limit errors need cooldown → Should retry with same model after waiting
@@ -366,23 +367,56 @@ uv run pytest --cov=batch_llm --cov-report=html
 
 ### Code Quality
 
-**IMPORTANT:** Always run ruff after making significant code changes!
+**IMPORTANT:** Always run linters after making significant code changes!
+
+#### Python Code Quality
 
 ```bash
 # Format code
-uv run ruff format src/ tests/
+uv run ruff format src/ tests/ examples/
 
 # Lint and auto-fix issues
-uv run ruff check src/ tests/ --fix
+uv run ruff check src/ tests/ examples/ --fix
 
 # Verify all linting passes
-uv run ruff check src/ tests/
+uv run ruff check src/ tests/ examples/
 
 # Type check
 uv run mypy src/batch_llm/ --ignore-missing-imports
 ```
 
-**Workflow:** After any code changes, run `uv run ruff check src/ --fix` before committing.
+**Workflow:** After any Python code changes, run `uv run ruff check src/ --fix` before committing.
+
+#### Markdown Documentation Quality
+
+```bash
+# Lint markdown files (requires npm install)
+markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
+
+# Auto-fix markdown issues
+markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md" --fix
+
+# Or use make targets
+make markdown-lint
+make markdown-lint-fix
+```
+
+**Configuration:** `.markdownlint.json` with:
+
+- Line length: 120 chars (not 80)
+- Code blocks need language specifiers (use `text` for plain text/errors)
+- Blank lines required around lists and code fences
+- HTML allowed (MD033: false)
+- Multiple headers with same name allowed in different sections (MD024: siblings_only)
+
+**Workflow:** After any documentation changes, run `make markdown-lint-fix` before committing.
+
+#### All Quality Checks
+
+```bash
+# Run all checks (lint + typecheck + test + markdown-lint)
+make ci
+```
 
 ### Building and Publishing
 
@@ -645,6 +679,7 @@ class SmartRetryStrategy(LLMCallStrategy[PersonData]):
 ```
 
 **Benefits:**
+
 - `on_error` cleanly captures failure context before retry
 - LLM knows exactly what went wrong
 - Higher success rate, lower token usage
@@ -689,6 +724,7 @@ class SmartModelEscalationStrategy(LLMCallStrategy[Analysis]):
 ```
 
 **Cost savings breakdown:**
+
 - Validation error → Escalate to smarter model ✅ (quality issue)
 - Network error → Retry same cheap model ✅ (transient issue)
 - Rate limit error → Retry same cheap model ✅ (API quota issue)

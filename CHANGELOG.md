@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This major release introduces the **LLM Call Strategy Pattern**, providing a flexible, provider-agnostic architecture for batch LLM processing.
 
 #### Removed Parameters
+
 - **`agent=` parameter removed** from `LLMWorkItem` - Use `strategy=` instead
 - **`client=` parameter removed** from `LLMWorkItem` - Use `strategy=` instead
 
@@ -45,6 +46,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ### Added
 
 #### Core Features
+
 - **`LLMCallStrategy` abstract base class** - Universal interface for any LLM provider
   - `prepare()` - Initialize resources before processing
   - `execute()` - Execute LLM call with retry support
@@ -62,6 +64,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Framework catches and logs exceptions in `on_error()` to prevent crashes
 
 #### Built-in Strategies
+
 - **`PydanticAIStrategy`** - Wraps PydanticAI agents for batch processing
 - **`GeminiStrategy`** - Direct Google Gemini API calls without caching
 - **`GeminiCachedStrategy`** - Gemini API calls with automatic context caching
@@ -71,6 +74,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Configurable cache TTL and refresh threshold
 
 #### Documentation
+
 - **`docs/API.md`** - Complete API reference documentation
   - Added `TokenUsage` TypedDict documentation
   - Added `FrameworkTimeoutError` exception documentation
@@ -113,6 +117,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - **All example files** - Updated to use `TokenUsage` TypedDict consistently
 
 #### Testing
+
 - **`batch_llm.testing.MockAgent`** - Mock agent for testing without API calls
 - Comprehensive test coverage for all strategies
 - Strategy lifecycle tests (prepare/execute/cleanup)
@@ -127,6 +132,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ### Changed
 
 #### Architecture
+
 - **Strategy pattern** replaces direct agent/client parameters
   - Cleaner separation of concerns
   - Framework handles timeout enforcement at top level
@@ -142,11 +148,13 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
   - Type guard added for mypy compliance
 
 #### Type System
+
 - **`LLMWorkItem` now accepts `strategy=`** instead of `agent=` or `client=`
 - Generic type parameters preserved: `LLMWorkItem[TInput, TOutput, TContext]`
 - Better type safety with strategy pattern
 
 #### Internal
+
 - Refactored `_process_work_item_direct()` to use strategy lifecycle
 - Improved error handling in strategy execution
 - Better resource cleanup with context managers
@@ -154,6 +162,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ---
 
 ### Fixed
+
 - **Timeout enforcement bug** - Custom strategies now respect timeouts consistently
   - Framework wraps all `strategy.execute()` calls in `asyncio.wait_for()`
   - Previously, custom strategies could ignore timeout parameter
@@ -175,6 +184,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 **Estimated migration time**: 15-60 minutes for most codebases
 
 **Benefits**:
+
 - ✅ Support for any LLM provider (OpenAI, Anthropic, LangChain, etc.)
 - ✅ Better caching with automatic lifecycle management
 - ✅ More reliable timeout enforcement
@@ -186,26 +196,31 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ## [0.0.2] - 2025-10-20
 
 ### Fixed
+
 - Fixed crash when middleware's `before_process()` returns `None` - now properly preserves original `item_id`
 - Fixed stats race condition where re-queued rate-limited items inflated the total count
 - Improved token usage extraction robustness with multiple fallback strategies for different LLM providers
 - Fixed all linting issues (20 total: 2 in source code, 18 in tests)
 
 ### Added
+
 - `max_queue_size` configuration option to prevent memory issues with large batches (default: 0 = unlimited)
 - 3 new tests for edge cases and bug fixes
 - `docs/internal/` directory for development documentation (gitignored)
 
 ### Changed
+
 - Token extraction now uses a robust helper method with 3 fallback strategies
 - Moved 16 internal documentation files to `docs/internal/` for cleaner repository
 - Updated `CLAUDE.md` with ruff workflow reminder
 - **BREAKING**: Removed unused `batch_size` parameter from `BatchProcessor` and `ParallelBatchProcessor`
 
 ### Removed
+
 - `batch_size` parameter (was unused and ignored)
 
 ### Documentation
+
 - Created comprehensive bug fix documentation in `docs/internal/BUG_FIXES_V2.0.2.md`
 - Updated code review with completion status
 - Cleaned up repository root (70% reduction in visible markdown files)
@@ -213,21 +228,25 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ## [0.0.1] - 2025-10-19
 
 ### Added
+
 - Optional dependencies: `pydantic-ai` and `google-genai` are now optional extras
 - Comprehensive Gemini integration guide (`docs/GEMINI_INTEGRATION.md`)
 - Working Gemini direct API example (`examples/example_gemini_direct.py`)
 - Installation options: `[pydantic-ai]`, `[gemini]`, `[all]`, `[dev]`
 
 ### Fixed
+
 - Direct call timeout enforcement - now properly wraps calls in `asyncio.wait_for()`
 - Middleware `on_error` now called after retry exhaustion (not just for non-retryable errors)
 - Middleware execution order - `after_process` now runs in reverse order (onion pattern)
 
 ### Changed
+
 - Core dependency now only `pydantic>=2.0.0` (was also `pydantic-ai` and `google-genai`)
 - String annotations for `Agent` type to work without `pydantic-ai` installed
 
 ### Documentation
+
 - `OPTIONAL_DEPENDENCIES.md` - Complete installation guide
 - Migration guide for v0.0.0 → v0.0.1
 - Updated README with installation options
@@ -235,6 +254,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ## [0.0.0] - 2025-10-19
 
 ### Added
+
 - Initial PyPI package release
 - Provider-agnostic error classification system
 - Pluggable rate limit strategies (ExponentialBackoff, FixedDelay)
@@ -248,12 +268,14 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 - Support for Python 3.10+
 
 ### Changed
+
 - Refactored to src-layout for better packaging
 - Improved error handling with retryable error detection
 - Enhanced documentation with installation instructions
 - Updated examples to use new configuration system
 
 ### Features
+
 - `ParallelBatchProcessor` - Async parallel LLM request processing
 - Work queue management with context passing
 - Post-processing hooks for custom logic
@@ -265,6 +287,7 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
 ## [0.0.0-alpha] - Internal
 
 ### Added
+
 - Initial implementation for internal use
 - Basic parallel processing
 - PydanticAI integration

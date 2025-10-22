@@ -348,6 +348,7 @@ Called when `ProcessorConfig(dry_run=True)` is set. Override this method to prov
 **Returns:** Tuple of `(mock_output, mock_token_usage)`
 
 **Default behavior:**
+
 - Returns string `"[DRY-RUN] Mock output for prompt: {prompt[:50]}..."` as output
 - Returns mock token usage: 100 input, 50 output, 150 total tokens
 
@@ -371,6 +372,7 @@ class MyStrategy(LLMCallStrategy[Output]):
 Handle errors that occur during execute().
 
 Called by the framework when `execute()` raises an exception, before deciding whether to retry. This allows strategies to:
+
 - Inspect the error type to adjust retry behavior
 - Store error information for use in the next attempt
 - Modify prompts based on validation errors
@@ -1058,6 +1060,7 @@ class FrameworkTimeoutError(TimeoutError):
 **Purpose:**
 
 Differentiates between:
+
 - **Framework timeout**: `asyncio.wait_for()` timed out (exceeded `timeout_per_item`)
 - **API timeout**: LLM provider returned timeout error (network issue, slow response)
 
@@ -1070,6 +1073,7 @@ Differentiates between:
 **When to increase `timeout_per_item`:**
 
 If you see frequent `FrameworkTimeoutError`, it indicates:
+
 1. LLM calls are taking longer than configured timeout
 2. Retry delays don't fit within timeout window
 3. Solution: Increase `timeout_per_item` or reduce retry configuration

@@ -74,6 +74,7 @@ class SmartStrategy(LLMCallStrategy[Output]):
 **Use Cases:**
 
 1. **Cost Optimization** - Only escalate to expensive models on validation errors:
+
    ```python
    # Validation error → Use GPT-4 (quality issue)
    # Network error → Retry with GPT-3.5 (transient issue)
@@ -81,6 +82,7 @@ class SmartStrategy(LLMCallStrategy[Output]):
    ```
 
 2. **Better Retry Prompts** - Tell LLM exactly what failed:
+
    ```python
    # Parse validation error: email field invalid, name and age OK
    # Retry prompt: "Previous attempt succeeded for name/age.
@@ -88,12 +90,14 @@ class SmartStrategy(LLMCallStrategy[Output]):
    ```
 
 3. **Analytics** - Track error patterns:
+
    ```python
    # Monitor: 80% validation errors, 15% network, 5% rate limits
    # Action: Improve prompts to reduce validation errors
    ```
 
 **Examples:**
+
 - `examples/example_smart_model_escalation.py` - Smart model escalation
 - `examples/example_gemini_smart_retry.py` - Smart retry with validation feedback
 

@@ -241,6 +241,7 @@ collected_metrics = await metrics.get_metrics()
 ```
 
 **Available Events**:
+
 - `PROCESSING_STARTED` - Batch processing begins
 - `ITEM_STARTED` - Item processing starts
 - `ITEM_COMPLETED` - Item succeeds
@@ -784,26 +785,31 @@ config = ProcessorConfig(
 ### Key Configuration Tips
 
 **Worker Count:**
+
 - **CPU-bound tasks**: `max_workers = cpu_count()`
 - **I/O-bound (LLM calls)**: `max_workers = 5-10`
 - **Rate-limited APIs**: Start with `max_workers = 3-5`, increase gradually
 
 **Timeout Settings:**
+
 - Set `timeout_per_item` > sum of all retry delays
 - Formula: `timeout_per_item ≥ max_attempts × max_wait × 2`
 - Framework will warn you if timeout is too short
 
 **Retry Strategy:**
+
 - `jitter=True` prevents all workers retrying simultaneously
 - Exponential backoff: delay = `initial_wait × (exponential_base ^ attempt)`
 - Example: attempt 1 = 1s, attempt 2 = 2s, attempt 3 = 4s
 
 **Rate Limiting:**
+
 - When any worker hits 429 error, all workers pause
 - `slow_start` gradually resumes processing to avoid immediate re-limiting
 - `backoff_multiplier` increases cooldown if limits persist
 
 **Dry Run Mode:**
+
 - Set `dry_run=True` to test configuration without API calls
 - Strategies return mock data via `dry_run()` method
 - Useful for validating workflow before spending API credits
@@ -946,6 +952,7 @@ test_items = your_items[:10]  # Try 10 items first
 **Cause**: Item exceeded `timeout_per_item` seconds.
 
 **Solutions**:
+
 ```python
 # 1. Increase timeout
 config = ProcessorConfig(timeout_per_item=300.0)  # 5 minutes
@@ -968,6 +975,7 @@ config = ProcessorConfig(
 **Symptoms**: Logs show "Rate limit detected", all workers pause.
 
 **Solutions**:
+
 ```python
 # 1. Increase cooldown period
 config = ProcessorConfig(
@@ -993,6 +1001,7 @@ config = ProcessorConfig(
 **Cause**: LLM consistently returns invalid structured output.
 
 **Solutions**:
+
 ```python
 # 1. Use progressive temperature
 class ProgressiveTempStrategy(LLMCallStrategy[Output]):
@@ -1025,6 +1034,7 @@ Input: {input_text}
 **Symptoms**: `process_all()` never completes, workers timeout warning.
 
 **Debug steps**:
+
 ```python
 import logging
 
@@ -1038,6 +1048,7 @@ logging.basicConfig(level=logging.DEBUG)
 ```
 
 **Solutions**:
+
 ```python
 # 1. Add timeouts to post-processors
 async def safe_post_processor(result):
@@ -1123,6 +1134,7 @@ config = ProcessorConfig(
 **Q: How is this different from using threading or multiprocessing?**
 
 A: `batch-llm` uses asyncio for concurrency, which is ideal for I/O-bound LLM API calls:
+
 - **Threading**: Limited by GIL, complex synchronization
 - **Multiprocessing**: High overhead, can't share data easily
 - **Asyncio (batch-llm)**: Lightweight, efficient for I/O, built-in coordination
@@ -1130,6 +1142,7 @@ A: `batch-llm` uses asyncio for concurrency, which is ideal for I/O-bound LLM AP
 **Q: Can I use this with synchronous LLM clients?**
 
 A: Yes, but you need to wrap sync calls in `asyncio.to_thread()`:
+
 ```python
 class SyncClientStrategy(LLMCallStrategy[str]):
     async def execute(self, prompt: str, attempt: int, timeout: float):
@@ -1143,6 +1156,7 @@ class SyncClientStrategy(LLMCallStrategy[str]):
 **Q: What happens if my process crashes mid-batch?**
 
 A: In-flight items are lost. For critical workloads:
+
 ```python
 # Use post-processor to mark items as completed
 async def mark_complete(result):
@@ -1156,6 +1170,7 @@ unprocessed_items = await db.get_unprocessed()
 **Q: How do I handle API key rotation?**
 
 A: Strategies are instantiated once, so update the client:
+
 ```python
 class RotatingKeyStrategy(LLMCallStrategy[Output]):
     async def execute(self, prompt: str, attempt: int, timeout: float):
@@ -1170,6 +1185,7 @@ class RotatingKeyStrategy(LLMCallStrategy[Output]):
 **Q: What's the optimal worker count?**
 
 A: Start with 5, adjust based on:
+
 - **Too low**: Underutilized resources, slow throughput
 - **Too high**: Rate limits, high memory, diminishing returns
 - **Monitor**: If hitting rate limits, reduce workers; if CPU idle, increase
@@ -1177,6 +1193,7 @@ A: Start with 5, adjust based on:
 **Q: Why do I see "timeout may be too short" warnings?**
 
 A: Framework validates that `timeout_per_item` can accommodate retry delays:
+
 ```python
 # Warning triggered if:
 # timeout_per_item < sum_of_retry_delays
@@ -1191,6 +1208,7 @@ config = ProcessorConfig(
 **Q: What does `dry_run` mode do?**
 
 A: Skips actual API calls, uses mock data:
+
 ```python
 config = ProcessorConfig(dry_run=True)
 # - No API calls made
@@ -1203,6 +1221,7 @@ config = ProcessorConfig(dry_run=True)
 **Q: Can I mix different strategies in one batch?**
 
 A: Yes! Each work item can have its own strategy:
+
 ```python
 gpt4_strategy = OpenAIStrategy(client, "gpt-4o")
 gpt4_mini_strategy = OpenAIStrategy(client, "gpt-4o-mini")
@@ -1225,6 +1244,7 @@ await processor.add_work(LLMWorkItem(
 **Q: How do I implement caching for identical prompts?**
 
 A: Use middleware or custom strategy:
+
 ```python
 class CachingStrategy(LLMCallStrategy[Output]):
     def __init__(self, base_strategy, cache):
@@ -1248,6 +1268,7 @@ class CachingStrategy(LLMCallStrategy[Output]):
 **Q: Can I pause/resume processing?**
 
 A: Not directly, but you can implement checkpointing:
+
 ```python
 processed_ids = set()
 
@@ -1264,6 +1285,7 @@ unprocessed = [item for item in all_items if item.id not in checkpoint_data]
 **Q: How do I implement retries with different prompts?**
 
 A: Use the `on_error` callback to track errors and modify prompts on retries:
+
 ```python
 class AdaptivePromptStrategy(LLMCallStrategy[Output]):
     def __init__(self):
