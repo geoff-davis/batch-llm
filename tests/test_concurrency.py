@@ -680,3 +680,151 @@ async def test_slow_start_counter_accuracy():
 
     # All items should eventually succeed
     assert result.succeeded >= 10, "Most items should succeed after slow-start"
+
+
+@pytest.mark.asyncio
+async def test_proactive_rate_limiting_configured():
+    """Test that proactive rate limiter is created when configured."""
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+
+    # Configure proactive rate limit
+    config = ProcessorConfig(
+        max_workers=2,
+        timeout_per_item=10.0,
+        max_requests_per_minute=60.0,
+    )
+
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
+
+    # Verify rate limiter is initialized
+    assert processor._proactive_rate_limiter is not None
+    assert hasattr(processor._proactive_rate_limiter, "acquire")
+
+    # Add a few items and verify they complete successfully
+    for i in range(3):
+        work_item = LLMWorkItem(
+            item_id=f"item_{i}",
+            strategy=PydanticAIStrategy(agent=mock_agent),
+            prompt=f"Test {i}",
+            context=None,
+        )
+        await processor.add_work(work_item)
+
+    result = await processor.process_all()
+
+    # All items should succeed (within burst capacity)
+    assert result.succeeded == 3
+    assert result.failed == 0
+
+
+@pytest.mark.asyncio
+async def test_proactive_rate_limiting_disabled():
+    """Test that without rate limit config, processing is fast."""
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+
+    # No rate limit configured
+    config = ProcessorConfig(
+        max_workers=5,
+        timeout_per_item=10.0,
+        max_requests_per_minute=None,  # Disabled
+    )
+
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
+
+    # Add 10 items
+    for i in range(10):
+        work_item = LLMWorkItem(
+            item_id=f"item_{i}",
+            strategy=PydanticAIStrategy(agent=mock_agent),
+            prompt=f"Test {i}",
+            context=None,
+        )
+        await processor.add_work(work_item)
+
+    start_time = time.time()
+    result = await processor.process_all()
+    elapsed = time.time() - start_time
+
+    # All items should succeed
+    assert result.succeeded == 10
+    assert result.failed == 0
+
+    # Without rate limiting, should complete quickly (< 1 second with 5 workers)
+    assert elapsed < 1.0, f"Processing should be fast without rate limit, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_proactive_rate_limiting_with_multiple_workers():
+    """Test that rate limiter is shared across multiple workers."""
+
+    def mock_response(prompt: str) -> TestOutput:
+        return TestOutput(value=f"Response: {prompt}")
+
+    mock_agent = MockAgent(response_factory=mock_response, latency=0.01)
+
+    # Configure with multiple workers
+    config = ProcessorConfig(
+        max_workers=5,
+        timeout_per_item=10.0,
+        max_requests_per_minute=60.0,
+    )
+
+    processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
+
+    # Verify same limiter is used (not per-worker)
+    assert processor._proactive_rate_limiter is not None
+
+    # Add items
+    for i in range(10):
+        work_item = LLMWorkItem(
+            item_id=f"item_{i}",
+            strategy=PydanticAIStrategy(agent=mock_agent),
+            prompt=f"Test {i}",
+            context=None,
+        )
+        await processor.add_work(work_item)
+
+    result = await processor.process_all()
+
+    # All items should succeed (within burst capacity)
+    assert result.succeeded == 10
+    assert result.failed == 0
+
+
+@pytest.mark.asyncio
+async def test_proactive_rate_limit_validation():
+    """Test that invalid rate limit config raises errors."""
+
+    # Test: negative rate limit
+    with pytest.raises(ValueError, match="max_requests_per_minute must be > 0"):
+        config = ProcessorConfig(
+            max_workers=5,
+            timeout_per_item=10.0,
+            max_requests_per_minute=-10.0,  # Invalid
+        )
+        config.validate()
+
+    # Test: zero rate limit
+    with pytest.raises(ValueError, match="max_requests_per_minute must be > 0"):
+        config = ProcessorConfig(
+            max_workers=5,
+            timeout_per_item=10.0,
+            max_requests_per_minute=0.0,  # Invalid
+        )
+        config.validate()
+
+    # Test: None should be valid (no rate limiting)
+    config = ProcessorConfig(
+        max_workers=5,
+        timeout_per_item=10.0,
+        max_requests_per_minute=None,  # Valid
+    )
+    config.validate()  # Should not raise

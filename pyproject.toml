@@ -47,6 +47,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "aiolimiter>=1.2.1",
     "pydantic>=2.0.0",
 ]
 

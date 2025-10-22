@@ -139,6 +139,20 @@ class ParallelBatchProcessor(
         self._stats_lock = asyncio.Lock()
         self._results_lock = asyncio.Lock()
 
+        # Proactive rate limiting (prevents hitting rate limits)
+        if config.max_requests_per_minute:
+            from aiolimiter import AsyncLimiter
+
+            # aiolimiter doesn't have explicit burst_size - it uses max_rate as burst capacity
+            # To support burst_size, we'd need to use max_rate + burst_size
+            # For now, we use max_rate directly (no additional burst)
+            self._proactive_rate_limiter: AsyncLimiter | None = AsyncLimiter(
+                max_rate=config.max_requests_per_minute,
+                time_period=60,  # per minute
+            )
+        else:
+            self._proactive_rate_limiter = None
+
     async def get_stats(self) -> dict:
         """
         Get processor statistics (thread-safe).
@@ -723,6 +737,16 @@ class ParallelBatchProcessor(
                 raise RuntimeError("Strategy is None in _process_item - this should not happen")
 
             try:
+                # Proactive rate limiting: acquire token before making request
+                if self._proactive_rate_limiter:
+                    logger.debug(
+                        f"[RATE-LIMIT] Acquiring token for {work_item.item_id} (attempt {attempt_number})"
+                    )
+                    await self._proactive_rate_limiter.acquire()
+                    logger.debug(
+                        f"[RATE-LIMIT] Token acquired for {work_item.item_id} (attempt {attempt_number})"
+                    )
+
                 # Dry-run mode: use strategy's dry_run method instead of making API call
                 if self.config.dry_run:
                     logger.info(f"[DRY-RUN] Skipping API call for {work_item.item_id}")

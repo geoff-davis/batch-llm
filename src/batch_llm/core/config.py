@@ -85,6 +85,9 @@ class ProcessorConfig:
     retry: RetryConfig = field(default_factory=RetryConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
+    # Proactive rate limiting (prevents hitting rate limits)
+    max_requests_per_minute: float | None = None  # None = no proactive limit
+
     # Progress reporting
     progress_interval: int = 10  # Log every N items
     progress_callback_timeout: float | None = 5.0  # Timeout for progress callback (seconds)
@@ -125,6 +128,12 @@ class ProcessorConfig:
                 f"max_queue_size must be >= 0 (got {self.max_queue_size}). "
                 f"Set config.max_queue_size to 0 for unlimited, or a positive number to limit queue size."
             )
+        if self.max_requests_per_minute is not None and self.max_requests_per_minute <= 0:
+            raise ValueError(
+                f"max_requests_per_minute must be > 0 or None (got {self.max_requests_per_minute}). "
+                f"Set config.max_requests_per_minute to None to disable proactive rate limiting, "
+                f"or a positive number (typical: 10-500 requests/minute)."
+            )
 
         # Validate nested configs first
         self.retry.validate()
@@ -163,3 +172,14 @@ class ProcessorConfig:
                 f"With {self.retry.max_attempts} attempts, retry delays could total up to {max_total_retry_wait:.1f}s{jitter_note}. "
                 f"Consider increasing timeout_per_item to at least {max_total_retry_wait * 2:.1f}s."
             )
+
+        # Validate proactive rate limit vs workers
+        if self.max_requests_per_minute is not None:
+            requests_per_second = self.max_requests_per_minute / 60.0
+            if requests_per_second < self.max_workers:
+                logger.warning(
+                    f"max_requests_per_minute ({self.max_requests_per_minute}) is less than max_workers ({self.max_workers}). "
+                    f"At {requests_per_second:.2f} requests/second with {self.max_workers} workers, "
+                    f"workers may frequently wait for rate limit tokens. "
+                    f"Consider reducing max_workers to {int(requests_per_second)} or increasing max_requests_per_minute."
+                )

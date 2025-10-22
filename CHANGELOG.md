@@ -62,6 +62,14 @@ See **[Migration Guide](docs/MIGRATION_V3.md)** for complete upgrade instruction
     - **Error tracking**: Distinguish and count different error types
   - Non-breaking: Default no-op implementation
   - Framework catches and logs exceptions in `on_error()` to prevent crashes
+- **Proactive rate limiting** to prevent hitting API rate limits
+  - Configure via `ProcessorConfig.max_requests_per_minute`
+  - Throttles requests before they hit the API (prevents 429 errors)
+  - Uses `aiolimiter` for token bucket rate limiting
+  - Coordinates across all workers (shared limiter instance)
+  - Complements reactive rate limit handling (cooldown after 429s)
+  - Optional: Set to `None` to disable (default behavior)
+  - Validation warns if rate limit is lower than worker count
 
 #### Built-in Strategies
 
