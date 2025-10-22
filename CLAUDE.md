@@ -390,13 +390,16 @@ uv run mypy src/batch_llm/ --ignore-missing-imports
 #### Markdown Documentation Quality
 
 ```bash
-# Lint markdown files (requires npm install)
-markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
+# First time setup: install markdownlint-cli2
+npm install
+
+# Lint markdown files (uses local installation via npx)
+npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
 
 # Auto-fix markdown issues
-markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md" --fix
+npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md" --fix
 
-# Or use make targets
+# Or use make targets (recommended - uses npx automatically)
 make markdown-lint
 make markdown-lint-fix
 ```

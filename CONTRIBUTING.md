@@ -67,7 +67,7 @@ uv run ruff check src/ tests/ examples/
 # Type check
 uv run mypy src/batch_llm/
 
-# Markdown lint (requires npm install --save-dev markdownlint-cli2)
+# Markdown lint (requires npm install first)
 npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
 ```
 

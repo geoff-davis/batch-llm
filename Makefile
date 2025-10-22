@@ -25,10 +25,10 @@ typecheck:  ## Run mypy type checker
 	uv run mypy src/batch_llm/ --ignore-missing-imports
 
 markdown-lint:  ## Check markdown files
-	markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
+	npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md"
 
 markdown-lint-fix:  ## Fix markdown issues
-	markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md" --fix
+	npx markdownlint-cli2 "README.md" "docs/*.md" "CLAUDE.md" --fix
 
 check-all:  ## Run all checks (lint + typecheck + test)
 	@echo "==> Running linter..."
