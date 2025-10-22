@@ -291,6 +291,11 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         Returns:
             BatchResult containing all results and statistics
         """
+        # Clear results and reinitialize stats for this run
+        # This ensures each call to process_all() starts fresh
+        self._results = []
+        self._stats = ProcessingStats(total=self._queue.qsize())
+
         # Record start time for rate calculation
         self._stats.start_time = time.time()
         self._is_processing = True
@@ -336,7 +341,11 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
                 logger.error("⚠️  Some workers could not be cancelled")
 
         self._is_processing = False
-        return BatchResult(results=self._results)
+
+        # Snapshot results before returning to prevent contamination if processor is reused
+        # Create a copy so the returned BatchResult is independent of future runs
+        results_snapshot = list(self._results)
+        return BatchResult(results=results_snapshot)
 
     @abstractmethod
     async def _worker(self, worker_id: int):
