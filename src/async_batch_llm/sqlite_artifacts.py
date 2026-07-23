@@ -101,6 +101,40 @@ def _validate_non_negative_number(name: str, value: Any) -> float:
     return float(value)
 
 
+async def _await_without_cancelling(future: asyncio.Future[Any]) -> Any:
+    """Await owned work without propagating caller cancellation into it.
+
+    ``asyncio.shield()`` and ``asyncio.wait()`` can strand their outer waiter on
+    CPython 3.14 when the inner future completes during callback registration.
+    A short timer backs up the normal completion callback; cancellation of the
+    bridge future still leaves the owned work untouched.
+    """
+    if future.done():
+        return future.result()
+
+    loop = asyncio.get_running_loop()
+    waiter = loop.create_future()
+
+    def wake_waiter(_future: asyncio.Future[Any]) -> None:
+        if not waiter.done():
+            waiter.set_result(None)
+
+    future.add_done_callback(wake_waiter)
+    timer = loop.call_later(0.001, wake_waiter, future)
+    if future.done():
+        wake_waiter(future)
+    try:
+        while not future.done():
+            await waiter
+            if not future.done():
+                waiter = loop.create_future()
+                timer = loop.call_later(0.001, wake_waiter, future)
+    finally:
+        timer.cancel()
+        future.remove_done_callback(wake_waiter)
+    return future.result()
+
+
 class SqliteArtifactStore:
     """Indexed, batched artifact store backed by standard-library SQLite.
 
@@ -385,7 +419,7 @@ class SqliteArtifactStore:
             self._close_task = asyncio.create_task(self._close_impl())
         task = self._close_task
         try:
-            await asyncio.shield(task)
+            await _await_without_cancelling(task)
         except asyncio.CancelledError:
             self._close_detached = True
             task.add_done_callback(self._finish_detached_close)
@@ -446,7 +480,7 @@ class SqliteArtifactStore:
             self._prepare_task = asyncio.create_task(self._prepare_impl())
             self._prepare_task.add_done_callback(self._consume_task_exception)
         try:
-            await asyncio.shield(self._prepare_task)
+            await _await_without_cancelling(self._prepare_task)
         except ArtifactError:
             self._prepare_error_observed = True
             raise
@@ -460,7 +494,8 @@ class SqliteArtifactStore:
         if self._executor_shutdown:
             raise ArtifactIOError(f"Artifact store is closed: {self.path}")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, function, *args)
+        future = loop.run_in_executor(self._executor, function, *args)
+        return await _await_without_cancelling(future)
 
     @staticmethod
     def _consume_task_exception(task: asyncio.Task[Any]) -> None:
@@ -486,7 +521,7 @@ class SqliteArtifactStore:
 
     async def _await_owned_future(self, future: asyncio.Future[None]) -> None:
         try:
-            await asyncio.shield(future)
+            await _await_without_cancelling(future)
         except asyncio.CancelledError:
             self._detached_futures.add(future)
             future.add_done_callback(self._finish_detached_future)
@@ -510,7 +545,8 @@ class SqliteArtifactStore:
     async def _settle_detached_futures(self) -> None:
         pending = list(self._detached_futures)
         if pending:
-            await asyncio.shield(asyncio.gather(*pending, return_exceptions=True))
+            gathered = asyncio.gather(*pending, return_exceptions=True)
+            await _await_without_cancelling(gathered)
             for future in pending:
                 self._finish_detached_future(future)
 
@@ -625,7 +661,7 @@ class SqliteArtifactStore:
         try:
             if self._prepare_task is not None:
                 try:
-                    await asyncio.shield(self._prepare_task)
+                    await _await_without_cancelling(self._prepare_task)
                 except ArtifactError as exc:
                     if not self._prepare_error_observed:
                         close_error = exc
@@ -633,7 +669,7 @@ class SqliteArtifactStore:
                 future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
                 self._writer_queue.put_nowait(_CloseRequest(future=future))
                 try:
-                    await asyncio.shield(future)
+                    await _await_without_cancelling(future)
                 except ArtifactError as exc:
                     close_error = close_error or exc
                 await asyncio.gather(self._writer_task, return_exceptions=True)
@@ -645,7 +681,11 @@ class SqliteArtifactStore:
         finally:
             self._closed = True
             if not self._executor_shutdown:
-                await asyncio.to_thread(self._executor.shutdown, True)
+                # All submitted DB work has drained at this point. Joining the
+                # now-idle private executor directly avoids creating a default
+                # executor solely for shutdown (and a CPython 3.14 completion
+                # race while asyncio.run() later shuts that executor down).
+                self._executor.shutdown(wait=True)
                 self._executor_shutdown = True
         if close_error is not None:
             raise close_error

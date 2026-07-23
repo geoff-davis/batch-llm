@@ -152,6 +152,26 @@ async def test_creation_schema_manifest_indexes_and_pragmas(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_lifecycle_does_not_depend_on_asyncio_shield(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Avoid CPython 3.14 completion races for owned store work."""
+
+    def fail_shield(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("SqliteArtifactStore lifecycle must not use asyncio.shield")
+
+    def fail_to_thread(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("SqliteArtifactStore close must not create a default executor")
+
+    monkeypatch.setattr(asyncio, "shield", fail_shield)
+    monkeypatch.setattr(asyncio, "to_thread", fail_to_thread)
+    store = SqliteArtifactStore(tmp_path / "no-shield.sqlite", identity=_identity())
+    prepared = await store.prepare_item(_item("one", "prompt"))
+    assert prepared.input_fingerprint
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_full_durability_uses_full_synchronous(tmp_path: Path) -> None:
     store = SqliteArtifactStore(
         tmp_path / "full.sqlite",
