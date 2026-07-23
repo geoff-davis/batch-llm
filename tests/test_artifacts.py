@@ -585,3 +585,80 @@ def test_read_only_success_iteration_and_no_traceback(tmp_path: Path) -> None:
     successful = JsonlArtifactStore.read_results(path, successes_only=True)
     assert [result.item_id for result in successful.results] == ["ok"]
     assert "traceback" not in path.read_text(encoding="utf-8").lower()
+
+
+@pytest.mark.asyncio
+async def test_iter_results_streams_without_building_replay_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "stream-inspection.jsonl"
+    await process_prompts(
+        _CountingStrategy(),
+        [(str(index), f"p{index}") for index in range(20)],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+    )
+
+    def fail_full_read(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("iter_results must not build the replay history")
+
+    monkeypatch.setattr("async_batch_llm.artifacts._read_artifact_records", fail_full_read)
+    store = JsonlArtifactStore(path)
+    iterator = store.iter_results(successes_only=True)
+    first = await anext(iterator)
+    assert first.item_id == "0"
+    assert store._records == []
+    await iterator.aclose()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_iter_results_uses_finite_snapshot(tmp_path: Path) -> None:
+    path = tmp_path / "finite-snapshot.jsonl"
+    await process_prompts(
+        _CountingStrategy(),
+        [("first", "one"), ("second", "two")],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+    )
+
+    reader = JsonlArtifactStore(path)
+    iterator = reader.iter_results()
+    first = await anext(iterator)
+    await process_prompts(
+        _CountingStrategy(),
+        [("later", "three")],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+    )
+    snapshot = [first, *[result async for result in iterator]]
+    assert [result.item_id for result in snapshot] == ["first", "second"]
+    assert [result.item_id async for result in reader.iter_results()] == [
+        "first",
+        "second",
+        "later",
+    ]
+    await reader.close()
+
+
+@pytest.mark.asyncio
+async def test_iter_results_rejects_malformed_middle_and_ignores_truncated_tail(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "stream-errors.jsonl"
+    await process_prompts(
+        _CountingStrategy(),
+        [("ok", "good")],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+    )
+    complete = path.read_bytes()
+    path.write_bytes(complete + b'{"record_type":')
+
+    reader = JsonlArtifactStore(path)
+    assert [result.item_id async for result in reader.iter_results()] == ["ok"]
+    await reader.close()
+
+    path.write_bytes(complete + b"not-json\n")
+    reader = JsonlArtifactStore(path)
+    iterator = reader.iter_results()
+    assert (await anext(iterator)).item_id == "ok"
+    with pytest.raises(ArtifactFormatError, match="non-final line"):
+        await anext(iterator)
+    await reader.close()
