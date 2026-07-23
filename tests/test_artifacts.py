@@ -601,13 +601,23 @@ async def test_iter_results_streams_without_building_replay_history(
     def fail_full_read(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("iter_results must not build the replay history")
 
+    from async_batch_llm import artifacts as artifacts_module
+
+    page_calls = 0
+    original_page_reader = artifacts_module._read_artifact_page
+
+    def track_page(*args: Any, **kwargs: Any) -> Any:
+        nonlocal page_calls
+        page_calls += 1
+        return original_page_reader(*args, **kwargs)
+
     monkeypatch.setattr("async_batch_llm.artifacts._read_artifact_records", fail_full_read)
+    monkeypatch.setattr("async_batch_llm.artifacts._read_artifact_page", track_page)
     store = JsonlArtifactStore(path)
-    iterator = store.iter_results(successes_only=True)
-    first = await anext(iterator)
-    assert first.item_id == "0"
+    results = [result async for result in store.iter_results(successes_only=True)]
+    assert [result.item_id for result in results] == [str(index) for index in range(20)]
+    assert page_calls == 1
     assert store._records == []
-    await iterator.aclose()
     await store.close()
 
 
@@ -663,6 +673,12 @@ async def test_iter_results_rejects_malformed_middle_and_ignores_truncated_tail(
         await anext(iterator)
     await reader.close()
 
+    path.write_bytes(b'{"record_type":')
+    reader = JsonlArtifactStore(path)
+    with pytest.raises(ArtifactFormatError, match="no complete manifest"):
+        [result async for result in reader.iter_results()]
+    await reader.close()
+
 
 @pytest.mark.asyncio
 async def test_context_free_records_use_null_and_replay_legacy_v020_hashes(
@@ -702,3 +718,68 @@ async def test_context_free_records_use_null_and_replay_legacy_v020_hashes(
     )
     assert replay.calls == []
     assert result.results[0].replayed_from_artifact
+
+
+@pytest.mark.asyncio
+async def test_context_free_legacy_replay_uses_custom_v020_fingerprinter(
+    tmp_path: Path,
+) -> None:
+    from async_batch_llm._internal.artifact_codec import fingerprint_json
+
+    def custom_fingerprinter(value: Any) -> str:
+        return "custom:none" if value is None else f"custom:{value}"
+
+    path = tmp_path / "legacy-custom-null-context.jsonl"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "prompt")],
+        artifact_store=JsonlArtifactStore(
+            path,
+            identity=_identity(),
+            context_fingerprinter=custom_fingerprinter,
+        ),
+    )
+    records = _records(path)
+    assert records[1]["context_fingerprint"] is None
+    records[1]["context_fingerprint"] = "custom:none"
+    records[1]["input_fingerprint"] = fingerprint_json(
+        {
+            "item_id": "id",
+            "prompt_fingerprint": records[1]["prompt_fingerprint"],
+            "context_fingerprint": "custom:none",
+        }
+    )
+    path.write_text(
+        "".join(f"{json.dumps(record, sort_keys=True)}\n" for record in records),
+        encoding="utf-8",
+    )
+
+    replay = _CountingStrategy()
+    result = await process_prompts(
+        replay,
+        [("id", "prompt")],
+        artifact_store=JsonlArtifactStore(
+            path,
+            identity=_identity(),
+            context_fingerprinter=custom_fingerprinter,
+        ),
+        resume=ResumePolicy.REUSE_SUCCESSES,
+    )
+    assert replay.calls == []
+    assert result.results[0].replayed_from_artifact
+
+    def nonnull_only_fingerprinter(value: Any) -> str:
+        return f"custom:{value.name}"
+
+    nullable_path = tmp_path / "nullable-custom-context.jsonl"
+    result = await process_prompts(
+        _CountingStrategy(),
+        [("id", "prompt")],
+        artifact_store=JsonlArtifactStore(
+            nullable_path,
+            identity=_identity(),
+            context_fingerprinter=nonnull_only_fingerprinter,
+        ),
+    )
+    assert result.results[0].success
+    assert _records(nullable_path)[1]["context_fingerprint"] is None

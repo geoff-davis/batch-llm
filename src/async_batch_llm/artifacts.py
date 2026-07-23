@@ -261,7 +261,7 @@ def _read_artifact_records(path: Path, *, allow_create: bool) -> tuple[list[dict
     return records, False
 
 
-_JSONL_ITER_PAGE_SIZE = 1
+_JSONL_ITER_PAGE_SIZE = 256
 
 
 def _artifact_snapshot_size(path: Path) -> int:
@@ -294,6 +294,8 @@ def _read_artifact_page(
         with path.open("rb") as handle:
             handle.seek(offset)
             while offset < snapshot_size and len(records) < page_size:
+                segment_offset = offset
+                previous_line_number = line_number
                 segment = handle.readline(snapshot_size - offset)
                 if not segment:
                     break
@@ -303,38 +305,56 @@ def _read_artifact_page(
                 if not segment.strip():
                     continue
                 try:
-                    value = json.loads(segment)
-                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    if offset == snapshot_size and not has_trailing_newline:
-                        return records, offset, line_number, manifest_seen, True
-                    raise ArtifactFormatError(
-                        f"Malformed artifact JSON at non-final line {line_number}: {exc}"
-                    ) from exc
-                if not isinstance(value, dict):
-                    raise ArtifactFormatError(f"Artifact line {line_number} must be a JSON object")
-                schema = value.get("artifact_schema_version")
-                if schema != ARTIFACT_SCHEMA_VERSION:
-                    if isinstance(schema, int) and schema > ARTIFACT_SCHEMA_VERSION:
+                    try:
+                        value = json.loads(segment)
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        if offset == snapshot_size and not has_trailing_newline:
+                            if not manifest_seen:
+                                raise ArtifactFormatError(
+                                    "Artifact has no complete manifest record"
+                                ) from exc
+                            return records, offset, line_number, manifest_seen, True
                         raise ArtifactFormatError(
-                            "Unsupported future artifact schema version "
-                            f"{schema} at line {line_number}"
-                        )
-                    raise ArtifactFormatError(
-                        f"Unsupported artifact schema version {schema!r} at line {line_number}"
-                    )
-                record_type = value.get("record_type")
-                if not manifest_seen:
-                    if record_type != "manifest":
+                            f"Malformed artifact JSON at non-final line {line_number}: {exc}"
+                        ) from exc
+                    if not isinstance(value, dict):
                         raise ArtifactFormatError(
-                            "The first complete artifact record must be a manifest"
+                            f"Artifact line {line_number} must be a JSON object"
                         )
-                    manifest_seen = True
-                    continue
-                if record_type != "item":
-                    raise ArtifactFormatError(
-                        f"Unsupported artifact record_type {record_type!r} at line {line_number}"
-                    )
-                records.append(value)
+                    schema = value.get("artifact_schema_version")
+                    if schema != ARTIFACT_SCHEMA_VERSION:
+                        if isinstance(schema, int) and schema > ARTIFACT_SCHEMA_VERSION:
+                            raise ArtifactFormatError(
+                                "Unsupported future artifact schema version "
+                                f"{schema} at line {line_number}"
+                            )
+                        raise ArtifactFormatError(
+                            f"Unsupported artifact schema version {schema!r} at line {line_number}"
+                        )
+                    record_type = value.get("record_type")
+                    if not manifest_seen:
+                        if record_type != "manifest":
+                            raise ArtifactFormatError(
+                                "The first complete artifact record must be a manifest"
+                            )
+                        manifest_seen = True
+                        continue
+                    if record_type != "item":
+                        raise ArtifactFormatError(
+                            "Unsupported artifact record_type "
+                            f"{record_type!r} at line {line_number}"
+                        )
+                    records.append(value)
+                except ArtifactFormatError:
+                    if records:
+                        return (
+                            records,
+                            segment_offset,
+                            previous_line_number,
+                            manifest_seen,
+                            False,
+                        )
+                    raise
     except ArtifactError:
         raise
     except OSError as exc:

@@ -136,14 +136,26 @@ def fingerprint_work_item(
     # as nullable. Keep its key as a read-only JSONL fallback while all new
     # logical records (and SQLite predicates) use an actual NULL.
     if context_in_identity and work_item.context is None:
-        legacy_context_hash = fingerprint_json(None)
-        legacy_combined_hash = fingerprint_json(
-            {
-                "item_id": work_item.item_id,
-                "prompt_fingerprint": prompt_hash,
-                "context_fingerprint": legacy_context_hash,
-            }
-        )
+        if context_fingerprinter is None:
+            legacy_context_hash = fingerprint_json(None)
+        else:
+            # v0.20 invoked custom fingerprinters for an absent context. Probe
+            # that spelling for read compatibility, but do not let a legacy-only
+            # probe break the v0.21 nullable representation.
+            try:
+                candidate = context_fingerprinter(None)
+            except Exception:
+                candidate = None
+            if isinstance(candidate, str) and candidate:
+                legacy_context_hash = candidate
+        if legacy_context_hash is not None:
+            legacy_combined_hash = fingerprint_json(
+                {
+                    "item_id": work_item.item_id,
+                    "prompt_fingerprint": prompt_hash,
+                    "context_fingerprint": legacy_context_hash,
+                }
+            )
     return PreparedArtifactItem(
         prompt_fingerprint=prompt_hash,
         context_fingerprint=context_hash,

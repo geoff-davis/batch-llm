@@ -49,6 +49,7 @@ from .serialization import (
 SQLITE_APPLICATION_ID = 0x41424C21  # "ABL!"
 SQLITE_SCHEMA_VERSION = 1
 _WAL_AUTOCHECKPOINT_PAGES = 1000
+_FUTURE_WAKEUP_BACKUP_SECONDS = 0.05
 
 
 class SqliteDurability(str, Enum):
@@ -106,31 +107,34 @@ async def _await_without_cancelling(future: asyncio.Future[Any]) -> Any:
 
     ``asyncio.shield()`` and ``asyncio.wait()`` can strand their outer waiter on
     CPython 3.14 when the inner future completes during callback registration.
-    A short timer backs up the normal completion callback; cancellation of the
-    bridge future still leaves the owned work untouched.
+    A low-frequency timer backs up the normal completion callback; cancellation
+    of the bridge future still leaves the owned work untouched.
     """
     if future.done():
         return future.result()
 
     loop = asyncio.get_running_loop()
     waiter = loop.create_future()
+    timer: asyncio.TimerHandle | None = None
 
     def wake_waiter(_future: asyncio.Future[Any]) -> None:
         if not waiter.done():
             waiter.set_result(None)
 
     future.add_done_callback(wake_waiter)
-    timer = loop.call_later(0.001, wake_waiter, future)
-    if future.done():
-        wake_waiter(future)
     try:
         while not future.done():
+            timer = loop.call_later(_FUTURE_WAKEUP_BACKUP_SECONDS, wake_waiter, future)
+            if future.done():
+                wake_waiter(future)
             await waiter
+            timer.cancel()
+            timer = None
             if not future.done():
                 waiter = loop.create_future()
-                timer = loop.call_later(0.001, wake_waiter, future)
     finally:
-        timer.cancel()
+        if timer is not None:
+            timer.cancel()
         future.remove_done_callback(wake_waiter)
     return future.result()
 
@@ -607,7 +611,7 @@ class SqliteArtifactStore:
                         next_request = await asyncio.wait_for(
                             self._writer_queue.get(), timeout=remaining
                         )
-                    except TimeoutError:
+                    except (TimeoutError, asyncio.TimeoutError):
                         break
                 if isinstance(next_request, _AppendRequest):
                     batch.append(next_request)

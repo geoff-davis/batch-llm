@@ -413,6 +413,43 @@ async def test_batching_and_transaction_rollback(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_writer_catches_distinct_python310_asyncio_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LegacyAsyncioTimeoutError(Exception):
+        pass
+
+    store = SqliteArtifactStore(
+        tmp_path / "python310-timeout.sqlite",
+        identity=_identity(),
+        commit_interval_seconds=0.01,
+    )
+    item = _item("id", "prompt")
+    prepared = await store.prepare_item(item)
+    timeout_calls = 0
+
+    async def legacy_wait_for(awaitable: Any, timeout: float) -> None:
+        nonlocal timeout_calls
+        del timeout
+        timeout_calls += 1
+        close = getattr(awaitable, "close", None)
+        if close is not None:
+            close()
+        raise LegacyAsyncioTimeoutError
+
+    monkeypatch.setattr(asyncio, "TimeoutError", LegacyAsyncioTimeoutError)
+    monkeypatch.setattr(asyncio, "wait_for", legacy_wait_for)
+    await store.append(
+        item,
+        prepared,
+        WorkItemResult(item_id="id", success=True, output="PROMPT"),
+    )
+    assert timeout_calls == 1
+    assert store._fatal_error is None
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_iteration_is_finite_chunked_and_materialization_is_explicit(tmp_path: Path) -> None:
     path = tmp_path / "iteration.sqlite"
     store = SqliteArtifactStore(path, identity=_identity(), read_batch_size=1)
