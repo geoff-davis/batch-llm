@@ -628,6 +628,8 @@ class ParallelBatchProcessor(
                 "structured_output_recovery_reasons": stats_snapshot.get(
                     "structured_output_recovery_reasons", {}
                 ),
+                "input_queue_high_water_mark": stats_snapshot["input_queue_high_water_mark"],
+                "result_queue_high_water_mark": stats_snapshot["result_queue_high_water_mark"],
                 "duration": duration,
             },
         )
