@@ -278,18 +278,22 @@ async def test_null_and_non_null_context_replay_use_partial_indexes(tmp_path: Pa
         ).fetchall()
         assert rows[0][3] is None
         for row in rows:
-            plan = connection.execute(
-                """
-                EXPLAIN QUERY PLAN
-                SELECT record_sequence FROM item_records
-                 WHERE identity_fingerprint = ? AND item_id = ?
-                   AND prompt_fingerprint = ? AND context_fingerprint IS ?
-                   AND input_fingerprint = ? AND replay_eligible = 1 AND success = 1
-                 ORDER BY record_sequence DESC LIMIT 1
-                """,
-                row,
-            ).fetchall()
-            assert "idx_item_records_replay_success" in " ".join(str(part) for part in plan[0])
+            for success_clause, expected_index in (
+                (" AND success = 1", "idx_item_records_replay_success"),
+                ("", "idx_item_records_replay_all"),
+            ):
+                plan = connection.execute(
+                    f"""
+                    EXPLAIN QUERY PLAN
+                    SELECT record_sequence FROM item_records
+                     WHERE identity_fingerprint = ? AND item_id = ?
+                       AND prompt_fingerprint = ? AND context_fingerprint IS ?
+                       AND input_fingerprint = ? AND replay_eligible = 1{success_clause}
+                     ORDER BY record_sequence DESC LIMIT 1
+                    """,
+                    row,
+                ).fetchall()
+                assert expected_index in " ".join(str(part) for part in plan[0])
 
 
 @pytest.mark.asyncio
