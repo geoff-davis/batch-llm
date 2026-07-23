@@ -198,15 +198,6 @@ def _package_version() -> str:
         return "0.0.0+dev"
 
 
-def _identity_mapping(identity: ArtifactIdentity) -> dict[str, JSONValue]:
-    """Compatibility wrapper around the shared private identity codec."""
-    try:
-        value, _ = fingerprint_identity(identity)
-    except ResultSerializationError as exc:
-        raise ArtifactSerializationError(str(exc)) from exc
-    return value
-
-
 def _read_artifact_records(path: Path, *, allow_create: bool) -> tuple[list[dict[str, Any]], bool]:
     """Read and validate an artifact, optionally treating missing/empty as new."""
     try:
@@ -486,6 +477,19 @@ class JsonlArtifactStore:
             else self._latest_replayable
         )
         record = records.get(key)
+        if (
+            record is None
+            and fingerprint.legacy_context_fingerprint is not None
+            and fingerprint.legacy_input_fingerprint is not None
+        ):
+            legacy_key: _ReplayKey = (
+                self._require_resolved_fingerprint(),
+                work_item.item_id,
+                fingerprint.prompt_fingerprint,
+                fingerprint.legacy_context_fingerprint,
+                fingerprint.legacy_input_fingerprint,
+            )
+            record = records.get(legacy_key)
         if record is None or not self._compatible(record, work_item, fingerprint):
             return None
         try:

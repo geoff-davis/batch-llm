@@ -662,3 +662,43 @@ async def test_iter_results_rejects_malformed_middle_and_ignores_truncated_tail(
     with pytest.raises(ArtifactFormatError, match="non-final line"):
         await anext(iterator)
     await reader.close()
+
+
+@pytest.mark.asyncio
+async def test_context_free_records_use_null_and_replay_legacy_v020_hashes(
+    tmp_path: Path,
+) -> None:
+    from async_batch_llm._internal.artifact_codec import fingerprint_json
+
+    path = tmp_path / "legacy-null-context.jsonl"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "prompt")],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+    )
+    records = _records(path)
+    assert records[1]["context_fingerprint"] is None
+
+    legacy_context = fingerprint_json(None)
+    records[1]["context_fingerprint"] = legacy_context
+    records[1]["input_fingerprint"] = fingerprint_json(
+        {
+            "item_id": "id",
+            "prompt_fingerprint": records[1]["prompt_fingerprint"],
+            "context_fingerprint": legacy_context,
+        }
+    )
+    path.write_text(
+        "".join(f"{json.dumps(record, sort_keys=True)}\n" for record in records),
+        encoding="utf-8",
+    )
+
+    replay = _CountingStrategy()
+    result = await process_prompts(
+        replay,
+        [("id", "prompt")],
+        artifact_store=JsonlArtifactStore(path, identity=_identity()),
+        resume=ResumePolicy.REUSE_SUCCESSES,
+    )
+    assert replay.calls == []
+    assert result.results[0].replayed_from_artifact

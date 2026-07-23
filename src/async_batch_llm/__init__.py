@@ -155,6 +155,7 @@ from .parsing import pydantic_json_parser, strip_code_fences
 from .provider_output import Grounding, GroundingSource, ToolCall
 from .serialization import ResultSerializationError
 from .single import LLMCallError, call, call_result
+from .sqlite_artifacts import SqliteArtifactStore, SqliteDurability
 
 # Error classification and rate limit strategies
 from .strategies import (
@@ -237,6 +238,8 @@ __all__ = [
     "ArtifactStore",
     "JsonlArtifactStore",
     "ResumePolicy",
+    "SqliteArtifactStore",
+    "SqliteDurability",
     # Configuration
     "ProcessorConfig",
     "AbortMode",

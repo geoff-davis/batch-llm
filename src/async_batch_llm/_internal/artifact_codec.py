@@ -38,6 +38,8 @@ class PreparedArtifactItem:
     prompt_fingerprint: str
     context_fingerprint: str | None
     input_fingerprint: str
+    legacy_context_fingerprint: str | None = None
+    legacy_input_fingerprint: str | None = None
 
     # Private compatibility aliases for the v0.18 JSONL implementation.
     @property
@@ -107,7 +109,9 @@ def fingerprint_work_item(
     """Fingerprint one input without retaining its raw prompt or context."""
     prompt_hash = hashlib.sha256(work_item.prompt.encode("utf-8")).hexdigest()
     context_hash: str | None = None
-    if context_in_identity:
+    legacy_context_hash: str | None = None
+    legacy_combined_hash: str | None = None
+    if context_in_identity and work_item.context is not None:
         if context_fingerprinter is not None:
             context_hash = context_fingerprinter(work_item.context)
             if not isinstance(context_hash, str) or not context_hash:
@@ -128,10 +132,24 @@ def fingerprint_work_item(
             "context_fingerprint": context_hash,
         }
     )
+    # v0.20 hashed a Python ``None`` context instead of representing absence
+    # as nullable. Keep its key as a read-only JSONL fallback while all new
+    # logical records (and SQLite predicates) use an actual NULL.
+    if context_in_identity and work_item.context is None:
+        legacy_context_hash = fingerprint_json(None)
+        legacy_combined_hash = fingerprint_json(
+            {
+                "item_id": work_item.item_id,
+                "prompt_fingerprint": prompt_hash,
+                "context_fingerprint": legacy_context_hash,
+            }
+        )
     return PreparedArtifactItem(
         prompt_fingerprint=prompt_hash,
         context_fingerprint=context_hash,
         input_fingerprint=combined_hash,
+        legacy_context_fingerprint=legacy_context_hash,
+        legacy_input_fingerprint=legacy_combined_hash,
     )
 
 
@@ -263,9 +281,23 @@ def record_is_compatible(
     identity_fingerprint: str,
 ) -> bool:
     """Check logical replay compatibility independently of physical storage."""
-    return record.get("artifact_schema_version") == artifact_schema_version and record_replay_key(
-        record
-    ) == replay_key(item_id, prepared_item, identity_fingerprint)
+    if record.get("artifact_schema_version") != artifact_schema_version:
+        return False
+    candidate = record_replay_key(record)
+    if candidate == replay_key(item_id, prepared_item, identity_fingerprint):
+        return True
+    if (
+        prepared_item.legacy_context_fingerprint is None
+        or prepared_item.legacy_input_fingerprint is None
+    ):
+        return False
+    return candidate == (
+        identity_fingerprint,
+        item_id,
+        prepared_item.prompt_fingerprint,
+        prepared_item.legacy_context_fingerprint,
+        prepared_item.legacy_input_fingerprint,
+    )
 
 
 def decode_stored_result(
