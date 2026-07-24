@@ -78,6 +78,15 @@ pre-commit-run:  ## Run hooks on all files via prek
 pre-commit-update:  ## Update hooks to latest versions via prek
 	uv run prek autoupdate
 
+scale-smoke:  ## Run the reduced deterministic scale-soak profile (CI-sized)
+	uv run python -m benchmarks.scale_soak --profile ci --output benchmark-results/scale-ci.json
+
+scale-100k:  ## Run the 100k reference scale-soak profile (minutes)
+	uv run python -m benchmarks.scale_soak --profile 100k --output benchmark-results/scale-100k.json
+
+scale-1m:  ## Run the 1m scale-soak profile, large scenarios only (long)
+	uv run python -m benchmarks.scale_soak --profile 1m --output benchmark-results/scale-1m.json
+
 clean:  ## Clean up cache files
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type d -name ".pytest_cache" -exec rm -rf {} +
