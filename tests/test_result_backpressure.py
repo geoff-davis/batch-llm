@@ -16,6 +16,7 @@ from async_batch_llm import (
     JsonlArtifactStore,
     LLMWorkItem,
     ParallelBatchProcessor,
+    ProcessingEvent,
     ProcessorConfig,
     ResumePolicy,
     process_prompts,
@@ -24,6 +25,7 @@ from async_batch_llm import (
 from async_batch_llm.artifacts import ArtifactStore
 from async_batch_llm.base import RetryState, TokenUsage, WorkItemResult
 from async_batch_llm.llm_strategies import LLMCallStrategy
+from async_batch_llm.observers import BaseObserver
 from async_batch_llm.strategies import ErrorClassifier, ErrorInfo
 
 _TOKENS: TokenUsage = {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
@@ -109,6 +111,8 @@ async def test_slow_consumer_bounds_results_pauses_and_resumes_workers() -> None
         assert strategy.calls == 5
         assert _queued_results(processor) == 2
         assert _slot_value(processor) == 0
+        stats = await processor.get_stats()
+        assert stats["result_queue_high_water_mark"] == 2
 
         stream = processor.results()
         first = await anext(stream)
@@ -120,6 +124,7 @@ async def test_slow_consumer_bounds_results_pauses_and_resumes_workers() -> None
     assert len({result.item_id for result in results}) == 20
     assert _slot_value(processor) == 2
     assert processor._queue._unfinished_tasks == 0
+    assert processor._current_queued_results == 0
 
 
 @pytest.mark.asyncio
@@ -202,6 +207,7 @@ async def test_worker_crash_signal_bypasses_exhausted_result_capacity() -> None:
     assert all(worker.done() for worker in processor._workers)
     assert processor._queue._unfinished_tasks == 0
     assert _slot_value(processor) == 1
+    assert processor._current_queued_results == 0
 
 
 @pytest.mark.asyncio
@@ -473,3 +479,101 @@ async def test_collection_api_remains_behaviorally_unchanged_and_soaks_thousands
     assert batch.succeeded == 2_000
     assert len({result.item_id for result in batch.results}) == 2_000
     assert strategy.calls == 2_000
+
+
+@pytest.mark.asyncio
+async def test_input_queue_high_water_is_exact_at_enqueue_ownership_point() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingStrategy(_CountingStrategy):
+        async def execute(
+            self, prompt: str, attempt: int, timeout: float, state: RetryState | None = None
+        ) -> tuple[str, TokenUsage, None]:
+            started.set()
+            await release.wait()
+            return prompt, _TOKENS, None
+
+    processor = ParallelBatchProcessor[None, str, None](
+        config=ProcessorConfig(max_workers=1, max_queue_size=2, max_result_queue_size=2)
+    )
+    async with processor:
+        processor.start()
+        strategy = BlockingStrategy()
+        await processor.add_work(_item(0, strategy))
+        await started.wait()
+        await processor.add_work(_item(1, strategy))
+        await processor.add_work(_item(2, strategy))
+        stats = await processor.get_stats()
+        assert stats["input_queue_high_water_mark"] == 2
+        assert processor._queue.qsize() == 2
+
+        release.set()
+        await processor.finish()
+        results = [result async for result in processor.results()]
+        stats = await processor.get_stats()
+
+    assert len(results) == 3
+    assert stats["input_queue_high_water_mark"] == 2
+    assert stats["result_queue_high_water_mark"] <= 2
+    assert processor._current_queued_results == 0
+
+
+@pytest.mark.asyncio
+async def test_unbounded_queues_report_observed_high_water_and_ignore_control_messages() -> None:
+    processor = ParallelBatchProcessor[None, str, None](
+        config=ProcessorConfig(max_workers=1, max_queue_size=0, max_result_queue_size=0)
+    )
+    async with processor:
+        strategy = _CountingStrategy()
+        for index in range(5):
+            await processor.add_work(_item(index, strategy))
+        processor.start()
+        await processor.finish()
+        assert processor._finalize_task is not None
+        await asyncio.wait_for(processor._finalize_task, timeout=1)
+
+        stats = await processor.get_stats()
+        assert stats["input_queue_high_water_mark"] == 5
+        assert stats["result_queue_high_water_mark"] == 5
+        assert processor._current_queued_results == 5
+        assert processor._result_stream is not None
+        assert processor._result_stream.qsize() == 6  # five data rows plus end-of-stream
+        results = [result async for result in processor.results()]
+
+    assert len(results) == 5
+    assert processor._current_queued_results == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_high_water_stats_copy_and_batch_completed_payload() -> None:
+    class RecordingObserver(BaseObserver):
+        def __init__(self) -> None:
+            self.completed: dict[str, Any] | None = None
+
+        async def on_event(self, event: ProcessingEvent, data: dict[str, Any]) -> None:
+            if event is ProcessingEvent.BATCH_COMPLETED:
+                self.completed = data
+
+    observer = RecordingObserver()
+    processor = ParallelBatchProcessor[None, str, None](
+        config=ProcessorConfig(max_workers=1, max_queue_size=0, max_result_queue_size=1),
+        observers=[observer],
+    )
+    async with processor:
+        for index in range(3):
+            await processor.add_work(_item(index, _CountingStrategy()))
+        result = await processor.process_all()
+        stats = await processor.get_stats()
+
+    assert result.total_items == 3
+    assert stats["input_queue_high_water_mark"] == 3
+    assert stats["result_queue_high_water_mark"] == 0  # process_all has no handoff queue
+    assert observer.completed is not None
+    assert observer.completed["input_queue_high_water_mark"] == 3
+    assert observer.completed["result_queue_high_water_mark"] == 0
+
+    fresh = ParallelBatchProcessor[None, str, None](config=ProcessorConfig())
+    fresh_stats = await fresh.get_stats()
+    assert fresh_stats["input_queue_high_water_mark"] == 0
+    assert fresh_stats["result_queue_high_water_mark"] == 0

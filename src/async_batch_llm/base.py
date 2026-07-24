@@ -972,6 +972,8 @@ class ProcessingStats:
     structured_output_recovery_reasons: dict[str, int] = field(default_factory=dict)
     replayed: int = 0
     aborted: int = 0
+    input_queue_high_water_mark: int = 0
+    result_queue_high_water_mark: int = 0
 
     def copy(self) -> dict[str, Any]:
         """Return a dictionary copy of the stats for backwards compatibility."""
@@ -994,6 +996,8 @@ class ProcessingStats:
             "structured_output_recovery_reasons": self.structured_output_recovery_reasons.copy(),
             "replayed": self.replayed,
             "aborted": self.aborted,
+            "input_queue_high_water_mark": self.input_queue_high_water_mark,
+            "result_queue_high_water_mark": self.result_queue_high_water_mark,
             "admission_wait_p50_seconds": _percentile(self._admission_wait_samples, 50),
             "admission_wait_p95_seconds": _percentile(self._admission_wait_samples, 95),
             "admission_wait_p99_seconds": _percentile(self._admission_wait_samples, 99),
@@ -1046,6 +1050,31 @@ class _WorkerCrashed:
 
 # Singleton end-of-stream marker.
 _END_OF_STREAM = _EndOfStream()
+
+
+class _TrackedWorkQueue(asyncio.Queue[Any]):
+    """Queue that observes exact data-item ownership without sampling races."""
+
+    def __init__(self, maxsize: int, observer: Callable[[int], None]) -> None:
+        super().__init__(maxsize=maxsize)
+        self._observer = observer
+        self._data_count = 0
+
+    def _put(self, item: Any) -> None:
+        super()._put(item)
+        if item is not None:
+            self._data_count += 1
+            self._observer(self._data_count)
+
+    def _get(self) -> Any:
+        item = super()._get()
+        if item is not None:
+            self._data_count -= 1
+        return item
+
+    @property
+    def data_count(self) -> int:
+        return self._data_count
 
 
 class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
@@ -1111,11 +1140,11 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
                 callable(progress_callback)
                 and inspect.iscoroutinefunction(progress_callback.__call__)  # type: ignore[operator]
             )
-        self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = asyncio.Queue(
-            maxsize=max_queue_size
+        self._stats = ProcessingStats()
+        self._queue: asyncio.Queue[LLMWorkItem[TInput, TOutput, TContext] | None] = (
+            _TrackedWorkQueue(max_queue_size, self._observe_input_queue_size)
         )
         self._results: list[WorkItemResult[TOutput, TContext]] = []
-        self._stats = ProcessingStats()
         self._workers: list[asyncio.Task] = []
         self._is_processing = False
         self._progress_tasks: set[asyncio.Task[Any]] = set()
@@ -1145,6 +1174,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         # deliverable. In streaming mode this optional semaphore bounds only
         # queued WorkItemResult objects.
         self._result_slots: asyncio.BoundedSemaphore | None = None
+        self._current_queued_results = 0
         self._reported_worker_crash_task_ids: set[int] = set()
         self._finalize_task: asyncio.Task[None] | None = None
         self.termination = BatchTermination()
@@ -1319,6 +1349,13 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             self._next_submission_index += 1
             self._stats.total += 1
 
+    def _observe_input_queue_size(self, current_size: int) -> None:
+        """Record the exact post-enqueue data-item count without awaiting."""
+        self._stats.input_queue_high_water_mark = max(
+            self._stats.input_queue_high_water_mark,
+            current_size,
+        )
+
     # ── Streaming mode ───────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -1348,7 +1385,10 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         # Count any work added before start(); add_work() increments thereafter.
         self._results = []
         self._stats = ProcessingStats(total=self._queue.qsize())
+        tracked_queue = cast(_TrackedWorkQueue, self._queue)
+        self._stats.input_queue_high_water_mark = tracked_queue.data_count
         self._stats.start_time = time.time()
+        self._current_queued_results = 0
         self._post_processor_tasks = set()
         self._post_processor_semaphore = asyncio.Semaphore(self.max_workers)
 
@@ -1412,6 +1452,11 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             # The mixed queue is deliberately unbounded, so this cannot block
             # and introduces no cancellation point after permit acquisition.
             self._result_stream.put_nowait(result)
+            self._current_queued_results += 1
+            self._stats.result_queue_high_water_mark = max(
+                self._stats.result_queue_high_water_mark,
+                self._current_queued_results,
+            )
         except BaseException:
             if acquired and slots is not None:
                 slots.release()
@@ -1437,6 +1482,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             except asyncio.QueueEmpty:
                 return
             if isinstance(item, WorkItemResult):
+                self._current_queued_results -= 1
                 self._release_result_slot()
 
     async def results(self) -> AsyncIterator[WorkItemResult[TOutput, TContext]]:
@@ -1452,6 +1498,7 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
             if isinstance(item, WorkItemResult):
                 # A result being handled by application code is outside the
                 # configured queue bound. Release before yielding it.
+                self._current_queued_results -= 1
                 self._release_result_slot()
             if isinstance(item, _EndOfStream):
                 return
@@ -1502,6 +1549,9 @@ class BatchProcessor(ABC, Generic[TInput, TOutput, TContext]):
         # Initialize result and stats containers for this one-shot batch.
         self._results = []
         self._stats = ProcessingStats(total=self._queue.qsize())
+        tracked_queue = cast(_TrackedWorkQueue, self._queue)
+        self._stats.input_queue_high_water_mark = tracked_queue.data_count
+        self._current_queued_results = 0
 
         # Fresh post-processor concurrency state, bound to this run's loop.
         self._post_processor_tasks = set()
