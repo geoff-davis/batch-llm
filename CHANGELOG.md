@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Indexed SQLite artifact store ([#124])** — `SqliteArtifactStore` and
+  `SqliteDurability` join the public API. Same logical version-1 records and
+  replay-compatibility semantics as JSONL (one shared private codec), stored
+  in standard-library SQLite with indexed replay lookup over the complete
+  compatibility key — including a NULL-safe `context_fingerprint IS ?`
+  predicate — and no history decode on reopen. Appends batch into
+  transactions (`commit_batch_size` / `commit_interval_seconds`); a result is
+  published only after its transaction commits, and a failed transaction
+  rolls back without exposing partial rows. `BALANCED` durability maps to
+  WAL + `synchronous=NORMAL` (process-crash safe; a power failure may lose
+  recently committed transactions), `FULL` to WAL + `synchronous=FULL`. WAL
+  auto-checkpointing bounds log growth; `close()` drains writes, attempts a
+  truncating checkpoint, and terminates the store's worker thread.
+  `iter_results()` is a bounded keyset iterator that never holds a read
+  transaction across an async yield; `read_results()` is an async
+  classmethod. Single-process, single-writer by design — documented, not
+  worked around.
+- **Bounded JSONL result iteration** — `JsonlArtifactStore.iter_results()`
+  now streams a finite byte-snapshot of the artifact in line pages instead of
+  materializing the complete record history, preserving the truncated-tail
+  tolerance and malformed-record errors.
+- **Exact queue high-water diagnostics** — `get_stats()` and the
+  `batch_completed` observer payload report
+  `input_queue_high_water_mark` / `result_queue_high_water_mark`, observed
+  exactly at queue-ownership points (control messages excluded), for both
+  bounded and unbounded configurations.
+- **Deterministic scale-soak harness ([#127] phase one)** —
+  `benchmarks/scale_soak`: eight credential-free scenarios driving the real
+  streaming/artifact code paths with a seeded fake provider, order-independent
+  digest accounting, bounded resource monitoring, and a versioned JSON report.
+  Profiles: `ci` (runs in CI as the `scale-smoke` job), `100k`, `1m`, and
+  `custom`; a manual **Scale Benchmark** workflow runs the large profiles.
+- **Documentation** — new Large Runs guide; SQLite backend, durability, and
+  WAL-lifecycle documentation in Results, Artifacts, and Resume; queue
+  high-water documentation in Bounded Work; artifact-storage production
+  checks; scale-harness methodology and dated-results policy in Benchmarks.
+
+### Fixed
+
+- **v0.20 context-free replay fingerprints** — context-free items now use a
+  logical `None` context fingerprint (and a NULL column in SQLite) instead of
+  hashing Python `None`; JSONL lookup retains a read-only fallback to the
+  v0.20 spelling — including custom `context_fingerprinter` hashes — so
+  existing artifacts still replay.
+
+[#124]: https://github.com/geoff-davis/async-batch-llm/issues/124
+[#127]: https://github.com/geoff-davis/async-batch-llm/issues/127
+
 ## [0.20.0] - 2026-07-20
 
 > v0.19.0 was not published. Its planned onboarding and ergonomics
