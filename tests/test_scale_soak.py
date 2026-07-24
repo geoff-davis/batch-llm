@@ -250,6 +250,37 @@ def test_cleanup_after_scenario_exception(tmp_path: Path) -> None:
     assert validate_report(report) == []
 
 
+def test_scenario_artifacts_cleared_between_scenarios(tmp_path: Path) -> None:
+    """A profile's disk footprint stays at one scenario's artifacts."""
+    work_dir = tmp_path / "work"
+    config = HarnessConfig(
+        profile="custom",
+        items=40,
+        concurrency=4,
+        scenarios=("healthy", "stop_resume"),
+        output=tmp_path / "report.json",
+        work_dir=work_dir,
+    )
+    config.validate()
+    report, exit_code = run_config(config)
+    assert exit_code == 0
+    assert list(work_dir.iterdir()) == []
+
+    keep = HarnessConfig(
+        profile="custom",
+        items=40,
+        concurrency=4,
+        scenarios=("healthy",),
+        output=tmp_path / "report2.json",
+        work_dir=work_dir,
+        keep_artifacts=True,
+    )
+    keep.validate()
+    _, exit_code = run_config(keep)
+    assert exit_code == 0
+    assert any(path.name.startswith("healthy") for path in work_dir.iterdir())
+
+
 # ── Reduced end-to-end through the CLI ───────────────────────────────────
 
 

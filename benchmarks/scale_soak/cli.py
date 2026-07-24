@@ -103,6 +103,17 @@ def config_from_args(args: argparse.Namespace) -> HarnessConfig:
     return config
 
 
+def _clear_work_dir(work_dir: Path) -> None:
+    for path in work_dir.iterdir():
+        try:
+            if path.is_file():
+                path.unlink()
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def run_config(config: HarnessConfig) -> tuple[dict, int]:
     """Run every selected scenario; returns (report, exit_code)."""
     owns_work_dir = config.work_dir is None
@@ -129,6 +140,12 @@ def run_config(config: HarnessConfig) -> tuple[dict, int]:
                 f"in {time.monotonic() - started:.1f}s",
                 flush=True,
             )
+            if not config.keep_artifacts:
+                # A scenario's databases matter only within that scenario.
+                # Dropping them immediately keeps the whole-profile footprint
+                # at one scenario's artifacts (a 1m sqlite file is ~2 GB;
+                # accumulating four of them can exhaust a tmpfs work dir).
+                _clear_work_dir(work_dir)
     finally:
         if owns_work_dir and not config.keep_artifacts:
             shutil.rmtree(work_dir, ignore_errors=True)
