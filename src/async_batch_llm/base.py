@@ -797,7 +797,7 @@ class BatchResult(Generic[TOutput, TContext]):
                 "Cannot order results by input: "
                 f"{len(missing)} result(s) lack submission_index ({preview}{suffix})."
             )
-        ordered = sorted(self.results, key=lambda result: result.submission_index)  # type: ignore[arg-type,return-value]
+        ordered = sorted(self.results, key=lambda result: cast(int, result.submission_index))
         return cast(
             "BatchResult[TOutput, TContext]",
             BatchResult(
