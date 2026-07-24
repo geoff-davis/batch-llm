@@ -250,9 +250,12 @@ def test_cleanup_after_scenario_exception(tmp_path: Path) -> None:
     assert validate_report(report) == []
 
 
-def test_scenario_artifacts_cleared_between_scenarios(tmp_path: Path) -> None:
-    """A profile's disk footprint stays at one scenario's artifacts."""
+def test_scenario_artifacts_cleared_and_caller_files_preserved(tmp_path: Path) -> None:
+    """The harness deletes only inside its own run subdirectory."""
     work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    unrelated = work_dir / "precious-user-data.txt"
+    unrelated.write_text("do not delete")
     config = HarnessConfig(
         profile="custom",
         items=40,
@@ -264,7 +267,9 @@ def test_scenario_artifacts_cleared_between_scenarios(tmp_path: Path) -> None:
     config.validate()
     report, exit_code = run_config(config)
     assert exit_code == 0
-    assert list(work_dir.iterdir()) == []
+    # Caller data untouched; the run-owned subdirectory is gone entirely.
+    assert unrelated.read_text() == "do not delete"
+    assert list(work_dir.iterdir()) == [unrelated]
 
     keep = HarnessConfig(
         profile="custom",
@@ -278,7 +283,44 @@ def test_scenario_artifacts_cleared_between_scenarios(tmp_path: Path) -> None:
     keep.validate()
     _, exit_code = run_config(keep)
     assert exit_code == 0
-    assert any(path.name.startswith("healthy") for path in work_dir.iterdir())
+    run_dirs = [path for path in work_dir.iterdir() if path.is_dir()]
+    assert len(run_dirs) == 1
+    assert any(path.name.startswith("healthy") for path in run_dirs[0].iterdir())
+
+
+def test_config_rejects_non_finite_numbers() -> None:
+    for field_name in ("provider_latency_ms", "sink_latency_ms"):
+        for bad in (float("nan"), float("inf")):
+            config = HarnessConfig(**{field_name: bad})
+            with pytest.raises(ValueError, match="finite"):
+                config.validate()
+    config = HarnessConfig(max_post_warmup_rss_growth_mib=float("nan"))
+    with pytest.raises(ValueError, match="finite"):
+        config.validate()
+
+
+def test_monitor_growth_uses_peak_not_final_rss(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transient allocation spike must count against the growth ceiling."""
+    rss_values = iter([100, 100, 500, 120])  # warmup, sample, spike, final
+    monkeypatch.setattr(monitor_module, "current_rss_bytes", lambda: next(rss_values, 120))
+    monitor = ResourceMonitor(interval_s=10.0)
+    monitor.mark_warmup()  # 100
+    monitor.samples.append(monitor._sample())  # 100
+    monitor.samples.append(monitor._sample())  # 500 spike, later freed
+    monitor.samples.append(monitor._sample())  # 120
+    assert monitor.post_warmup_growth_bytes() == 400
+
+
+async def test_progress_enabled_mode_measures_bundled_only(tmp_path: Path) -> None:
+    settings = _settings("progress_overhead", tmp_path, items=60, progress="enabled")
+    result = await SCENARIO_RUNNERS["progress_overhead"](settings)
+    assert result.status == "passed", [
+        check.to_json() for check in result.assertions if not check.passed
+    ]
+    assert result.throughput["disabled_wall_seconds"] is None
+    assert result.throughput["user_callback_invocations"] is None
+    assert result.throughput["bundled_renders"] >= 1
+    assert all(check.name != "user_callback_sees_every_item" for check in result.assertions)
 
 
 # ── Reduced end-to-end through the CLI ───────────────────────────────────

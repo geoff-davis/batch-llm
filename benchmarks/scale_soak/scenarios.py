@@ -610,8 +610,18 @@ async def run_stop_resume(settings: ScenarioSettings) -> ScenarioResult:
         abort_mode=AbortMode.DRAIN_ACTIVE,
     )
     monitor.mark_warmup()
+    run_one_success_digest = RollingDigest()
+
+    async def record_run_one_success(item: WorkItemResult[Any, Any], _seen: int) -> None:
+        if item.success:
+            run_one_success_digest.add(item.item_id, int(item.item_id[1:]), True)
+
     digest_one, capture_one, wall_one, succeeded_one, failed_one = await drain(
-        settings, strategy_one, store=store_one, guardrails=guardrails
+        settings,
+        strategy_one,
+        store=store_one,
+        guardrails=guardrails,
+        per_result=record_run_one_success,
     )
     rows_after_run_one = _sqlite_row_count(db_path) if settings.store == "sqlite" else None
 
@@ -620,8 +630,25 @@ async def run_stop_resume(settings: ScenarioSettings) -> ScenarioResult:
         FakeProviderConfig(seed=settings.seed, latency_s=settings.provider_latency_s)
     )
     store_two = make_store(settings, stem)
+    replayed_digest = RollingDigest()
+    submission_index_mismatches = 0
+
+    async def record_run_two(item: WorkItemResult[Any, Any], _seen: int) -> None:
+        nonlocal submission_index_mismatches
+        index = int(item.item_id[1:])
+        # The lazy source yields in index order, so every result — replayed
+        # or executed — must carry this run's submission index, not run 1's.
+        if item.submission_index != index:
+            submission_index_mismatches += 1
+        if item.replayed_from_artifact:
+            replayed_digest.add(item.item_id, index, True)
+
     digest_two, capture_two, wall_two, succeeded_two, failed_two = await drain(
-        settings, strategy_two, store=store_two, resume=ResumePolicy.REUSE_SUCCESSES
+        settings,
+        strategy_two,
+        store=store_two,
+        resume=ResumePolicy.REUSE_SUCCESSES,
+        per_result=record_run_two,
     )
     await monitor.stop()
 
@@ -648,6 +675,16 @@ async def run_stop_resume(settings: ScenarioSettings) -> ScenarioResult:
         "replayed_equals_first_run_successes",
         capture_two.replayed == succeeded_one,
         f"replayed {capture_two.replayed} first-run successes {succeeded_one}",
+    )
+    result.check(
+        "replayed_set_is_exactly_first_run_successes",
+        replayed_digest == run_one_success_digest,
+        f"replayed {replayed_digest.to_json()} vs run one {run_one_success_digest.to_json()}",
+    )
+    result.check(
+        "replayed_results_use_current_submission_index",
+        submission_index_mismatches == 0,
+        f"{submission_index_mismatches} results carried a stale submission index",
     )
     result.check(
         "no_provider_calls_for_replayed",
@@ -791,21 +828,41 @@ async def run_artifact_bench(settings: ScenarioSettings) -> ScenarioResult:
     )
     inspect_seen = 0
     peak_wal_during_inspect = 0
+    reader_started = asyncio.Event()
+    # Transactions the writer committed while the reader was demonstrably
+    # mid-iteration. The reader parks between pages (holding no read
+    # transaction — the property under test) until it observes commits, so a
+    # writer that only ran before or after the iteration cannot pass.
+    commits_observed_mid_read = 0
+
+    park_at = min(200, max(settings.items // 2, 1))
 
     async def slow_inspect() -> None:
-        nonlocal inspect_seen, peak_wal_during_inspect
+        nonlocal inspect_seen, peak_wal_during_inspect, commits_observed_mid_read
+        deadline = time.monotonic() + 60.0
         async for _stored in writer_store.iter_results():
             inspect_seen += 1
+            if inspect_seen == 1:
+                reader_started.set()
+            if inspect_seen == park_at:
+                start_transactions = writer_store._transaction_count
+                while (
+                    writer_store._transaction_count < start_transactions + 2
+                    and time.monotonic() < deadline
+                ):
+                    await asyncio.sleep(0.002)
+                commits_observed_mid_read = writer_store._transaction_count - start_transactions
             if inspect_seen % 200 == 0:
                 await asyncio.sleep(0.005)
                 if wal_path.exists():
                     peak_wal_during_inspect = max(peak_wal_during_inspect, wal_path.stat().st_size)
 
-    writer_task = asyncio.create_task(
-        _append_range(writer_store, strategy, settings.items, settings.items + inspect_items)
-    )
-    inspect_task = asyncio.create_task(slow_inspect())
-    await asyncio.gather(writer_task, inspect_task)
+    async def synchronized_writer() -> None:
+        # Start appending only once the reader is provably mid-iteration.
+        await reader_started.wait()
+        await _append_range(writer_store, strategy, settings.items, settings.items + inspect_items)
+
+    await asyncio.gather(asyncio.create_task(synchronized_writer()), slow_inspect())
     await writer_store.close()
     await monitor.stop()
 
@@ -836,6 +893,7 @@ async def run_artifact_bench(settings: ScenarioSettings) -> ScenarioResult:
         "lookups_per_second": round(lookups / lookup_wall, 1) if lookup_wall > 0 else None,
         "iteration_records_per_second": (round(iterated / iter_wall, 1) if iter_wall > 0 else None),
         "concurrent_inspect_seen": inspect_seen,
+        "transactions_committed_mid_read": commits_observed_mid_read,
         "peak_wal_bytes_during_concurrent_inspect": peak_wal_during_inspect,
     }
     result.check("all_appends_committed", transactions >= 1, f"transactions {transactions}")
@@ -860,8 +918,10 @@ async def run_artifact_bench(settings: ScenarioSettings) -> ScenarioResult:
         )
     result.check(
         "writer_progress_during_slow_inspection",
-        inspect_seen > 0,
-        f"reader saw {inspect_seen} rows while writer appended {inspect_items}",
+        commits_observed_mid_read >= 2 and inspect_seen > 0,
+        f"writer committed {commits_observed_mid_read} transactions while the "
+        f"reader was parked mid-iteration (reader saw {inspect_seen} rows, "
+        f"writer appended {inspect_items})",
     )
 
     # JSONL comparison at a safe size (explicit override required for large).
@@ -924,8 +984,15 @@ async def run_progress_overhead(settings: ScenarioSettings) -> ScenarioResult:
         )
         return wall, digest
 
+    # "enabled" measures only the bundled reporter; "compare" (the default)
+    # also runs the disabled baseline and a per-item user callback.
+    compare_modes = settings.progress_mode == "compare"
     monitor.mark_warmup()
-    disabled_wall, disabled_digest = await timed_run(False)
+
+    disabled_wall: float | None = None
+    disabled_digest: RollingDigest | None = None
+    if compare_modes:
+        disabled_wall, disabled_digest = await timed_run(False)
 
     bars: list[_CountingBar] = []
 
@@ -945,7 +1012,10 @@ async def run_progress_overhead(settings: ScenarioSettings) -> ScenarioResult:
         nonlocal callback_count
         callback_count += 1
 
-    user_wall, user_digest = await timed_run(user_callback)
+    user_wall: float | None = None
+    user_digest: RollingDigest | None = None
+    if compare_modes:
+        user_wall, user_digest = await timed_run(user_callback)
     await monitor.stop()
 
     expected = expected_digest(settings.items)
@@ -953,17 +1023,20 @@ async def run_progress_overhead(settings: ScenarioSettings) -> ScenarioResult:
         "items": settings.items,
         "concurrency": settings.concurrency,
         "refresh_interval_seconds": refresh_interval,
+        "progress_mode": settings.progress_mode,
     }
     result.throughput = {
-        "disabled_wall_seconds": round(disabled_wall, 3),
+        "disabled_wall_seconds": round(disabled_wall, 3) if disabled_wall is not None else None,
         "bundled_wall_seconds": round(bundled_wall, 3),
-        "user_callback_wall_seconds": round(user_wall, 3),
+        "user_callback_wall_seconds": round(user_wall, 3) if user_wall is not None else None,
         "bundled_renders": renders,
-        "user_callback_invocations": callback_count,
+        "user_callback_invocations": callback_count if compare_modes else None,
     }
     result.check(
         "digests_match_in_all_modes",
-        disabled_digest == expected and bundled_digest == expected and user_digest == expected,
+        bundled_digest == expected
+        and (disabled_digest is None or disabled_digest == expected)
+        and (user_digest is None or user_digest == expected),
     )
     render_budget = int(bundled_wall / refresh_interval) + 3
     result.check(
@@ -971,11 +1044,12 @@ async def run_progress_overhead(settings: ScenarioSettings) -> ScenarioResult:
         renders <= render_budget,
         f"renders {renders} budget {render_budget} items {settings.items}",
     )
-    result.check(
-        "user_callback_sees_every_item",
-        callback_count == settings.items,
-        f"invocations {callback_count}",
-    )
+    if compare_modes:
+        result.check(
+            "user_callback_sees_every_item",
+            callback_count == settings.items,
+            f"invocations {callback_count}",
+        )
     result.caveats.append(
         "bundled mode drives the private _ProgressReporter with an injected "
         "non-terminal bar; user-facing behavior is progress=True"

@@ -115,6 +115,7 @@ class ResourceMonitor:
     wal_path: Path | None = None
     samples: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=MAX_SAMPLES))
     warmup_rss_bytes: int | None = None
+    peak_post_warmup_rss_bytes: int | None = None
     peak_wal_bytes: int | None = None
     _task: asyncio.Task[None] | None = None
     _started_at: float = 0.0
@@ -128,9 +129,12 @@ class ResourceMonitor:
                 wal_bytes = 0
             if wal_bytes is not None:
                 self.peak_wal_bytes = max(self.peak_wal_bytes or 0, wal_bytes)
+        rss = current_rss_bytes()
+        if rss is not None and self.warmup_rss_bytes is not None:
+            self.peak_post_warmup_rss_bytes = max(self.peak_post_warmup_rss_bytes or 0, rss)
         return {
             "t": round(time.monotonic() - self._started_at, 3),
-            "rss_bytes": current_rss_bytes(),
+            "rss_bytes": rss,
             "wal_bytes": wal_bytes,
         }
 
@@ -146,6 +150,7 @@ class ResourceMonitor:
 
     def mark_warmup(self) -> None:
         self.warmup_rss_bytes = current_rss_bytes()
+        self.peak_post_warmup_rss_bytes = self.warmup_rss_bytes
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -158,10 +163,15 @@ class ResourceMonitor:
         self.samples.append(self._sample())
 
     def post_warmup_growth_bytes(self) -> int | None:
-        current = current_rss_bytes()
-        if current is None or self.warmup_rss_bytes is None:
+        """Growth from warm-up to the *highest* sampled RSS since warm-up.
+
+        Comparing against the sampled maximum (refreshed once more at stop())
+        means a large transient allocation cannot pass the configured ceiling
+        just because it was freed before cleanup ran.
+        """
+        if self.peak_post_warmup_rss_bytes is None or self.warmup_rss_bytes is None:
             return None
-        return current - self.warmup_rss_bytes
+        return self.peak_post_warmup_rss_bytes - self.warmup_rss_bytes
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -169,6 +179,7 @@ class ResourceMonitor:
             "sample_count": len(self.samples),
             "samples_bounded_to": MAX_SAMPLES,
             "warmup_rss_bytes": self.warmup_rss_bytes,
+            "peak_post_warmup_rss_bytes": self.peak_post_warmup_rss_bytes,
             "post_warmup_rss_growth_bytes": self.post_warmup_growth_bytes(),
             "peak_rss_bytes": peak_rss_bytes(),
             "peak_wal_bytes": self.peak_wal_bytes,

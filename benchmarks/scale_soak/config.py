@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -156,13 +157,17 @@ class HarnessConfig:
                 "--store none cannot run the stop_resume or artifact_bench "
                 "scenarios; select other scenarios or a persistent store"
             )
-        if self.provider_latency_ms < 0 or self.sink_latency_ms < 0:
-            raise ValueError("latencies must be >= 0")
-        if (
-            self.max_post_warmup_rss_growth_mib is not None
-            and self.max_post_warmup_rss_growth_mib <= 0
+        for name, value in (
+            ("provider-latency-ms", self.provider_latency_ms),
+            ("sink-latency-ms", self.sink_latency_ms),
         ):
-            raise ValueError("--max-post-warmup-rss-growth-mib must be > 0")
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"--{name} must be finite and >= 0 (got {value!r})")
+        if self.max_post_warmup_rss_growth_mib is not None and (
+            not math.isfinite(self.max_post_warmup_rss_growth_mib)
+            or self.max_post_warmup_rss_growth_mib <= 0
+        ):
+            raise ValueError("--max-post-warmup-rss-growth-mib must be finite and > 0")
         if self.max_task_leak < 0 or self.max_fd_leak < 0:
             raise ValueError("leak tolerances must be >= 0")
 
