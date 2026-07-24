@@ -151,7 +151,7 @@ lower-level surfaces.
 | Error-aware retries | Separate budgets for content/transport failures and rate limits |
 | Coordinated cooldowns | One worker's rate limit pauses the shared execution scope |
 | Bounded streaming | Lazy sources and slow result consumers apply backpressure independently |
-| Durable resume | Versioned JSONL checkpoints replay only compatible prior results |
+| Durable resume | Versioned JSONL or indexed SQLite checkpoints replay only compatible prior results |
 | Guardrails | End-to-end item deadlines, batch deadlines, and category-based fail-fast |
 | Accounting | Attempt timing and tokens include retries and failed provider calls |
 | Observability | Typed lifecycle events, metrics, middleware, and progress callbacks |
@@ -261,8 +261,19 @@ Important operational details:
   included by default and may contain sensitive application data.
 - Historical replay tokens remain on each result for audit, while live
   processor statistics exclude them from current-run consumption.
+- For 100k+ restartable runs, swap in the indexed SQLite backend (v0.21) —
+  same records, same replay semantics, no history decode on reopen:
 
-Read [Results, Artifacts, and Resume](https://geoff-davis.github.io/async-batch-llm/results-and-artifacts/)
+  ```python
+  from async_batch_llm import SqliteArtifactStore
+
+  store = SqliteArtifactStore("runs/invoice-extraction.sqlite")
+  ```
+
+  JSONL remains the portable, human-inspectable option.
+
+Read [Results, Artifacts, and Resume](https://geoff-davis.github.io/async-batch-llm/results-and-artifacts/),
+[Large Runs](https://geoff-davis.github.io/async-batch-llm/large-runs/),
 and [Deadlines and Fail-Fast Guardrails](https://geoff-davis.github.io/async-batch-llm/guardrails/)
 for schema compatibility, privacy controls, abort modes, and deadline details.
 

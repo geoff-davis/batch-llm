@@ -99,6 +99,31 @@ is exhausted.
 Do not use `max_queue_size=0` for an unbounded or poorly bounded source. Zero
 means the processor queue is unlimited.
 
+## Exact Queue High-Water Marks
+
+`get_stats()` (and the `batch_completed` observer payload) reports exactly how
+deep each queue actually got (v0.21):
+
+```python
+stats = await processor.get_stats()
+stats["input_queue_high_water_mark"]   # peak accepted-but-unstarted items
+stats["result_queue_high_water_mark"]  # peak completed results awaiting the consumer
+```
+
+Both counters are exact, observed at queue-ownership points rather than
+sampled, and count only data items — end-of-stream and worker-crash control
+messages never consume result capacity or inflate the mark. They reset per
+run and report observed depth for unbounded configurations too, which makes
+them the right evidence for choosing a bound: run once unbounded, read the
+high-water marks, then set bounds with the headroom you actually need.
+
+Distinguish the five places work can live when reading these numbers: the
+accepted input queue (bounded by `max_queue_size`), active workers (bounded
+by `concurrency`), provider admission, the completed-result queue (bounded by
+`max_result_queue_size`), and the result your consumer currently holds —
+plus, for collection APIs like `process_prompts()`, the deliberately retained
+full result list, which no queue bound limits.
+
 ## Low-Level Streaming Lifecycle
 
 Use the processor directly when items need different strategies or custom

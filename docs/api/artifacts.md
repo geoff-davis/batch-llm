@@ -16,6 +16,18 @@
 
 ::: async_batch_llm.JsonlArtifactStore
 
+## SqliteArtifactStore
+
+Indexed SQLite backend for large restartable runs (v0.21). Note that
+`SqliteArtifactStore.read_results()` is an **async** classmethod, unlike the
+synchronous JSONL convenience.
+
+::: async_batch_llm.SqliteArtifactStore
+
+## SqliteDurability
+
+::: async_batch_llm.SqliteDurability
+
 ## ResultSerializationError
 
 ::: async_batch_llm.ResultSerializationError

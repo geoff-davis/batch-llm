@@ -234,3 +234,32 @@ run one prompt through the same resilience pipeline with no pool at all.
 Use the processor as an `async with` context manager so workers, caches, and
 HTTP clients are released. If you can't, call `await processor.shutdown()` when
 done.
+
+## 9. Artifact storage (checkpoint/resume runs)
+
+- **Backend choice.** JSONL for portable, human-inspectable audit logs;
+  `SqliteArtifactStore` for 100k+ restartable runs needing indexed replay.
+  See the [comparison table](results-and-artifacts.md#indexed-sqlite-artifacts-for-large-restartable-runs).
+- **Disk space and sidecars.** Budget from a measured bytes-per-record on
+  your payloads. SQLite runs also create `-wal`/`-shm` sidecar files next to
+  the database; the WAL plateaus during healthy writes and is truncated on
+  clean close (an `-shm` file may harmlessly remain).
+- **Durability mode.** `SqliteDurability.BALANCED` (default) survives process
+  crashes; a power failure can lose recently committed transactions. Choose
+  `FULL` when power-loss durability matters more than write throughput.
+  Neither mode encrypts the file — use filesystem permissions and volume
+  encryption for sensitive outputs.
+- **Commit batch latency.** Results are published only after their
+  transaction commits; `commit_interval_seconds` (default 0.01 s) is added
+  result latency. Lower it for latency-sensitive streaming, raise the batch
+  size for maximum append throughput.
+- **Write permissions.** The store creates parent directories and needs
+  write access for the database and its sidecars.
+- **Single-writer deployment.** One writable store instance per artifact
+  file, in one process. Sequential reopen is supported; concurrent external
+  readers obey `busy_timeout_seconds`. There is no distributed work claiming
+  or cross-process exactly-once execution.
+- **Before million-item claims.** Run `make scale-100k` (and `scale-1m` for
+  seven digits) on a representative environment and review the report —
+  don't extrapolate from profile existence. See
+  [Benchmarks](benchmarks.md#scale-soak-harness).

@@ -264,16 +264,107 @@ store = JsonlArtifactStore(
 
 The artifact stores `null` when there is no calculator.
 
+## Indexed SQLite artifacts for large restartable runs
+
+`SqliteArtifactStore` (v0.21) stores the same logical version-1 records in a
+standard-library SQLite database with indexed replay lookup and bounded
+iteration. It exists for 100k–1M-item restartable runs where scanning or
+retaining a JSONL history on open becomes the bottleneck; JSONL remains the
+recommended portable, human-inspectable audit format.
+
+```python
+from async_batch_llm import ResumePolicy, SqliteArtifactStore, process_stream
+
+store = SqliteArtifactStore("runs/customer-tagging.sqlite")
+async for item in process_stream(
+    strategy,
+    prompts,
+    artifact_store=store,
+    resume=ResumePolicy.REUSE_SUCCESSES,
+):
+    await sink(item)
+```
+
+Everything documented above for JSONL applies unchanged: identity resolution
+and explicit `ArtifactIdentity`, the complete compatibility fingerprint, the
+three resume policies, replay accounting, privacy controls
+(`include_output` / `include_metadata` / `include_prompt` /
+`include_context`), custom encoders/decoders and `context_fingerprinter`, and
+optional `cost_calculator`. The two backends share one codec, so a record
+that would replay from JSONL replays from SQLite under the same conditions.
+Context-free items match through a NULL-safe indexed predicate. There is no
+automatic JSONL→SQLite import; opt in by creating a new store, and existing
+JSONL files remain fully supported.
+
+| Backend | Best fit | Reopen behavior | Write behavior | Human inspection |
+| --- | --- | --- | --- | --- |
+| JSONL | Small/medium runs, portable audit log | Resume scans/indexes complete history; `iter_results()` streams line pages | One flushed line per record | Excellent |
+| SQLite | 100k–1M restartable runs | Indexed replay and bounded keyset iteration — no history decode on open | Batched transactions with WAL checkpoints | Use SQLite tools/API |
+
+“100k+” is a recommendation, not a cliff — the crossover depends on record
+size and environment.
+
+### Batched commits and durability
+
+Appends are grouped into transactions (`commit_batch_size`, default 100,
+within `commit_interval_seconds`, default 0.01). An `append()` — and therefore
+the processor's publication of that item's result — completes only after its
+transaction commits, preserving checkpoint-before-result-publication. A
+transaction failure rolls back without exposing partial rows.
+
+`SqliteDurability` selects the synchronization policy:
+
+- `BALANCED` (default) — WAL with `synchronous=NORMAL`. A normal process
+  crash retains a consistent database and committed history. A sudden OS or
+  power failure may lose transactions committed since the last WAL sync;
+  the loss window can span more than one transaction.
+- `FULL` — WAL with `synchronous=FULL`; stronger power-loss durability at
+  lower throughput. Exact guarantees always depend on SQLite, the OS,
+  filesystem, and storage hardware.
+
+WAL auto-checkpointing keeps the log at a bounded plateau during healthy
+writes; `close()` drains accepted appends, attempts a truncating checkpoint,
+and terminates the store's worker thread. An external long-lived reader can
+make that final checkpoint report “busy” — recorded, not an error and not
+data loss. SQLite may leave an `-shm` sidecar after a healthy close, and the
+database directory will transiently contain `-wal`/`-shm` files during a run.
+ABL does not encrypt SQLite artifacts; use filesystem permissions and volume
+encryption as your deployment requires.
+
+### Inspection
+
+`iter_results()` streams a finite committed snapshot in keyset-paged batches
+(`read_batch_size`), decoding one row at a time — no read transaction is held
+across an async yield, so a slow consumer never blocks the writer or WAL
+checkpointing. `SqliteArtifactStore.read_results(path)` is the materializing
+convenience; unlike its synchronous JSONL counterpart it is an **async**
+classmethod because SQLite I/O stays off the event loop:
+
+```python
+from async_batch_llm import SqliteArtifactStore
+
+review = await SqliteArtifactStore.read_results(
+    "runs/customer-tagging.sqlite",
+    successes_only=True,
+)
+```
+
+Reopening a database validates schema and version markers, records each
+distinct identity it sees (a sequential identity history for provenance), and
+never decodes stored history before a lookup needs it.
+
 ## Process-safety boundary
 
-`JsonlArtifactStore` serializes writes with an `asyncio.Lock`, which guarantees
-complete, non-interleaved JSON records for concurrent workers sharing one store
-instance in one process. It does **not** implement filesystem locking across
-processes or independent store instances. Use one writer, or implement an
-`ArtifactStore` backed by real file locks or a transactional database.
+Both stores are single-process, single-writer designs. `JsonlArtifactStore`
+serializes writes with an `asyncio.Lock`, guaranteeing complete,
+non-interleaved JSON records for concurrent workers sharing one store
+instance in one process. `SqliteArtifactStore` owns one connection, one
+worker thread, and one writer task per instance; sequential reopen is
+supported and a concurrently open external reader obeys the configured busy
+timeout. Neither implements distributed work claiming, leasing, or
+cross-process exactly-once execution — use one writer per artifact.
 
-On open, the JSONL store retains all complete item records (including serialized
-outputs) in memory for read-only iteration and builds a constant-time replay
-index. This avoids quadratic resume lookup, but very large audit histories may
-be better served by a transactional `ArtifactStore` implementation with indexed
-on-disk storage.
+On open, the JSONL store still builds an in-memory replay index over complete
+item records for constant-time resume lookup (its `iter_results()` streams
+bounded line pages instead of materializing history, as of v0.21). Very large
+audit histories are exactly what `SqliteArtifactStore` is for.
