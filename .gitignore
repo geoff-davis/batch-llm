@@ -6,6 +6,10 @@ __pycache__/
 # Benchmark demo data + outputs (examples/example_batch_benchmark.py)
 examples/data/
 
+# Scale-soak harness reports (benchmarks/scale_soak); dated reference
+# reports are published deliberately, not committed by default.
+benchmark-results/
+
 # C extensions
 *.so
 

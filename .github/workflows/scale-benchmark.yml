@@ -1,0 +1,81 @@
+# Manual 100k/1m scale-soak runs (benchmarks/scale_soak). Uploads the JSON
+# report and log as workflow artifacts for maintainer review — results become
+# published claims only when a maintainer deliberately records them in docs.
+name: Scale Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Harness profile
+        type: choice
+        options: [ci, 100k, 1m]
+        default: 100k
+      scenario:
+        description: Scenario (all = profile default set)
+        type: choice
+        options:
+          - all
+          - healthy
+          - slow_consumer
+          - rate_limit_wave
+          - transport_retry
+          - validation_recovery
+          - stop_resume
+          - artifact_bench
+          - progress_overhead
+        default: all
+      store:
+        description: Artifact store backend
+        type: choice
+        options: [sqlite, jsonl, none]
+        default: sqlite
+      durability:
+        description: SQLite durability
+        type: choice
+        options: [balanced, full]
+        default: balanced
+
+permissions:
+  contents: read
+
+jobs:
+  scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run scale-soak profile
+      run: |
+        SCENARIO_ARG=""
+        if [ "${{ inputs.scenario }}" != "all" ]; then
+          SCENARIO_ARG="--scenario ${{ inputs.scenario }}"
+        fi
+        uv run python -m benchmarks.scale_soak \
+          --profile "${{ inputs.profile }}" \
+          $SCENARIO_ARG \
+          --store "${{ inputs.store }}" \
+          --durability "${{ inputs.durability }}" \
+          --output "benchmark-results/scale-${{ inputs.profile }}.json" \
+          2>&1 | tee benchmark-results/scale-${{ inputs.profile }}.log
+
+    - name: Upload report and log
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: scale-soak-${{ inputs.profile }}-${{ github.run_id }}
+        path: benchmark-results/
+        if-no-files-found: error
+        retention-days: 90

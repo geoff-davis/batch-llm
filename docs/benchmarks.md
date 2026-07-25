@@ -1,5 +1,13 @@
 # Benchmarks
 
+Two kinds of evidence live here:
+
+- the **live-provider GSM8K benchmark** below — real API calls, real cost,
+  illustrative throughput; and
+- the **[scale-soak harness](#scale-soak-harness)** — deterministic,
+  credential-free correctness-at-scale evidence (bounded queues, restart,
+  exact accounting) with **no** live-provider performance claims.
+
 Real end-to-end numbers from the GSM8K bulk benchmark
 (`examples/example_batch_benchmark.py`). For *how* it's built — the escalation
 strategy, the classifier pitfall, gzip streaming, the judge — see the
@@ -197,3 +205,64 @@ requirements before committing a workload.
 [`benchmark-summary.json`](assets/benchmark-summary.json) and
 [`benchmark-throughput.json`](assets/benchmark-throughput.json); regenerate the
 charts with `python examples/generate_benchmark_charts.py`.*
+
+## Scale-soak harness
+
+`benchmarks/scale_soak` (v0.21, issue #127 phase one) is the deterministic
+counterpart to the live benchmark above: a credential-free, no-network
+harness that drives the real `process_stream()` / `ParallelBatchProcessor` /
+artifact-store code paths with a seeded fake provider and *asserts*
+correctness invariants at scale rather than measuring provider speed.
+
+### Scenarios
+
+| Scenario | Exercises |
+| --- | --- |
+| `healthy` | Lazy bounded streaming, SQLite checkpoint batching, clean close |
+| `slow_consumer` | Result-queue backpressure reaching (never exceeding) its bound |
+| `rate_limit_wave` | Coordinated 429 cooldown without a retry storm — provider-call count is asserted exactly |
+| `transport_retry` | Deterministic 5xx/connection first-attempt failures through the production retry path |
+| `validation_recovery` | Per-item `RetryState` feedback with cross-item isolation asserted, failed-attempt tokens retained |
+| `stop_resume` | Category fail-fast stop, then `REUSE_SUCCESSES` restart with replay-call elimination |
+| `artifact_bench` | SQLite append/reopen/lookup/iteration throughput, WAL plateau and close-truncation, JSONL comparison at a safe size |
+| `progress_overhead` | Bundled reporter renders bounded by time, not item count |
+
+### Running it
+
+```bash
+make scale-smoke                  # ci profile, ~15 s, runs in CI on every PR
+make scale-100k                   # 100k reference profile (minutes)
+make scale-1m                     # 1m profile, large-scenario subset (long)
+uv run python -m benchmarks.scale_soak --help   # every option
+```
+
+Profiles: `ci` (~2k items/scenario), `100k` (all scenarios — the release
+approval run), `1m` (healthy, slow_consumer, stop_resume, artifact_bench),
+`custom` (`--items`). A manual `workflow_dispatch` workflow
+(**Scale Benchmark**) runs the large profiles on GitHub-hosted runners and
+uploads reports as artifacts.
+
+### Report schema
+
+Each run writes one versioned JSON document
+(`schema_name: async-batch-llm-scale-soak`, `schema_version: 1`) containing
+UTC generation time, environment (package version, git revision, Python,
+platform, CPU count, resource-probe methods — never hostnames or home
+paths), the complete effective configuration, per-scenario counts,
+throughput, provider-call and queue high-water measurements, bounded
+resource samples, artifact/WAL measurements, every assertion with its
+evidence, and caveats. Unavailable metrics are `null`, never fabricated
+zeros. Exact item accounting uses an order-independent XOR-of-SHA-256 digest
+plus independent count and modular index-sum cross-checks, so a million-item
+run proves no loss or duplication without retaining IDs.
+
+### Dated results policy
+
+A profile's *existence* is not a scale claim. Reference numbers are published
+in the docs only after a maintainer actually completes that run and reviews
+its report; reports land in `benchmark-results/` (gitignored) or as CI
+artifacts until then. The harness's fake-provider throughput reflects
+framework overhead only — it says nothing about live-provider latency,
+quotas, or cost, and the report's `deferred_features` list records what v0.21
+deliberately does not validate (token-aware admission #122, adaptive
+concurrency #89, distributed writers, provider-native batch APIs).

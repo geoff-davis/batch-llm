@@ -110,6 +110,39 @@ jobs:
     - name: Run type checker (ty)
       run: uv run ty check src/
 
+  scale-smoke:
+    # Reduced deterministic scale-soak profile (benchmarks/scale_soak): exact
+    # item accounting, bounded queues, replay elimination, retry isolation,
+    # WAL lifecycle, and cleanup invariants at CI size. No credentials, no
+    # network. The 100k/1m profiles run via the manual scale-benchmark
+    # workflow, never per PR.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run reduced scale-soak profile
+      run: make scale-smoke
+
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+        name: scale-soak-ci-report
+        path: benchmark-results/scale-ci.json
+        if-no-files-found: warn
+
   docs-build:
     # Catch broken nav/links in PRs instead of discovering them after the
     # post-merge gh-pages deploy.

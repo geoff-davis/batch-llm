@@ -63,6 +63,7 @@ nav:
   - Production Checklist: production-checklist.md
   - Troubleshooting and FAQ: troubleshooting.md
   - Results, Artifacts, and Resume: results-and-artifacts.md
+  - Large Runs (100k–1M): large-runs.md
   - Deadlines and Fail-Fast Guardrails: guardrails.md
   - Bounded Work and Backpressure: bounded-work.md
   - Use Your Existing Async Client: callable-integration.md
