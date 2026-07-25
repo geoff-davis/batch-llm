@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/async_batch_llm/sqlite_artifacts.py: 80.55%</title>
+    <title>Coverage for src/async_batch_llm/sqlite_artifacts.py: 82.00%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>async_batch_llm<span class="sep">/</span>sqlite_artifacts.py</b>:
-            <span class="pc_cov">80.55%</span>
+            <span class="pc_cov">82.00%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -56,10 +56,10 @@
         </aside>
         <h2>
             <span class="text">593 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">495<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">98<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">503<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">90<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">15<span class="text"> excluded</span></button>
-            <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">38<span class="text"> partial</span></button>
+            <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">35<span class="text"> partial</span></button>
         </h2>
         <p class="text">
             <a id="prevFileLink" class="nav" href="z_227b7fe2e7ae88a8_single_py.html">&#xab; prev</a> &nbsp; &nbsp;
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_75172e35a3fa1f88___init___py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-24 19:59 +0000
+            created at 2026-07-25 04:33 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -214,8 +214,8 @@
     <p class="run"><span class="n"><a id="t130" href="#t130">130</a></span><span class="t">            <span class="key">await</span> <span class="nam">waiter</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t131" href="#t131">131</a></span><span class="t">            <span class="nam">timer</span><span class="op">.</span><span class="nam">cancel</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t132" href="#t132">132</a></span><span class="t">            <span class="nam">timer</span> <span class="op">=</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
-    <p class="par run show_par"><span class="n"><a id="t133" href="#t133">133</a></span><span class="t">            <span class="key">if</span> <span class="key">not</span> <span class="nam">future</span><span class="op">.</span><span class="nam">done</span><span class="op">(</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">133&#x202F;&#x219B;&#x202F;134</span><span class="annotate long">line 133 didn't jump to line 134 because the condition on line 133 was never true</span></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t134" href="#t134">134</a></span><span class="t">                <span class="nam">waiter</span> <span class="op">=</span> <span class="nam">loop</span><span class="op">.</span><span class="nam">create_future</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t133" href="#t133">133</a></span><span class="t">            <span class="key">if</span> <span class="key">not</span> <span class="nam">future</span><span class="op">.</span><span class="nam">done</span><span class="op">(</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t134" href="#t134">134</a></span><span class="t">                <span class="nam">waiter</span> <span class="op">=</span> <span class="nam">loop</span><span class="op">.</span><span class="nam">create_future</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t135" href="#t135">135</a></span><span class="t">    <span class="key">finally</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t136" href="#t136">136</a></span><span class="t">        <span class="key">if</span> <span class="nam">timer</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t137" href="#t137">137</a></span><span class="t">            <span class="nam">timer</span><span class="op">.</span><span class="nam">cancel</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
@@ -348,16 +348,16 @@
     <p class="mis mis2 show_mis"><span class="n"><a id="t264" href="#t264">264</a></span><span class="t">            <span class="op">)</span> <span class="key">from</span> <span class="nam">exc</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t265" href="#t265">265</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t266" href="#t266">266</a></span><span class="t">    <span class="key">def</span> <span class="nam">_resolve_identity_from</span><span class="op">(</span><span class="nam">self</span><span class="op">,</span> <span class="nam">strategy</span><span class="op">:</span> <span class="nam">Any</span><span class="op">)</span> <span class="op">-></span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="par run show_par"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">identity</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">267&#x202F;&#x219B;&#x202F;269</span><span class="annotate long">line 267 didn't jump to line 269 because the condition on line 267 was always true</span></span></p>
+    <p class="run"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">        <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">identity</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t268" href="#t268">268</a></span><span class="t">            <span class="key">return</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t269" href="#t269">269</a></span><span class="t">        <span class="nam">inferred</span> <span class="op">=</span> <span class="nam">infer_artifact_identity</span><span class="op">(</span><span class="nam">strategy</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t271" href="#t271">271</a></span><span class="t">            <span class="nam">identity_value</span><span class="op">,</span> <span class="nam">identity_fingerprint</span> <span class="op">=</span> <span class="nam">fingerprint_identity</span><span class="op">(</span><span class="nam">inferred</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t269" href="#t269">269</a></span><span class="t">        <span class="nam">inferred</span> <span class="op">=</span> <span class="nam">infer_artifact_identity</span><span class="op">(</span><span class="nam">strategy</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t271" href="#t271">271</a></span><span class="t">            <span class="nam">identity_value</span><span class="op">,</span> <span class="nam">identity_fingerprint</span> <span class="op">=</span> <span class="nam">fingerprint_identity</span><span class="op">(</span><span class="nam">inferred</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t272" href="#t272">272</a></span><span class="t">        <span class="key">except</span> <span class="nam">ResultSerializationError</span> <span class="key">as</span> <span class="nam">exc</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t273" href="#t273">273</a></span><span class="t">            <span class="key">raise</span> <span class="nam">ArtifactSerializationError</span><span class="op">(</span><span class="nam">str</span><span class="op">(</span><span class="nam">exc</span><span class="op">)</span><span class="op">)</span> <span class="key">from</span> <span class="nam">exc</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t274" href="#t274">274</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">identity</span> <span class="op">=</span> <span class="nam">inferred</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t275" href="#t275">275</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">_identity_value</span> <span class="op">=</span> <span class="nam">identity_value</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t276" href="#t276">276</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">identity_fingerprint</span> <span class="op">=</span> <span class="nam">identity_fingerprint</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t274" href="#t274">274</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">identity</span> <span class="op">=</span> <span class="nam">inferred</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t275" href="#t275">275</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">_identity_value</span> <span class="op">=</span> <span class="nam">identity_value</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t276" href="#t276">276</a></span><span class="t">        <span class="nam">self</span><span class="op">.</span><span class="nam">identity_fingerprint</span> <span class="op">=</span> <span class="nam">identity_fingerprint</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t277" href="#t277">277</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t278" href="#t278">278</a></span><span class="t">    <span class="key">def</span> <span class="nam">_require_resolved_identity</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t279" href="#t279">279</a></span><span class="t">        <span class="nam">self</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
@@ -689,8 +689,8 @@
     <p class="run"><span class="n"><a id="t605" href="#t605">605</a></span><span class="t">                    <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">commit_interval_seconds</span> <span class="op">==</span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t606" href="#t606">606</a></span><span class="t">                        <span class="key">break</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t607" href="#t607">607</a></span><span class="t">                    <span class="nam">remaining</span> <span class="op">=</span> <span class="nam">deadline</span> <span class="op">-</span> <span class="nam">asyncio</span><span class="op">.</span><span class="nam">get_running_loop</span><span class="op">(</span><span class="op">)</span><span class="op">.</span><span class="nam">time</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="par run show_par"><span class="n"><a id="t608" href="#t608">608</a></span><span class="t">                    <span class="key">if</span> <span class="nam">remaining</span> <span class="op">&lt;=</span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"><span class="annotate short">608&#x202F;&#x219B;&#x202F;609</span><span class="annotate long">line 608 didn't jump to line 609 because the condition on line 608 was never true</span></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t609" href="#t609">609</a></span><span class="t">                        <span class="key">break</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t608" href="#t608">608</a></span><span class="t">                    <span class="key">if</span> <span class="nam">remaining</span> <span class="op">&lt;=</span> <span class="num">0</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t609" href="#t609">609</a></span><span class="t">                        <span class="key">break</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t610" href="#t610">610</a></span><span class="t">                    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t611" href="#t611">611</a></span><span class="t">                        <span class="nam">next_request</span> <span class="op">=</span> <span class="key">await</span> <span class="nam">asyncio</span><span class="op">.</span><span class="nam">wait_for</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t612" href="#t612">612</a></span><span class="t">                            <span class="nam">self</span><span class="op">.</span><span class="nam">_writer_queue</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="op">)</span><span class="op">,</span> <span class="nam">timeout</span><span class="op">=</span><span class="nam">remaining</span>&nbsp;</span><span class="r"></span></p>
@@ -1250,7 +1250,7 @@
             <a class="nav" href="z_75172e35a3fa1f88___init___py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-24 19:59 +0000
+            created at 2026-07-25 04:33 +0000
         </p>
     </div>
 </footer>
