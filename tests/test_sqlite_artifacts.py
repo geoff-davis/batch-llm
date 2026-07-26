@@ -848,6 +848,191 @@ async def test_cancelled_append_failure_is_reported_once_and_close_is_idempotent
 
 
 @pytest.mark.asyncio
+async def test_idle_writer_crash_is_reported_by_close(tmp_path: Path) -> None:
+    store = SqliteArtifactStore(tmp_path / "idle-writer-crash.sqlite", identity=_identity())
+    crashed = asyncio.Event()
+
+    async def crash_writer() -> None:
+        crashed.set()
+        raise RuntimeError("idle writer crash")
+
+    store._writer_loop = crash_writer  # type: ignore[method-assign]
+    await store.prepare_item(_item("id", "prompt"))
+    await crashed.wait()
+    assert store._writer_task is not None
+    await asyncio.gather(store._writer_task, return_exceptions=True)
+
+    with pytest.raises(ArtifactIOError, match="idle writer crash"):
+        await store.close()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_idle_writer_and_cleanup_errors_are_delivered_over_two_closes(tmp_path: Path) -> None:
+    store = SqliteArtifactStore(tmp_path / "writer-and-cleanup.sqlite", identity=_identity())
+    crashed = asyncio.Event()
+
+    async def crash_writer() -> None:
+        crashed.set()
+        raise RuntimeError("writer failed first")
+
+    store._writer_loop = crash_writer  # type: ignore[method-assign]
+    await store.prepare_item(_item("id", "prompt"))
+    await crashed.wait()
+    assert store._writer_task is not None
+    await asyncio.gather(store._writer_task, return_exceptions=True)
+    original_close = store._checkpoint_and_close_sync
+
+    def fail_cleanup() -> None:
+        original_close()
+        raise ArtifactIOError("cleanup failed second")
+
+    store._checkpoint_and_close_sync = fail_cleanup  # type: ignore[method-assign]
+    with pytest.raises(ArtifactIOError, match="writer failed first"):
+        await store.close()
+    with pytest.raises(ArtifactIOError, match="cleanup failed second"):
+        await store.close()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_detached_append_and_cleanup_errors_are_delivered_over_two_closes(
+    tmp_path: Path,
+) -> None:
+    store = SqliteArtifactStore(
+        tmp_path / "detached-and-cleanup.sqlite",
+        identity=_identity(),
+        commit_interval_seconds=0,
+    )
+    item = _item("id", "prompt")
+    prepared = await store.prepare_item(item)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def fail_write(_records: list[dict[str, Any]]) -> None:
+        entered.set()
+        assert release.wait(timeout=2)
+        raise ArtifactIOError("detached write failed first")
+
+    store._insert_batch_sync = fail_write  # type: ignore[method-assign]
+    append = asyncio.create_task(
+        store.append(item, prepared, WorkItemResult(item_id="id", success=True, output="P"))
+    )
+    assert await asyncio.to_thread(entered.wait, 1)
+    append.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await append
+    original_close = store._checkpoint_and_close_sync
+
+    def fail_cleanup() -> None:
+        original_close()
+        raise ArtifactIOError("detached cleanup failed second")
+
+    store._checkpoint_and_close_sync = fail_cleanup  # type: ignore[method-assign]
+    release.set()
+    with pytest.raises(ArtifactIOError, match="detached write failed first"):
+        await store.close()
+    with pytest.raises(ArtifactIOError, match="detached cleanup failed second"):
+        await store.close()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_observed_writer_error_is_not_repeated_before_cleanup_error(
+    tmp_path: Path,
+) -> None:
+    store = SqliteArtifactStore(
+        tmp_path / "observed-writer-and-cleanup.sqlite",
+        identity=_identity(),
+        commit_interval_seconds=0,
+    )
+    item = _item("id", "prompt")
+    prepared = await store.prepare_item(item)
+
+    def fail_write(_records: list[dict[str, Any]]) -> None:
+        raise ArtifactIOError("append observed writer failure")
+
+    store._insert_batch_sync = fail_write  # type: ignore[method-assign]
+    with pytest.raises(ArtifactIOError, match="append observed writer failure"):
+        await store.append(
+            item,
+            prepared,
+            WorkItemResult(item_id="id", success=True, output="P"),
+        )
+    assert store._fatal_error is not None
+    with pytest.raises(ArtifactIOError, match="unusable after a write failure"):
+        await store.prepare_item(_item("later", "later"))
+    original_close = store._checkpoint_and_close_sync
+
+    def fail_cleanup() -> None:
+        original_close()
+        raise ArtifactIOError("only cleanup remains")
+
+    store._checkpoint_and_close_sync = fail_cleanup  # type: ignore[method-assign]
+    with pytest.raises(ArtifactIOError, match="only cleanup remains"):
+        await store.close()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_connection_close_error_is_raised_once(tmp_path: Path) -> None:
+    store = SqliteArtifactStore(tmp_path / "connection-close-error.sqlite", identity=_identity())
+    await store.prepare_item(_item("id", "prompt"))
+
+    def fail_connection_close() -> None:
+        connection = store._require_connection()
+        connection.close()
+        store._connection = None
+        raise ArtifactIOError("connection close failed")
+
+    store._checkpoint_and_close_sync = fail_connection_close  # type: ignore[method-assign]
+    with pytest.raises(ArtifactIOError, match="connection close failed"):
+        await store.close()
+    await store.close()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_close_retains_cleanup_error_and_shuts_executor_down_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SqliteArtifactStore(tmp_path / "cancelled-error-close.sqlite", identity=_identity())
+    await store.prepare_item(_item("id", "prompt"))
+    entered = threading.Event()
+    release = threading.Event()
+    original_checkpoint = store._checkpoint_and_close_sync
+    original_shutdown = store._executor.shutdown
+    shutdown_calls = 0
+
+    def fail_after_blocked_cleanup() -> None:
+        entered.set()
+        assert release.wait(timeout=2)
+        original_checkpoint()
+        raise ArtifactIOError("retained cleanup failure")
+
+    def counted_shutdown(*args: Any, **kwargs: Any) -> None:
+        nonlocal shutdown_calls
+        shutdown_calls += 1
+        original_shutdown(*args, **kwargs)
+
+    store._checkpoint_and_close_sync = fail_after_blocked_cleanup  # type: ignore[method-assign]
+    monkeypatch.setattr(store._executor, "shutdown", counted_shutdown)
+    close = asyncio.create_task(store.close())
+    assert await asyncio.to_thread(entered.wait, 1)
+    close.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await close
+
+    with pytest.raises(ArtifactIOError, match="retained cleanup failure"):
+        await store.close()
+    await store.close()
+    assert shutdown_calls == 1
+    assert store._writer_task is not None
+    assert store._writer_task.done()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_append_still_commits_under_store_ownership(tmp_path: Path) -> None:
     store = SqliteArtifactStore(
         tmp_path / "cancelled-success.sqlite",

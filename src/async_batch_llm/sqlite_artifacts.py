@@ -231,13 +231,13 @@ class SqliteArtifactStore:
         self._active_writer_batch: list[_AppendRequest] = []
         self._writer_queue: asyncio.Queue[_WriterRequest] = asyncio.Queue()
         self._close_task: asyncio.Task[None] | None = None
-        self._close_error_observed = False
         self._closing = False
         self._closed = False
         self._fatal_error: ArtifactError | None = None
-        self._retained_error: ArtifactError | None = None
+        self._fatal_error_observed = False
+        self._detached_error: ArtifactError | None = None
         self._detached_futures: set[asyncio.Future[None]] = set()
-        self._close_detached = False
+        self._close_errors: list[ArtifactError] = []
         self._executor_shutdown = False
         self._wal_autocheckpoint_pages = _WAL_AUTOCHECKPOINT_PAGES
         self._effective_wal_autocheckpoint_pages: int | None = None
@@ -371,6 +371,8 @@ class SqliteArtifactStore:
 
         if self._closing or self._closed:
             raise ArtifactIOError(f"Artifact store is closed: {self.path}")
+        self._inspect_writer_task()
+        self._raise_pending_operation_error()
         if self._fatal_error is not None:
             raise ArtifactIOError(f"Artifact store is unusable after a write failure: {self.path}")
         loop = asyncio.get_running_loop()
@@ -419,32 +421,16 @@ class SqliteArtifactStore:
 
     async def close(self) -> None:
         """Drain writes, checkpoint/truncate WAL, and terminate the executor."""
-        await self._settle_detached_futures()
         if self._close_task is None:
             self._closing = True
             self._close_task = asyncio.create_task(self._close_impl())
+            self._close_task.add_done_callback(self._consume_task_exception)
         task = self._close_task
         try:
             await _await_without_cancelling(task)
         except asyncio.CancelledError:
-            self._close_detached = True
-            task.add_done_callback(self._finish_detached_close)
             raise
-        except ArtifactError:
-            if self._close_error_observed:
-                return
-            if self._retained_error is not None:
-                self._close_error_observed = True
-                self._raise_retained_error()
-                return
-            if self._close_detached:
-                self._finish_detached_close(task)
-                self._close_error_observed = True
-                self._raise_retained_error()
-                return
-            self._close_error_observed = True
-            raise
-        self._raise_retained_error()
+        self._raise_next_close_error()
 
     @classmethod
     async def read_results(
@@ -572,10 +558,11 @@ class SqliteArtifactStore:
         return BatchResult(results=results, termination=BatchTermination())
 
     async def _before_operation(self) -> None:
-        await self._settle_detached_futures()
-        self._raise_retained_error()
         if self._closing or self._closed:
             raise ArtifactIOError(f"Artifact store is closed: {self.path}")
+        await self._settle_detached_futures()
+        self._inspect_writer_task()
+        self._raise_pending_operation_error()
         if self._fatal_error is not None:
             raise ArtifactIOError(f"Artifact store is unusable after a write failure: {self.path}")
 
@@ -607,13 +594,25 @@ class SqliteArtifactStore:
             return
         task.exception()
 
+    def _inspect_writer_task(self) -> None:
+        task = self._writer_task
+        if task is not None and task.done():
+            self._record_writer_task_outcome(task)
+
     def _writer_finished(self, task: asyncio.Task[None]) -> None:
-        """Turn an unexpected writer-task crash into failures for every owner."""
+        """Record an unexpected writer-task crash and fail every request owner."""
+        self._record_writer_task_outcome(task)
+
+    def _record_writer_task_outcome(self, task: asyncio.Task[None]) -> None:
         if task.cancelled():
             exception: BaseException | None = asyncio.CancelledError()
         else:
             exception = task.exception()
-        if exception is None or self._fatal_error is not None:
+        if exception is None:
+            if self._closing or self._fatal_error is not None:
+                return
+            exception = RuntimeError("writer task exited unexpectedly")
+        if self._fatal_error is not None:
             return
         error = ArtifactIOError(f"SQLite artifact writer task failed: {exception}")
         self._fatal_error = error
@@ -630,6 +629,9 @@ class SqliteArtifactStore:
             self._detached_futures.add(future)
             future.add_done_callback(self._finish_detached_future)
             raise
+        except ArtifactError as exc:
+            self._mark_operation_error_observed(exc)
+            raise
 
     def _finish_detached_future(self, future: asyncio.Future[None]) -> None:
         if future not in self._detached_futures:
@@ -640,11 +642,10 @@ class SqliteArtifactStore:
         except asyncio.CancelledError:
             return
         except ArtifactError as exc:
-            if self._retained_error is None:
-                self._retained_error = exc
+            if not (exc is self._fatal_error and self._fatal_error_observed):
+                self._detached_error = self._detached_error or exc
         except Exception as exc:  # pragma: no cover - defensive invariant
-            if self._retained_error is None:
-                self._retained_error = ArtifactIOError(str(exc))
+            self._detached_error = self._detached_error or ArtifactIOError(str(exc))
 
     async def _settle_detached_futures(self) -> None:
         pending = list(self._detached_futures)
@@ -654,27 +655,37 @@ class SqliteArtifactStore:
             for future in pending:
                 self._finish_detached_future(future)
 
-    def _raise_retained_error(self) -> None:
-        error = self._retained_error
+    def _mark_operation_error_observed(self, error: ArtifactError) -> None:
+        if error is self._fatal_error:
+            self._fatal_error_observed = True
+        if error is self._detached_error:
+            self._detached_error = None
+
+    def _take_pending_operation_error(self) -> ArtifactError | None:
+        if self._detached_error is not None:
+            error = self._detached_error
+            self._detached_error = None
+            if error is self._fatal_error:
+                self._fatal_error_observed = True
+            return error
+        if self._fatal_error is not None and not self._fatal_error_observed:
+            self._fatal_error_observed = True
+            return self._fatal_error
+        return None
+
+    def _raise_pending_operation_error(self) -> None:
+        error = self._take_pending_operation_error()
         if error is not None:
-            self._retained_error = None
             raise error
 
-    def _finish_detached_close(self, task: asyncio.Task[None]) -> None:
-        if not self._close_detached or task.cancelled():
-            return
-        self._close_detached = False
-        try:
-            task.result()
-        except ArtifactError as exc:
-            if self._retained_error is None:
-                self._retained_error = exc
-        except Exception as exc:  # pragma: no cover - defensive invariant
-            if self._retained_error is None:
-                self._retained_error = ArtifactIOError(str(exc))
+    def _raise_next_close_error(self) -> None:
+        if self._close_errors:
+            raise self._close_errors.pop(0)
 
     async def _flush(self) -> None:
         if self._writer_task is None or self._writer_task.done():
+            self._inspect_writer_task()
+            self._raise_pending_operation_error()
             if self._fatal_error is not None:
                 raise ArtifactIOError(
                     f"Artifact store is unusable after a write failure: {self.path}"
@@ -761,27 +772,41 @@ class SqliteArtifactStore:
                 request.future.set_exception(error)
 
     async def _close_impl(self) -> None:
-        close_error: ArtifactError | None = None
+        operation_error: ArtifactError | None = None
+        cleanup_error: ArtifactError | None = None
         try:
+            await self._settle_detached_futures()
             if self._prepare_task is not None:
                 try:
                     await _await_without_cancelling(self._prepare_task)
                 except ArtifactError as exc:
                     if not self._prepare_error_observed:
-                        close_error = exc
+                        operation_error = exc
+                except Exception as exc:  # pragma: no cover - defensive invariant
+                    operation_error = ArtifactIOError(
+                        f"SQLite artifact preparation task failed: {exc}"
+                    )
             if self._writer_task is not None and not self._writer_task.done():
                 future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
                 self._writer_queue.put_nowait(_CloseRequest(future=future))
                 try:
                     await _await_without_cancelling(future)
                 except ArtifactError as exc:
-                    close_error = close_error or exc
+                    if self._fatal_error is None:
+                        self._fatal_error = exc
                 await asyncio.gather(self._writer_task, return_exceptions=True)
+            self._inspect_writer_task()
+            await self._settle_detached_futures()
+            operation_error = operation_error or self._take_pending_operation_error()
             if self._connection is not None:
                 try:
                     await self._run_db(self._checkpoint_and_close_sync)
                 except ArtifactError as exc:
-                    close_error = close_error or exc
+                    cleanup_error = exc
+                except Exception as exc:  # pragma: no cover - defensive invariant
+                    cleanup_error = ArtifactIOError(
+                        f"Could not clean up SQLite artifact {self.path}: {exc}"
+                    )
         finally:
             self._closed = True
             if not self._executor_shutdown:
@@ -789,10 +814,21 @@ class SqliteArtifactStore:
                 # now-idle private executor directly avoids creating a default
                 # executor solely for shutdown (and a CPython 3.14 completion
                 # race while asyncio.run() later shuts that executor down).
-                self._executor.shutdown(wait=True)
-                self._executor_shutdown = True
-        if close_error is not None:
-            raise close_error
+                try:
+                    self._executor.shutdown(wait=True)
+                except Exception as exc:  # pragma: no cover - executor invariant
+                    cleanup_error = cleanup_error or ArtifactIOError(
+                        f"Could not shut down SQLite artifact executor {self.path}: {exc}"
+                    )
+                finally:
+                    self._executor_shutdown = True
+            # A writer callback may run between the explicit inspection above
+            # and finalization. Account for it before fixing delivery order.
+            operation_error = operation_error or self._take_pending_operation_error()
+            if operation_error is not None:
+                self._close_errors.append(operation_error)
+            if cleanup_error is not None and cleanup_error is not operation_error:
+                self._close_errors.append(cleanup_error)
 
     def _open_sync(self) -> None:
         try:
