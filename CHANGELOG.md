@@ -48,6 +48,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Artifact identity and context correctness** — zero-configuration JSONL and
+  SQLite stores now reject a second inferred execution identity within one live
+  store before lookup or provider work. Explicit identities remain the
+  caller-owned override for deliberate mixed runs. Inspection restores raw
+  context only when it was persisted, while replay always keeps the current
+  work item's context and does not decode historical context.
+- **Strict SQLite item-row validation** — replay and inspection validate every
+  consumed row's logical artifact schema version before decoding result or
+  context JSON. Unsupported newest rows fail loudly instead of falling back to
+  older compatible records.
+- **Read-only SQLite path inspection** —
+  `SqliteArtifactStore.read_results()` now uses an operationally read-only,
+  finite high-water snapshot with no schema, identity, writer, WAL-policy, or
+  checkpoint side effects. It works without database/directory write
+  permission and alongside an active writer.
+- **Deterministic SQLite lifecycle errors** — idle writer crashes and detached
+  operation failures are retained without making a fatal store usable again.
+  `close()` completes checkpoint, connection, and executor cleanup before
+  delivering the first unobserved operation error, then one distinct cleanup
+  error on the next close; later closes are silent.
 - **v0.20 context-free replay fingerprints** — context-free items now use a
   logical `None` context fingerprint (and a NULL column in SQLite) instead of
   hashing Python `None`; JSONL lookup retains a read-only fallback to the

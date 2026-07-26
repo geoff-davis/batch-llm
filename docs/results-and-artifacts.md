@@ -270,6 +270,10 @@ JSON-native; a supplied decoder is applied only when stored context exists.
 Context omitted by the default privacy policy, including an original `None`,
 inspects as `None`.
 
+Replay never substitutes that historical audit context for the live input and
+does not invoke the stored-context decoder. It always attaches the current work
+item's context and submission index to the replayed result.
+
 For asynchronous inspection through an open store, use
 `async for item in store.iter_results(successes_only=True)`.
 
@@ -353,14 +357,30 @@ database directory will transiently contain `-wal`/`-shm` files during a run.
 ABL does not encrypt SQLite artifacts; use filesystem permissions and volume
 encryption as your deployment requires.
 
+Cleanup finishes before `close()` reports an error. A previously unobserved
+writer or cancelled-caller operation error is delivered first; a distinct
+checkpoint or connection-close error is retained for the next `close()`.
+Each store-level error is delivered once, and later closes return silently.
+Observing an error never restores a failed store to usability.
+
 ### Inspection
 
-`iter_results()` streams a finite committed snapshot in keyset-paged batches
-(`read_batch_size`), decoding one row at a time — no read transaction is held
-across an async yield, so a slow consumer never blocks the writer or WAL
-checkpointing. `SqliteArtifactStore.read_results(path)` is the materializing
-convenience; unlike its synchronous JSONL counterpart it is an **async**
-classmethod because SQLite I/O stays off the event loop:
+Live `store.iter_results()` first settles detached errors, prepares the
+writable store, and flushes its accepted writes. It then streams a finite
+committed high-water snapshot in keyset-paged batches (`read_batch_size`),
+decoding one row at a time. No cursor or read transaction is held across an
+async yield, so a slow consumer never blocks the writer or WAL checkpointing.
+
+`SqliteArtifactStore.read_results(path)` is a separate path-based,
+materializing convenience. It opens an internal SQLite `mode=ro` connection,
+never creates a schema or identity, never starts a writer, never changes WAL or
+synchronization policy, and never checkpoints an active writer. It requires no
+write permission on a clean database or its parent directory. The method
+captures a committed high-water sequence and excludes rows committed later;
+a subsequent read sees them. Its connection and owned reader thread close
+after success, error, or cancellation. Unlike the synchronous JSONL
+counterpart, it is an **async** classmethod because SQLite I/O stays off the
+event loop:
 
 ```python
 from async_batch_llm import SqliteArtifactStore
@@ -371,12 +391,15 @@ review = await SqliteArtifactStore.read_results(
 )
 ```
 
-Reopening a database validates schema and version markers, records each
-distinct identity it sees (a sequential identity history for provenance), and
-never decodes stored history before a lookup needs it. Each consumed item row is
-also checked against the supported logical artifact schema before its result or
-persisted context JSON is decoded; unsupported or malformed row versions fail
-loudly instead of falling back to an older compatible row.
+Opening a writable store validates schema and version markers, records the
+current run's distinct identity when needed (a sequential identity history for
+provenance), and never decodes stored history before a lookup needs it. The
+read-only path validates the same application ID, versions, tables, columns,
+required index names, and manifest without recording an identity. Each item row
+consumed by either path is checked against the supported logical artifact
+schema before its result or persisted context JSON is decoded; unsupported or
+malformed row versions fail loudly instead of falling back to an older
+compatible row.
 
 ## Process-safety boundary
 
