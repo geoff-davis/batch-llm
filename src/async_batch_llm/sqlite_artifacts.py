@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._internal.artifact_codec import (
     ContextFingerprinter,
@@ -456,21 +456,119 @@ class SqliteArtifactStore:
         context_decoder: ValueDecoder | None = None,
         read_batch_size: int = 1000,
     ) -> BatchResult[Any, Any]:
-        """Materialize stored results without calling a provider."""
+        """Materialize a finite snapshot through an operationally read-only connection."""
         artifact_path = Path(path)
-        exists = await asyncio.to_thread(artifact_path.exists)
-        if not exists:
-            raise ArtifactIOError(f"Artifact does not exist: {artifact_path}")
-        store = cls(
+        page_size = _validate_positive_integer("read_batch_size", read_batch_size)
+        executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="async-batch-llm-sqlite-reader",
+        )
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(
+            executor,
+            cls._read_results_sync,
             artifact_path,
-            output_decoder=output_decoder,
-            context_decoder=context_decoder,
-            read_batch_size=read_batch_size,
+            successes_only,
+            output_decoder,
+            context_decoder,
+            page_size,
         )
         try:
-            results = [result async for result in store.iter_results(successes_only=successes_only)]
+            return cast(BatchResult[Any, Any], await _await_without_cancelling(future))
+        except asyncio.CancelledError:
+            # The SQLite connection belongs to the worker thread. Let its
+            # operation reach the helper's finally block before propagating
+            # cancellation so neither the connection nor its executor leaks.
+            try:
+                await _await_without_cancelling(future)
+            except Exception:
+                # Cancellation remains the public outcome, but retrieving the
+                # worker exception prevents an unobserved background failure.
+                pass
+            raise
         finally:
-            await store.close()
+            executor.shutdown(wait=True)
+
+    @classmethod
+    def _read_results_sync(
+        cls,
+        path: Path,
+        successes_only: bool,
+        output_decoder: ValueDecoder | None,
+        context_decoder: ValueDecoder | None,
+        read_batch_size: int,
+    ) -> BatchResult[Any, Any]:
+        """Own one read-only connection for a bounded-page materialization."""
+        if not path.exists():
+            raise ArtifactIOError(f"Artifact does not exist: {path}")
+        if path.is_dir():
+            raise ArtifactIOError(f"Artifact path is a directory: {path}")
+
+        connection: sqlite3.Connection | None = None
+        operation_error: ArtifactError | None = None
+        results: list[WorkItemResult[Any, Any]] = []
+        try:
+            # A clean WAL-mode database has no sidecars after writer close.
+            # SQLite otherwise creates empty -wal/-shm files even for
+            # ``mode=ro`` when the directory is writable. The immutable hint
+            # avoids those writes for that clean case. If a WAL exists, omit
+            # the hint so an active writer's committed WAL rows stay visible.
+            immutable = not Path(f"{path}-wal").exists()
+            immutable_query = "&immutable=1" if immutable else ""
+            uri = f"{path.resolve().as_uri()}?mode=ro{immutable_query}"
+            connection = sqlite3.connect(uri, uri=True, isolation_level=None)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only=ON")
+            cls._validate_schema_connection_sync(connection, path)
+            high_water = cls._max_sequence_for_connection_sync(connection, path)
+            after = -1
+            while after < high_water:
+                rows = cls._read_page_from_connection_sync(
+                    connection,
+                    path,
+                    after,
+                    high_water,
+                    successes_only,
+                    read_batch_size,
+                )
+                if not rows:
+                    break
+                for row in rows:
+                    after = int(row["record_sequence"])
+                    try:
+                        results.append(
+                            decode_stored_result(
+                                row,
+                                output_decoder=output_decoder,
+                                context_decoder=context_decoder,
+                            )
+                        )
+                    except (KeyError, ResultSerializationError) as exc:
+                        raise ArtifactFormatError(
+                            f"Malformed stored result at sequence {after!r} "
+                            f"for item {row.get('item_id')!r}: {exc}"
+                        ) from exc
+        except ArtifactError as exc:
+            operation_error = exc
+        except sqlite3.OperationalError as exc:
+            if "not a database" in str(exc).lower():
+                operation_error = ArtifactFormatError(f"Invalid SQLite artifact {path}: {exc}")
+            else:
+                operation_error = ArtifactIOError(f"Could not read SQLite artifact {path}: {exc}")
+        except sqlite3.DatabaseError as exc:
+            operation_error = ArtifactFormatError(f"Invalid SQLite artifact {path}: {exc}")
+        except OSError as exc:
+            operation_error = ArtifactIOError(f"Could not read SQLite artifact {path}: {exc}")
+        finally:
+            if connection is not None:
+                try:
+                    connection.close()
+                except sqlite3.DatabaseError as exc:
+                    operation_error = operation_error or ArtifactIOError(
+                        f"Could not close SQLite artifact reader {path}: {exc}"
+                    )
+        if operation_error is not None:
+            raise operation_error
         return BatchResult(results=results, termination=BatchTermination())
 
     async def _before_operation(self) -> None:
@@ -721,7 +819,7 @@ class SqliteArtifactStore:
             if initialize:
                 self._initialize_schema_sync(connection)
             else:
-                self._validate_schema_sync(connection)
+                self._validate_schema_connection_sync(connection, self.path)
             journal_mode = str(connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]).lower()
             if journal_mode != "wal":
                 raise ArtifactIOError(
@@ -847,12 +945,14 @@ class SqliteArtifactStore:
             connection.rollback()
             raise
 
-    def _validate_schema_sync(self, connection: sqlite3.Connection) -> None:
+    @staticmethod
+    def _validate_schema_connection_sync(
+        connection: sqlite3.Connection,
+        path: Path,
+    ) -> None:
         application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
         if application_id != SQLITE_APPLICATION_ID:
-            raise ArtifactFormatError(
-                f"SQLite file is not an async-batch-llm artifact: {self.path}"
-            )
+            raise ArtifactFormatError(f"SQLite file is not an async-batch-llm artifact: {path}")
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         if schema_version > SQLITE_SCHEMA_VERSION:
             raise ArtifactFormatError(
@@ -910,7 +1010,7 @@ class SqliteArtifactStore:
             missing = expected_columns - columns
             if missing:
                 raise ArtifactFormatError(
-                    f"Malformed SQLite artifact {self.path}: table {table!r} "
+                    f"Malformed SQLite artifact {path}: table {table!r} "
                     f"is missing columns {sorted(missing)!r}"
                 )
         indexes = {
@@ -927,21 +1027,20 @@ class SqliteArtifactStore:
         missing_indexes = required_indexes - indexes
         if missing_indexes:
             raise ArtifactFormatError(
-                f"Malformed SQLite artifact {self.path}: missing indexes "
-                f"{sorted(missing_indexes)!r}"
+                f"Malformed SQLite artifact {path}: missing indexes {sorted(missing_indexes)!r}"
             )
         manifest = connection.execute(
             "SELECT logical_schema_version, sqlite_schema_version FROM manifest WHERE id = 1"
         ).fetchone()
         if manifest is None:
-            raise ArtifactFormatError(f"Malformed SQLite artifact {self.path}: manifest is missing")
+            raise ArtifactFormatError(f"Malformed SQLite artifact {path}: manifest is missing")
         logical_version = int(manifest[0])
         if logical_version > ARTIFACT_SCHEMA_VERSION:
             raise ArtifactFormatError(
                 f"Unsupported future artifact schema version {logical_version}"
             )
         if logical_version != ARTIFACT_SCHEMA_VERSION or int(manifest[1]) != schema_version:
-            raise ArtifactFormatError(f"Malformed SQLite artifact version metadata: {self.path}")
+            raise ArtifactFormatError(f"Malformed SQLite artifact version metadata: {path}")
 
     def _insert_or_verify_identity_sync(self, connection: sqlite3.Connection) -> None:
         identity, identity_value, identity_fingerprint = self._require_resolved_identity()
@@ -1125,14 +1224,20 @@ class SqliteArtifactStore:
         }
 
     def _max_sequence_sync(self) -> int:
-        connection = self._require_connection()
+        return self._max_sequence_for_connection_sync(self._require_connection(), self.path)
+
+    @staticmethod
+    def _max_sequence_for_connection_sync(
+        connection: sqlite3.Connection,
+        path: Path,
+    ) -> int:
         try:
             row = connection.execute(
                 "SELECT COALESCE(MAX(record_sequence), -1) FROM item_records"
             ).fetchone()
             return int(row[0])
         except sqlite3.DatabaseError as exc:
-            raise ArtifactIOError(f"Could not inspect SQLite artifact {self.path}: {exc}") from exc
+            raise ArtifactIOError(f"Could not inspect SQLite artifact {path}: {exc}") from exc
 
     def _read_page_sync(
         self,
@@ -1140,7 +1245,25 @@ class SqliteArtifactStore:
         high_water: int,
         successes_only: bool,
     ) -> list[dict[str, Any]]:
-        connection = self._require_connection()
+        return self._read_page_from_connection_sync(
+            self._require_connection(),
+            self.path,
+            after,
+            high_water,
+            successes_only,
+            self.read_batch_size,
+        )
+
+    @classmethod
+    def _read_page_from_connection_sync(
+        cls,
+        connection: sqlite3.Connection,
+        path: Path,
+        after: int,
+        high_water: int,
+        successes_only: bool,
+        read_batch_size: int,
+    ) -> list[dict[str, Any]]:
         success_clause = " AND success = 1" if successes_only else ""
         try:
             cursor = connection.execute(
@@ -1153,15 +1276,15 @@ class SqliteArtifactStore:
                  ORDER BY record_sequence
                  LIMIT ?
                 """,
-                (after, high_water, self.read_batch_size),
+                (after, high_water, read_batch_size),
             )
             rows = cursor.fetchall()
             cursor.close()
-            return [self._row_to_record(row) for row in rows]
+            return [cls._row_to_record(row) for row in rows]
         except ArtifactError:
             raise
         except sqlite3.DatabaseError as exc:
-            raise ArtifactIOError(f"Could not iterate SQLite artifact {self.path}: {exc}") from exc
+            raise ArtifactIOError(f"Could not iterate SQLite artifact {path}: {exc}") from exc
 
     def _checkpoint_and_close_sync(self) -> None:
         connection = self._require_connection()
