@@ -35,7 +35,7 @@ from .artifacts import (
     ArtifactIOError,
     ArtifactSerializationError,
     ResumePolicy,
-    infer_artifact_identity,
+    _resolve_artifact_identity,
 )
 from .base import BatchResult, BatchTermination, LLMWorkItem, WorkItemResult
 from .serialization import (
@@ -178,6 +178,7 @@ class SqliteArtifactStore:
             raise ValueError("SQLite URI filenames are unsupported; pass a normal filesystem path")
         self.path = Path(path)
         self.identity = identity
+        self._identity_is_explicit = identity is not None
         self.user_metadata = user_metadata or {}
         self.include_output = include_output
         self.include_metadata = include_metadata
@@ -264,16 +265,17 @@ class SqliteArtifactStore:
             ) from exc
 
     def _resolve_identity_from(self, strategy: Any) -> None:
-        if self.identity is not None:
-            return
-        inferred = infer_artifact_identity(strategy)
-        try:
-            identity_value, identity_fingerprint = fingerprint_identity(inferred)
-        except ResultSerializationError as exc:
-            raise ArtifactSerializationError(str(exc)) from exc
-        self.identity = inferred
-        self._identity_value = identity_value
-        self.identity_fingerprint = identity_fingerprint
+        (
+            self.identity,
+            self._identity_value,
+            self.identity_fingerprint,
+        ) = _resolve_artifact_identity(
+            strategy,
+            identity_is_explicit=self._identity_is_explicit,
+            pinned_identity=self.identity,
+            pinned_identity_value=self._identity_value,
+            pinned_identity_fingerprint=self.identity_fingerprint,
+        )
 
     def _require_resolved_identity(
         self,

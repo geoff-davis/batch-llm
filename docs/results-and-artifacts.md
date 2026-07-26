@@ -118,6 +118,15 @@ fields default to `"unversioned"`. Prompt — and, by default, context — still
 participate in the per-item compatibility fingerprint, so a changed prompt or
 a changed model never silently replays a stale result.
 
+Automatic identity is homogeneous within one live store instance/run. The first
+prepared item pins its inferred identity; every later item is inferred and must
+match before artifact lookup, append, or provider work begins. Use separate
+stores for heterogeneous strategies, or pass one deliberate explicit
+`ArtifactIdentity` that describes the mixed/routed run. A later store instance
+may pin a different automatic identity and append to the same physical
+artifact—older identities remain audit history and only compatible records
+participate in replay.
+
 `CallableStrategy` is intentionally stricter: an arbitrary function cannot
 safely reveal its provider, model, route, parser, or application version. Pass
 `identity=ArtifactIdentity(...)` to `CallableStrategy` or directly to
@@ -158,6 +167,11 @@ result = await process_prompts(
     resume=ResumePolicy.REUSE_SUCCESSES,
 )
 ```
+
+An explicit identity is the caller-owned compatibility boundary. It may
+intentionally describe a mixed-strategy run, but the caller must change it
+whenever routing, provider, model, parser, prompt policy, or application
+semantics should invalidate replay.
 
 A terminal record is flushed before its result is returned or yielded. Set
 `fsync=True` for an operating-system durability barrier after every record;
