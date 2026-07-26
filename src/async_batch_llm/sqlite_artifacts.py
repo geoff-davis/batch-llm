@@ -1077,22 +1077,50 @@ class SqliteArtifactStore:
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
+        version = row["logical_schema_version"]
+        sequence = row["record_sequence"]
+        item_id = row["item_id"]
+        if (
+            isinstance(version, bool)
+            or not isinstance(version, int)
+            or version != ARTIFACT_SCHEMA_VERSION
+        ):
+            if (
+                isinstance(version, int)
+                and not isinstance(version, bool)
+                and version > ARTIFACT_SCHEMA_VERSION
+            ):
+                message = f"Unsupported future artifact schema version {version}"
+            else:
+                message = f"Unsupported artifact schema version {version!r}"
+            raise ArtifactFormatError(
+                f"{message} at SQLite sequence {sequence!r} for item {item_id!r}"
+            )
         try:
             result = json.loads(row["result_json"])
         except (TypeError, json.JSONDecodeError) as exc:
             raise ArtifactFormatError(
-                f"Malformed result_json at sequence {row['record_sequence']!r} "
-                f"for item {row['item_id']!r}: {exc}"
+                f"Malformed result_json at sequence {sequence!r} for item {item_id!r}: {exc}"
             ) from exc
+        raw_context = None
+        if "raw_context_json" in row.keys() and row["raw_context_json"] is not None:
+            try:
+                raw_context = json.loads(row["raw_context_json"])
+            except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ArtifactFormatError(
+                    f"Malformed raw_context_json at sequence {sequence!r} "
+                    f"for item {item_id!r}: {exc}"
+                ) from exc
         return {
-            "artifact_schema_version": row["logical_schema_version"],
-            "record_sequence": row["record_sequence"],
-            "item_id": row["item_id"],
+            "artifact_schema_version": version,
+            "record_sequence": sequence,
+            "item_id": item_id,
             "prompt_fingerprint": row["prompt_fingerprint"],
             "context_fingerprint": row["context_fingerprint"],
             "input_fingerprint": row["input_fingerprint"],
             "identity_fingerprint": row["identity_fingerprint"],
             "success": bool(row["success"]),
+            "raw_context": raw_context,
             "result": result,
         }
 
@@ -1119,7 +1147,7 @@ class SqliteArtifactStore:
                 f"""
                 SELECT record_sequence, logical_schema_version, item_id,
                        prompt_fingerprint, context_fingerprint, input_fingerprint,
-                       identity_fingerprint, success, result_json
+                       identity_fingerprint, success, raw_context_json, result_json
                   FROM item_records
                  WHERE record_sequence > ? AND record_sequence <= ?{success_clause}
                  ORDER BY record_sequence

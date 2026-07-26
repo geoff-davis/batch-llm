@@ -18,6 +18,7 @@ from async_batch_llm import (
     LLMWorkItem,
     ProcessorConfig,
     ResumePolicy,
+    SqliteArtifactStore,
     WorkItemResult,
     process_prompts,
     process_stream,
@@ -61,6 +62,243 @@ def _identity(**changes: str) -> ArtifactIdentity:
 
 def _records(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_inspection_restores_explicitly_persisted_context(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"stored-context{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [("item", "prompt", {"tenant": "current", "values": [1, 2]})],
+        artifact_store=store_type(path, identity=_identity(), include_context=True),
+    )
+
+    if store_type is JsonlArtifactStore:
+        materialized = store_type.read_results(path)
+    else:
+        materialized = await store_type.read_results(path)
+    assert materialized.results[0].context == {
+        "tenant": "current",
+        "values": [1, 2],
+    }
+
+    reader = store_type(path)
+    try:
+        streamed = [result async for result in reader.iter_results()]
+    finally:
+        await reader.close()
+    assert streamed[0].context == {"tenant": "current", "values": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_replay_uses_current_context_without_decoding_historical_context(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"replay-context{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [
+            ("dummy", "dummy", {"run": "historical"}),
+            ("item", "prompt", {"run": "historical"}),
+        ],
+        artifact_store=store_type(
+            path,
+            identity=_identity(),
+            include_context=True,
+            context_in_identity=False,
+        ),
+    )
+
+    decoder_calls: list[Any] = []
+
+    def context_decoder(value: Any) -> Any:
+        decoder_calls.append(value)
+        raise AssertionError("historical context must not be decoded during replay")
+
+    current_context = {"run": "current"}
+    replay = _CountingStrategy()
+    result = await process_prompts(
+        replay,
+        [("item", "prompt", current_context)],
+        artifact_store=store_type(
+            path,
+            identity=_identity(),
+            context_in_identity=False,
+            context_decoder=context_decoder,
+        ),
+        resume=ResumePolicy.REUSE_SUCCESSES,
+    )
+    assert replay.calls == []
+    assert decoder_calls == []
+    assert result.results[0].context is current_context
+    assert result.results[0].submission_index == 0
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_inspection_applies_custom_context_decoder(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    class ContextPayload:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    def encoder(value: Any) -> Any:
+        if isinstance(value, ContextPayload):
+            return {"payload": value.value}
+        return value
+
+    decoded: list[Any] = []
+
+    def decoder(value: Any) -> ContextPayload:
+        decoded.append(value)
+        return ContextPayload(value["payload"])
+
+    path = tmp_path / f"custom-context{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [("item", "prompt", ContextPayload("persisted"))],
+        artifact_store=store_type(
+            path,
+            identity=_identity(),
+            include_context=True,
+            encoder=encoder,
+        ),
+    )
+
+    if store_type is JsonlArtifactStore:
+        materialized = store_type.read_results(path, context_decoder=decoder)
+    else:
+        materialized = await store_type.read_results(path, context_decoder=decoder)
+    restored = materialized.results[0].context
+    assert isinstance(restored, ContextPayload)
+    assert restored.value == "persisted"
+
+    reader = store_type(path, context_decoder=decoder)
+    try:
+        streamed = [result async for result in reader.iter_results()]
+    finally:
+        await reader.close()
+    streamed_context = streamed[0].context
+    assert isinstance(streamed_context, ContextPayload)
+    assert streamed_context.value == "persisted"
+    assert decoded == [{"payload": "persisted"}, {"payload": "persisted"}]
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_inspection_does_not_decode_context_that_was_not_persisted(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"omitted-context{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [
+            ("omitted", "one", {"private": True}),
+            ("none", "two", None),
+        ],
+        artifact_store=store_type(path, identity=_identity(), include_context=False),
+    )
+
+    decoder_calls: list[Any] = []
+
+    def decoder(value: Any) -> Any:
+        decoder_calls.append(value)
+        return value
+
+    if store_type is JsonlArtifactStore:
+        materialized = store_type.read_results(path, context_decoder=decoder)
+    else:
+        materialized = await store_type.read_results(path, context_decoder=decoder)
+    assert [result.context for result in materialized.results] == [None, None]
+    assert decoder_calls == []
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_original_none_context_does_not_invoke_decoder(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"none-context{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [("none", "prompt", None)],
+        artifact_store=store_type(path, identity=_identity(), include_context=True),
+    )
+    decoder_calls: list[Any] = []
+
+    def decoder(value: Any) -> Any:
+        decoder_calls.append(value)
+        return value
+
+    if store_type is JsonlArtifactStore:
+        materialized = store_type.read_results(path, context_decoder=decoder)
+    else:
+        materialized = await store_type.read_results(path, context_decoder=decoder)
+    assert materialized.results[0].context is None
+    assert decoder_calls == []
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_context_decoder_failure_uses_artifact_format_error(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"context-decoder-error{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [("item", "prompt", {"stored": True})],
+        artifact_store=store_type(path, identity=_identity(), include_context=True),
+    )
+
+    def fail_decoder(value: Any) -> Any:
+        raise RuntimeError(f"cannot decode {value!r}")
+
+    with pytest.raises(ArtifactFormatError, match="Stored result decoder failed"):
+        if store_type is JsonlArtifactStore:
+            store_type.read_results(path, context_decoder=fail_decoder)
+        else:
+            await store_type.read_results(path, context_decoder=fail_decoder)
 
 
 @pytest.mark.asyncio

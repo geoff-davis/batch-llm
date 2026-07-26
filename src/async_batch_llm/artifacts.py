@@ -878,7 +878,11 @@ class JsonlArtifactStore:
                     )
                 )
             except (KeyError, ResultSerializationError) as exc:
-                raise ArtifactFormatError(f"Malformed stored result: {exc}") from exc
+                sequence = record.get("record_sequence")
+                item_id = record.get("item_id")
+                raise ArtifactFormatError(
+                    f"Malformed stored result at sequence {sequence!r} for item {item_id!r}: {exc}"
+                ) from exc
         return BatchResult(results=results, termination=BatchTermination())
 
 

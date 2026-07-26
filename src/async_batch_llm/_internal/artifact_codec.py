@@ -317,13 +317,29 @@ def decode_stored_result(
     *,
     output_decoder: ValueDecoder | None,
     context_decoder: ValueDecoder | None,
+    restore_stored_context: bool = True,
 ) -> WorkItemResult[Any, Any]:
     """Safely decode the terminal result embedded in a logical item record."""
-    return work_item_result_from_dict(
-        record["result"],
-        output_decoder=output_decoder,
-        context_decoder=context_decoder,
-    )
+    stored_result = record["result"]
+    stored_context = record.get("raw_context")
+    active_context_decoder: ValueDecoder | None = None
+    if restore_stored_context and stored_context is not None:
+        if not isinstance(stored_result, Mapping):
+            raise ResultSerializationError("Stored work-item result must be an object")
+        stored_result = dict(stored_result)
+        stored_result["context"] = stored_context
+        stored_result["context_included"] = True
+        active_context_decoder = context_decoder
+    try:
+        return work_item_result_from_dict(
+            stored_result,
+            output_decoder=output_decoder,
+            context_decoder=active_context_decoder,
+        )
+    except ResultSerializationError:
+        raise
+    except Exception as exc:
+        raise ResultSerializationError(f"Stored result decoder failed: {exc}") from exc
 
 
 def restore_replayed_result(
@@ -338,6 +354,7 @@ def restore_replayed_result(
         record,
         output_decoder=output_decoder,
         context_decoder=context_decoder,
+        restore_stored_context=False,
     )
     result.context = work_item.context
     result.submission_index = work_item.submission_index

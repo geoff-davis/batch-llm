@@ -212,7 +212,9 @@ writing the credential itself to the artifact.
 
 Replayed items do not call the provider and are not appended a second time.
 They retain historical output, timing, error, and token use, receive the current
-run's `submission_index`, and set `replayed_from_artifact=True`. Historical
+run's `submission_index` and current work-item context, and set
+`replayed_from_artifact=True`. Persisted historical context is never decoded or
+substituted during replay. Historical
 tokens remain visible on the item for audit but are excluded from newly consumed
 provider-token statistics returned by `processor.get_stats()`. In contrast,
 `BatchResult` aggregate token fields are computed from all returned results and
@@ -261,6 +263,12 @@ review = JsonlArtifactStore.read_results(
 for item in review.results:
     await apply_approved_output(item.item_id, item.output)
 ```
+
+Inspection restores raw context only when the writer explicitly used
+`include_context=True`. Without a `context_decoder`, the restored value remains
+JSON-native; a supplied decoder is applied only when stored context exists.
+Context omitted by the default privacy policy, including an original `None`,
+inspects as `None`.
 
 For asynchronous inspection through an open store, use
 `async for item in store.iter_results(successes_only=True)`.
@@ -365,7 +373,10 @@ review = await SqliteArtifactStore.read_results(
 
 Reopening a database validates schema and version markers, records each
 distinct identity it sees (a sequential identity history for provenance), and
-never decodes stored history before a lookup needs it.
+never decodes stored history before a lookup needs it. Each consumed item row is
+also checked against the supported logical artifact schema before its result or
+persisted context JSON is decoded; unsupported or malformed row versions fail
+loudly instead of falling back to an older compatible row.
 
 ## Process-safety boundary
 

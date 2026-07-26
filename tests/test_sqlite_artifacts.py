@@ -771,6 +771,182 @@ async def test_malformed_selected_result_reports_sequence_and_item(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_logical_row_version_is_validated_before_result_json(tmp_path: Path) -> None:
+    path = tmp_path / "future-row-version.sqlite"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "p")],
+        artifact_store=SqliteArtifactStore(path, identity=_identity()),
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE item_records SET logical_schema_version = 2, result_json = 'not-json'"
+        )
+
+    store = SqliteArtifactStore(path, identity=_identity())
+    item = _item("id", "p")
+    try:
+        key = await store.prepare_item(item)
+        with pytest.raises(
+            ArtifactFormatError,
+            match=r"future artifact schema version 2.*sequence 1.*item 'id'",
+        ):
+            await store.lookup(item, key, ResumePolicy.REUSE_SUCCESSES)
+    finally:
+        await store.close()
+
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [
+        pytest.param(2, id="future"),
+        pytest.param(0, id="zero"),
+        pytest.param(-1, id="negative"),
+        pytest.param(7, id="other-positive"),
+        pytest.param("invalid", id="text"),
+        pytest.param("true", id="boolean-like-text"),
+        pytest.param(sqlite3.Binary(b"1"), id="blob"),
+    ],
+)
+@pytest.mark.parametrize(
+    "consumer",
+    ["lookup-successes", "lookup-all", "iteration", "read-results"],
+)
+@pytest.mark.asyncio
+async def test_every_consumed_sqlite_row_requires_current_logical_version(
+    tmp_path: Path, invalid_version: Any, consumer: str
+) -> None:
+    path = tmp_path / f"row-version-{consumer}.sqlite"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "p")],
+        artifact_store=SqliteArtifactStore(path, identity=_identity()),
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE item_records SET logical_schema_version = ?",
+            (invalid_version,),
+        )
+
+    error_pattern = r"artifact schema version .*SQLite sequence 1.*item 'id'"
+    if consumer.startswith("lookup"):
+        store = SqliteArtifactStore(path, identity=_identity())
+        item = _item("id", "p")
+        try:
+            key = await store.prepare_item(item)
+            policy = (
+                ResumePolicy.REUSE_SUCCESSES
+                if consumer == "lookup-successes"
+                else ResumePolicy.REUSE_ALL
+            )
+            with pytest.raises(ArtifactFormatError, match=error_pattern):
+                await store.lookup(item, key, policy)
+        finally:
+            await store.close()
+    elif consumer == "iteration":
+        store = SqliteArtifactStore(path)
+        try:
+            with pytest.raises(ArtifactFormatError, match=error_pattern):
+                _ = [result async for result in store.iter_results()]
+        finally:
+            await store.close()
+    else:
+        with pytest.raises(ArtifactFormatError, match=error_pattern):
+            await SqliteArtifactStore.read_results(path)
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [ResumePolicy.REUSE_SUCCESSES, ResumePolicy.REUSE_ALL],
+)
+@pytest.mark.asyncio
+async def test_newest_unsupported_row_is_not_hidden_by_older_supported_row(
+    tmp_path: Path, policy: ResumePolicy
+) -> None:
+    path = tmp_path / f"newest-row-{policy.value}.sqlite"
+    store = SqliteArtifactStore(path, identity=_identity())
+    item = _item("id", "p")
+    prepared = await store.prepare_item(item)
+    await store.append(
+        item,
+        prepared,
+        WorkItemResult(item_id="id", success=True, output="older"),
+    )
+    await store.append(
+        item,
+        prepared,
+        WorkItemResult(item_id="id", success=True, output="newer"),
+    )
+    await store.close()
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE item_records SET logical_schema_version = 2 "
+            "WHERE record_sequence = (SELECT MAX(record_sequence) FROM item_records)"
+        )
+
+    reader = SqliteArtifactStore(path, identity=_identity())
+    try:
+        key = await reader.prepare_item(item)
+        with pytest.raises(
+            ArtifactFormatError,
+            match=r"future artifact schema version 2.*sequence 2.*item 'id'",
+        ):
+            await reader.lookup(item, key, policy)
+    finally:
+        await reader.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_stored_context_fails_inspection_but_not_replay(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "malformed-context.sqlite"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "p", {"historical": True})],
+        artifact_store=SqliteArtifactStore(
+            path,
+            identity=_identity(),
+            include_context=True,
+            context_in_identity=False,
+        ),
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE item_records SET raw_context_json = 'not-json'")
+
+    with pytest.raises(
+        ArtifactFormatError,
+        match=r"Malformed raw_context_json at sequence 1.*item 'id'",
+    ):
+        await SqliteArtifactStore.read_results(path)
+
+    current_context = {"current": True}
+    item = _item("id", "p", context=current_context)
+
+    def fail_context_decoder(value: Any) -> Any:
+        raise AssertionError(f"must not decode {value!r}")
+
+    replay_store = SqliteArtifactStore(
+        path,
+        identity=_identity(),
+        context_in_identity=False,
+        context_decoder=fail_context_decoder,
+    )
+    try:
+        key = await replay_store.prepare_item(item)
+        replayed = await replay_store.lookup(
+            item,
+            key,
+            ResumePolicy.REUSE_SUCCESSES,
+        )
+    finally:
+        await replay_store.close()
+    assert replayed is not None
+    assert replayed.replayed_from_artifact
+    assert replayed.context is current_context
+
+
+@pytest.mark.asyncio
 async def test_resume_does_not_append_duplicate_and_uses_current_submission_index(
     tmp_path: Path,
 ) -> None:
