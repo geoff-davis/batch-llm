@@ -1,6 +1,4 @@
-# v0.20.0 Release Notes Draft
-
-> Draft only. v0.20.0 has not been tagged or published.
+# v0.20.0 Release Notes
 
 v0.20 makes async-batch-llm useful as an execution layer around clients and
 application services you already have, while completing end-to-end streaming
