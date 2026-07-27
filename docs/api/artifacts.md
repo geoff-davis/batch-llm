@@ -20,7 +20,11 @@
 
 Indexed SQLite backend for large restartable runs (v0.21). Note that
 `SqliteArtifactStore.read_results()` is an **async** classmethod, unlike the
-synchronous JSONL convenience.
+synchronous JSONL convenience. It materializes a finite high-water snapshot
+through an operationally read-only path connection. Normal reads participate
+in SQLite locking and may create empty WAL/SHM coordination sidecars so a
+writer can safely start during inspection; live `store.iter_results()` instead
+flushes and inspects that writable store.
 
 ::: async_batch_llm.SqliteArtifactStore
 

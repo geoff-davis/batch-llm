@@ -312,18 +312,61 @@ def record_is_compatible(
     )
 
 
+class _StoredDecoderFailure(Exception):
+    def __init__(self, channel: str, error: Exception) -> None:
+        self.channel = channel
+        self.error = error
+
+
+def _label_decoder(
+    decoder: ValueDecoder | None,
+    channel: str,
+) -> ValueDecoder | None:
+    if decoder is None:
+        return None
+
+    def decode(value: Any) -> Any:
+        try:
+            return decoder(value)
+        except Exception as exc:
+            raise _StoredDecoderFailure(channel, exc) from exc
+
+    return decode
+
+
 def decode_stored_result(
     record: Mapping[str, Any],
     *,
     output_decoder: ValueDecoder | None,
     context_decoder: ValueDecoder | None,
+    restore_stored_context: bool = True,
 ) -> WorkItemResult[Any, Any]:
     """Safely decode the terminal result embedded in a logical item record."""
-    return work_item_result_from_dict(
-        record["result"],
-        output_decoder=output_decoder,
-        context_decoder=context_decoder,
-    )
+    stored_result = record["result"]
+    stored_context = record.get("raw_context")
+    active_context_decoder: ValueDecoder | None = None
+    if restore_stored_context and stored_context is not None:
+        if not isinstance(stored_result, Mapping):
+            raise ResultSerializationError("Stored work-item result must be an object")
+        stored_result = dict(stored_result)
+        stored_result["context"] = stored_context
+        stored_result["context_included"] = True
+        active_context_decoder = context_decoder
+
+    try:
+        return work_item_result_from_dict(
+            stored_result,
+            output_decoder=_label_decoder(output_decoder, "output"),
+            context_decoder=_label_decoder(active_context_decoder, "context"),
+        )
+    except _StoredDecoderFailure as exc:
+        raise ResultSerializationError(
+            f"Stored {exc.channel} decoder failed: {exc.error}"
+        ) from exc.error
+    except ResultSerializationError:
+        raise
+    except Exception as exc:
+        raise ResultSerializationError(f"Stored result decoder failed: {exc}") from exc
 
 
 def restore_replayed_result(
@@ -338,6 +381,7 @@ def restore_replayed_result(
         record,
         output_decoder=output_decoder,
         context_decoder=context_decoder,
+        restore_stored_context=False,
     )
     result.context = work_item.context
     result.submission_index = work_item.submission_index

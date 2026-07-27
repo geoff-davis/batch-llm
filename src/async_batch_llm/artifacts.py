@@ -91,13 +91,14 @@ _NO_IDENTITY_HOOK = object()
 def infer_artifact_identity(strategy: Any) -> ArtifactIdentity:
     """Derive a deterministic :class:`ArtifactIdentity` from a strategy.
 
-    Used by :class:`JsonlArtifactStore` when no explicit identity is given
-    (v0.20.0, issue #99). ``provider`` and ``model`` come from the strategy's
-    wrapped model (built-in model classes map to their provider name; other
-    models use their class name); the version fields default to
-    ``"unversioned"``. The result is deterministic for the same strategy
-    setup across processes, so resume keeps working — and changing the model
-    changes the identity fingerprint, which invalidates reuse.
+    Used by artifact stores when no explicit identity is given (v0.20.0, issue
+    #99). ``provider`` and ``model`` come from the strategy's wrapped model
+    (built-in model classes map to their provider name; other models use their
+    class name); the version fields default to ``"unversioned"``. The result is
+    deterministic for the same strategy setup across processes, so resume keeps
+    working — and changing the model changes the identity fingerprint, which
+    invalidates reuse. One live automatic store requires every prepared item to
+    infer this same identity.
 
     Prompt (and, by default, context) always participate in the per-item
     compatibility fingerprint regardless of identity, so a changed prompt
@@ -149,6 +150,45 @@ def infer_artifact_identity(strategy: Any) -> ArtifactIdentity:
         parser_version=_UNVERSIONED,
         application_version=_UNVERSIONED,
     )
+
+
+def _resolve_artifact_identity(
+    strategy: Any,
+    *,
+    identity_is_explicit: bool,
+    pinned_identity: ArtifactIdentity | None,
+    pinned_identity_value: dict[str, JSONValue] | None,
+    pinned_identity_fingerprint: str | None,
+) -> tuple[ArtifactIdentity, dict[str, JSONValue], str]:
+    """Resolve one strategy against a store's live identity boundary."""
+    if identity_is_explicit:
+        assert (
+            pinned_identity is not None
+            and pinned_identity_value is not None
+            and pinned_identity_fingerprint is not None
+        )
+        return pinned_identity, pinned_identity_value, pinned_identity_fingerprint
+
+    inferred = infer_artifact_identity(strategy)
+    try:
+        inferred_value, inferred_fingerprint = fingerprint_identity(inferred)
+    except ResultSerializationError as exc:
+        raise ArtifactSerializationError(str(exc)) from exc
+
+    if pinned_identity is None:
+        return inferred, inferred_value, inferred_fingerprint
+    if (
+        pinned_identity_value != inferred_value
+        or pinned_identity_fingerprint != inferred_fingerprint
+    ):
+        raise ArtifactError(
+            "Automatic artifact identity changed within one store instance. "
+            "Zero-configuration identity supports one inferred execution identity per run. "
+            "Use separate stores or pass an explicit ArtifactIdentity describing the "
+            "mixed-strategy run."
+        )
+    assert pinned_identity_value is not None and pinned_identity_fingerprint is not None
+    return pinned_identity, pinned_identity_value, pinned_identity_fingerprint
 
 
 class ResumePolicy(str, Enum):
@@ -395,6 +435,7 @@ class JsonlArtifactStore:
     ) -> None:
         self.path = Path(path)
         self.identity = identity
+        self._identity_is_explicit = identity is not None
         self.user_metadata = user_metadata or {}
         self.include_output = include_output
         self.include_metadata = include_metadata
@@ -445,15 +486,18 @@ class JsonlArtifactStore:
         return self._fingerprint_item(work_item)
 
     def _resolve_identity_from(self, strategy: Any) -> None:
-        """Infer and pin the identity from the first item's strategy."""
-        if self.identity is not None:
-            return
-        inferred = infer_artifact_identity(strategy)
-        self.identity = inferred
-        try:
-            self._identity_value, self.identity_fingerprint = fingerprint_identity(inferred)
-        except ResultSerializationError as exc:
-            raise ArtifactSerializationError(str(exc)) from exc
+        """Resolve explicit identity or enforce one inferred identity per run."""
+        (
+            self.identity,
+            self._identity_value,
+            self.identity_fingerprint,
+        ) = _resolve_artifact_identity(
+            strategy,
+            identity_is_explicit=self._identity_is_explicit,
+            pinned_identity=self.identity,
+            pinned_identity_value=self._identity_value,
+            pinned_identity_fingerprint=self.identity_fingerprint,
+        )
 
     def _require_resolved_fingerprint(self) -> str:
         if self.identity_fingerprint is None:
@@ -834,7 +878,11 @@ class JsonlArtifactStore:
                     )
                 )
             except (KeyError, ResultSerializationError) as exc:
-                raise ArtifactFormatError(f"Malformed stored result: {exc}") from exc
+                sequence = record.get("record_sequence")
+                item_id = record.get("item_id")
+                raise ArtifactFormatError(
+                    f"Malformed stored result at sequence {sequence!r} for item {item_id!r}: {exc}"
+                ) from exc
         return BatchResult(results=results, termination=BatchTermination())
 
 

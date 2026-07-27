@@ -118,6 +118,15 @@ fields default to `"unversioned"`. Prompt — and, by default, context — still
 participate in the per-item compatibility fingerprint, so a changed prompt or
 a changed model never silently replays a stale result.
 
+Automatic identity is homogeneous within one live store instance/run. The first
+prepared item pins its inferred identity; every later item is inferred and must
+match before artifact lookup, append, or provider work begins. Use separate
+stores for heterogeneous strategies, or pass one deliberate explicit
+`ArtifactIdentity` that describes the mixed/routed run. A later store instance
+may pin a different automatic identity and append to the same physical
+artifact—older identities remain audit history and only compatible records
+participate in replay.
+
 `CallableStrategy` is intentionally stricter: an arbitrary function cannot
 safely reveal its provider, model, route, parser, or application version. Pass
 `identity=ArtifactIdentity(...)` to `CallableStrategy` or directly to
@@ -159,6 +168,11 @@ result = await process_prompts(
 )
 ```
 
+An explicit identity is the caller-owned compatibility boundary. It may
+intentionally describe a mixed-strategy run, but the caller must change it
+whenever routing, provider, model, parser, prompt policy, or application
+semantics should invalidate replay.
+
 A terminal record is flushed before its result is returned or yielded. Set
 `fsync=True` for an operating-system durability barrier after every record;
 flush-only is the default. A crash-truncated final line is ignored on reopening,
@@ -198,7 +212,9 @@ writing the credential itself to the artifact.
 
 Replayed items do not call the provider and are not appended a second time.
 They retain historical output, timing, error, and token use, receive the current
-run's `submission_index`, and set `replayed_from_artifact=True`. Historical
+run's `submission_index` and current work-item context, and set
+`replayed_from_artifact=True`. Persisted historical context is never decoded or
+substituted during replay. Historical
 tokens remain visible on the item for audit but are excluded from newly consumed
 provider-token statistics returned by `processor.get_stats()`. In contrast,
 `BatchResult` aggregate token fields are computed from all returned results and
@@ -247,6 +263,16 @@ review = JsonlArtifactStore.read_results(
 for item in review.results:
     await apply_approved_output(item.item_id, item.output)
 ```
+
+Inspection restores raw context only when the writer explicitly used
+`include_context=True`. Without a `context_decoder`, the restored value remains
+JSON-native; a supplied decoder is applied only when stored context exists.
+Context omitted by the default privacy policy, including an original `None`,
+inspects as `None`.
+
+Replay never substitutes that historical audit context for the live input and
+does not invoke the stored-context decoder. It always attaches the current work
+item's context and submission index to the replayed result.
 
 For asynchronous inspection through an open store, use
 `async for item in store.iter_results(successes_only=True)`.
@@ -331,14 +357,36 @@ database directory will transiently contain `-wal`/`-shm` files during a run.
 ABL does not encrypt SQLite artifacts; use filesystem permissions and volume
 encryption as your deployment requires.
 
+Cleanup finishes before `close()` reports an error. A previously unobserved
+writer or cancelled-caller operation error is delivered first; a distinct
+checkpoint or connection-close error is retained for the next `close()`.
+Each store-level error is delivered once, and later closes return silently.
+Observing an error never restores a failed store to usability.
+
 ### Inspection
 
-`iter_results()` streams a finite committed snapshot in keyset-paged batches
-(`read_batch_size`), decoding one row at a time — no read transaction is held
-across an async yield, so a slow consumer never blocks the writer or WAL
-checkpointing. `SqliteArtifactStore.read_results(path)` is the materializing
-convenience; unlike its synchronous JSONL counterpart it is an **async**
-classmethod because SQLite I/O stays off the event loop:
+Live `store.iter_results()` first settles detached errors, prepares the
+writable store, and flushes its accepted writes. It then streams a finite
+committed high-water snapshot in keyset-paged batches (`read_batch_size`),
+decoding one row at a time. No cursor or read transaction is held across an
+async yield, so a slow consumer never blocks the writer or WAL checkpointing.
+
+`SqliteArtifactStore.read_results(path)` is a separate path-based,
+materializing convenience. It opens an internal SQLite `mode=ro` connection,
+never creates a schema or identity, never starts a writer, never changes WAL or
+synchronization policy, and never checkpoints an active writer. Normal reads
+participate in SQLite locking and change detection, allowing a writer to start
+before or during inspection; SQLite may create empty `-wal`/`-shm`
+coordination sidecars in a writable directory. A clean database in a
+non-writable directory uses SQLite's immutable fallback, under the filesystem
+guarantee that no writer can start while the read is active. The method
+captures a committed high-water sequence and excludes rows committed later; a
+subsequent read sees them. Its connection and owned reader thread close after
+success, error, or ordinary cancellation. Repeated cancellation remains prompt
+and lets the already-running reader thread clean itself up without
+synchronously blocking the event loop. Unlike the synchronous JSONL
+counterpart, it is an **async** classmethod because SQLite I/O stays off the
+event loop:
 
 ```python
 from async_batch_llm import SqliteArtifactStore
@@ -349,9 +397,15 @@ review = await SqliteArtifactStore.read_results(
 )
 ```
 
-Reopening a database validates schema and version markers, records each
-distinct identity it sees (a sequential identity history for provenance), and
-never decodes stored history before a lookup needs it.
+Opening a writable store validates schema and version markers, records the
+current run's distinct identity when needed (a sequential identity history for
+provenance), and never decodes stored history before a lookup needs it. The
+read-only path validates the same application ID, versions, tables, columns,
+required index names, and manifest without recording an identity. Each item row
+consumed by either path is checked against the supported logical artifact
+schema before its result or persisted context JSON is decoded; unsupported or
+malformed row versions fail loudly instead of falling back to an older
+compatible row.
 
 ## Process-safety boundary
 
