@@ -12,7 +12,7 @@ here.
 **strategy pattern** — provider-agnostic at the framework level, with
 first-class support for several providers built in.
 
-**Current version:** v0.18.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
+**Current version:** v0.21.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
 by the release-prep flow, so it may briefly lag `main` between releases).
 
 **Key features:**
@@ -618,6 +618,17 @@ assert result.total_items == result.succeeded + result.failed
 
 Most recent first. See `CHANGELOG.md` for full per-release detail.
 
+- **v0.21.0** — indexed SQLite artifacts for large restartable runs, bounded
+  JSONL/SQLite inspection, exact queue high-water diagnostics, and a
+  deterministic scale/restart harness with CI, 100k, and 1m profiles. Artifact
+  identity, stored-context decoding, row-version validation, read-only
+  inspection, and close-error lifecycle semantics are hardened across both
+  stores.
+- **v0.20.0** — `CallableStrategy`/`CallOutcome` integration for existing
+  async clients, bounded completed-result handoff, item-private retry state,
+  owner-scoped cooldowns, bundled progress reporting, and the `LLMCallPool`
+  alias. The onboarding, application-integration, and migration path was
+  refreshed for direct upgrades from v0.18.
 - **v0.18.0** — stable opt-in input ordering, strict versioned result
   serialization, replayable JSONL audit/checkpoint artifacts (#81), compatible
   success or terminal-result replay, end-to-end item and batch deadlines, and
