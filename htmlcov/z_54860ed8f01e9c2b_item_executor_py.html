@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for src/async_batch_llm/_internal/item_executor.py: 92.51%</title>
+    <title>Coverage for src/async_batch_llm/_internal/item_executor.py: 93.23%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>src<span class="sep">/</span>async_batch_llm<span class="sep">/</span>_internal<span class="sep">/</span>item_executor.py</b>:
-            <span class="pc_cov">92.51%</span>
+            <span class="pc_cov">93.23%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -56,8 +56,8 @@
         </aside>
         <h2>
             <span class="text">439 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">425<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">14<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">429<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">10<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">10<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">28<span class="text"> partial</span></button>
         </h2>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_54860ed8f01e9c2b_rate_limit_coordinator_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-07-27 01:09 +0000
+            created at 2026-07-27 01:38 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -601,12 +601,12 @@
     <p class="run"><span class="n"><a id="t517" href="#t517">517</a></span><span class="t">                <span class="nam">remaining_seconds</span><span class="op">(</span><span class="nam">deadline</span><span class="op">,</span> <span class="nam">item_id</span><span class="op">=</span><span class="nam">work_item</span><span class="op">.</span><span class="nam">item_id</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t518" href="#t518">518</a></span><span class="t">                <span class="key">if</span> <span class="nam">self</span><span class="op">.</span><span class="nam">_abort_controller</span> <span class="key">is</span> <span class="key">not</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t519" href="#t519">519</a></span><span class="t">                    <span class="nam">self</span><span class="op">.</span><span class="nam">_abort_controller</span><span class="op">.</span><span class="nam">raise_if_aborted</span><span class="op">(</span><span class="nam">work_item</span><span class="op">.</span><span class="nam">item_id</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t520" href="#t520">520</a></span><span class="t">            <span class="key">except</span> <span class="op">(</span><span class="nam">ItemDeadlineExceeded</span><span class="op">,</span> <span class="nam">BatchDeadlineExceeded</span><span class="op">,</span> <span class="nam">BatchAbortedError</span><span class="op">)</span> <span class="key">as</span> <span class="nam">exc</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t521" href="#t521">521</a></span><span class="t">                <span class="nam">self</span><span class="op">.</span><span class="nam">_attach_failed_tokens</span><span class="op">(</span><span class="nam">exc</span><span class="op">,</span> <span class="nam">cumulative_failed_tokens</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t522" href="#t522">522</a></span><span class="t">                <span class="nam">exc</span><span class="op">.</span><span class="nam">__dict__</span><span class="op">[</span><span class="nam">_TIMING_EXCEPTION_KEY</span><span class="op">]</span> <span class="op">=</span> <span class="nam">_work_item_timing</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t523" href="#t523">523</a></span><span class="t">                    <span class="nam">item_started</span><span class="op">,</span> <span class="nam">attempt_timings</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t524" href="#t524">524</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t525" href="#t525">525</a></span><span class="t">                <span class="key">raise</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t520" href="#t520">520</a></span><span class="t">            <span class="key">except</span> <span class="op">(</span><span class="nam">ItemDeadlineExceeded</span><span class="op">,</span> <span class="nam">BatchDeadlineExceeded</span><span class="op">,</span> <span class="nam">BatchAbortedError</span><span class="op">)</span> <span class="key">as</span> <span class="nam">exc</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t521" href="#t521">521</a></span><span class="t">                <span class="nam">self</span><span class="op">.</span><span class="nam">_attach_failed_tokens</span><span class="op">(</span><span class="nam">exc</span><span class="op">,</span> <span class="nam">cumulative_failed_tokens</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t522" href="#t522">522</a></span><span class="t">                <span class="nam">exc</span><span class="op">.</span><span class="nam">__dict__</span><span class="op">[</span><span class="nam">_TIMING_EXCEPTION_KEY</span><span class="op">]</span> <span class="op">=</span> <span class="nam">_work_item_timing</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t523" href="#t523">523</a></span><span class="t">                    <span class="nam">item_started</span><span class="op">,</span> <span class="nam">attempt_timings</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t524" href="#t524">524</a></span><span class="t">                <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t525" href="#t525">525</a></span><span class="t">                <span class="key">raise</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t526" href="#t526">526</a></span><span class="t">            <span class="nam">try_number</span> <span class="op">+=</span> <span class="num">1</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t527" href="#t527">527</a></span><span class="t">            <span class="nam">try_started</span> <span class="op">=</span> <span class="nam">time</span><span class="op">.</span><span class="nam">perf_counter</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t528" href="#t528">528</a></span><span class="t">            <span class="key">for</span> <span class="nam">key</span> <span class="key">in</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
@@ -1303,7 +1303,7 @@
             <a class="nav" href="z_54860ed8f01e9c2b_rate_limit_coordinator_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-07-27 01:09 +0000
+            created at 2026-07-27 01:38 +0000
         </p>
     </div>
 </footer>
