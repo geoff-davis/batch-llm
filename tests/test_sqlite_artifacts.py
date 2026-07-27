@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 import async_batch_llm
+import async_batch_llm.sqlite_artifacts as sqlite_artifacts_module
 from async_batch_llm import (
     ArtifactFormatError,
     ArtifactIdentity,
@@ -510,6 +511,7 @@ async def test_read_results_opens_a_read_only_sqlite_uri(
     assert uri is True
     assert str(database).startswith("file:")
     assert "mode=ro" in str(database)
+    assert "immutable=1" not in str(database)
     forbidden = (
         "PRAGMA journal_mode",
         "PRAGMA synchronous",
@@ -541,8 +543,8 @@ async def test_read_results_does_not_start_the_writable_store_lifecycle(
 
 
 @pytest.mark.asyncio
-async def test_read_results_is_side_effect_free_on_a_closed_artifact(tmp_path: Path) -> None:
-    path = tmp_path / "side-effect-free.sqlite"
+async def test_read_results_does_not_modify_a_closed_artifact(tmp_path: Path) -> None:
+    path = tmp_path / "unmodified.sqlite"
     await process_prompts(
         _CountingStrategy(),
         [("id", "prompt")],
@@ -559,12 +561,14 @@ async def test_read_results_is_side_effect_free_on_a_closed_artifact(tmp_path: P
         assert [result.item_id for result in loaded.results] == ["id"]
 
     assert path.stat().st_mtime_ns == mtime_ns
-    assert not wal.exists()
-    assert not shm.exists()
+    # Normal mode=ro may create coordination sidecars so a writer can safely
+    # start during the read. They are filesystem artifacts, not DB mutation.
 
 
 @pytest.mark.asyncio
-async def test_read_results_succeeds_without_write_permission(tmp_path: Path) -> None:
+async def test_read_results_succeeds_without_write_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if os.name == "nt":
         pytest.skip("POSIX permission contract")
     directory = tmp_path / "read-only"
@@ -587,8 +591,19 @@ async def test_read_results_succeeds_without_write_permission(tmp_path: Path) ->
         else:
             os.close(descriptor)
             pytest.skip("platform does not enforce chmod write restrictions")
+        original_connect = sqlite3.connect
+        opened: list[Any] = []
+
+        def tracked_connect(database: Any, *args: Any, **kwargs: Any) -> sqlite3.Connection:
+            opened.append(database)
+            return original_connect(database, *args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", tracked_connect)
         loaded = await SqliteArtifactStore.read_results(path)
         assert [result.item_id for result in loaded.results] == ["id"]
+        assert len(opened) == 1
+        assert "mode=ro" in str(opened[0])
+        assert "immutable=1" in str(opened[0])
     finally:
         directory.chmod(directory_mode)
         path.chmod(file_mode)
@@ -653,6 +668,58 @@ async def test_read_results_is_finite_and_does_not_checkpoint_an_active_writer(
 
 
 @pytest.mark.asyncio
+async def test_read_results_allows_writer_to_start_after_clean_reader_opens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "writer-starts-during-read.sqlite"
+    await process_prompts(
+        _CountingStrategy(),
+        [("initial", "one")],
+        artifact_store=SqliteArtifactStore(path, identity=_identity()),
+    )
+    assert not Path(f"{path}-wal").exists()
+
+    high_water_captured = threading.Event()
+    release_reader = threading.Event()
+    original_max_sequence = SqliteArtifactStore._max_sequence_for_connection_sync
+
+    def blocked_max_sequence(connection: sqlite3.Connection, artifact_path: Path) -> int:
+        high_water = original_max_sequence(connection, artifact_path)
+        high_water_captured.set()
+        assert release_reader.wait(timeout=2)
+        return high_water
+
+    monkeypatch.setattr(
+        SqliteArtifactStore,
+        "_max_sequence_for_connection_sync",
+        staticmethod(blocked_max_sequence),
+    )
+    read = asyncio.create_task(SqliteArtifactStore.read_results(path, read_batch_size=1))
+    assert await asyncio.to_thread(high_water_captured.wait, 1)
+
+    writer = SqliteArtifactStore(
+        path,
+        identity=_identity(),
+        commit_batch_size=1,
+        commit_interval_seconds=0,
+    )
+    later = _item("later", "two")
+    later_key = await writer.prepare_item(later)
+    await writer.append(
+        later,
+        later_key,
+        WorkItemResult(item_id="later", success=True, output="TWO"),
+    )
+    await writer.close()
+
+    release_reader.set()
+    snapshot = await read
+    assert [result.item_id for result in snapshot.results] == ["initial"]
+    later_snapshot = await SqliteArtifactStore.read_results(path, read_batch_size=1)
+    assert [result.item_id for result in later_snapshot.results] == ["initial", "later"]
+
+
+@pytest.mark.asyncio
 async def test_cancelled_read_results_closes_its_owned_reader_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -713,6 +780,103 @@ async def test_cancelled_read_results_closes_its_owned_reader_thread(
         for thread in threading.enumerate()
         if thread.name.startswith("async-batch-llm-sqlite-reader")
     } == baseline_threads
+
+
+@pytest.mark.asyncio
+async def test_repeated_read_results_cancellation_never_blocks_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "repeated-cancel-reader.sqlite"
+    await process_prompts(
+        _CountingStrategy(),
+        [("id", "prompt")],
+        artifact_store=SqliteArtifactStore(path, identity=_identity()),
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    cleanup_wait_started = asyncio.Event()
+    original_page = SqliteArtifactStore._read_page_from_connection_sync
+    original_await = sqlite_artifacts_module._await_without_cancelling
+    await_calls = 0
+    shutdown_waits: list[bool] = []
+    real_executor = sqlite_artifacts_module.ThreadPoolExecutor
+
+    class RecordingExecutor(real_executor):
+        def shutdown(
+            self,
+            wait: bool = True,
+            *,
+            cancel_futures: bool = False,
+        ) -> None:
+            shutdown_waits.append(wait)
+            super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    async def tracked_await(future: asyncio.Future[Any]) -> Any:
+        nonlocal await_calls
+        await_calls += 1
+        if await_calls == 2:
+            cleanup_wait_started.set()
+        return await original_await(future)
+
+    def blocked_page(
+        cls: type[SqliteArtifactStore],
+        connection: sqlite3.Connection,
+        artifact_path: Path,
+        after: int,
+        high_water: int,
+        successes_only: bool,
+        read_batch_size: int,
+    ) -> list[dict[str, Any]]:
+        entered.set()
+        assert release.wait(timeout=2)
+        try:
+            return original_page(
+                connection,
+                artifact_path,
+                after,
+                high_water,
+                successes_only,
+                read_batch_size,
+            )
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(sqlite_artifacts_module, "ThreadPoolExecutor", RecordingExecutor)
+    monkeypatch.setattr(sqlite_artifacts_module, "_await_without_cancelling", tracked_await)
+    monkeypatch.setattr(
+        SqliteArtifactStore,
+        "_read_page_from_connection_sync",
+        classmethod(blocked_page),
+    )
+    baseline_threads = {
+        thread.ident
+        for thread in threading.enumerate()
+        if thread.name.startswith("async-batch-llm-sqlite-reader")
+    }
+
+    read = asyncio.create_task(SqliteArtifactStore.read_results(path))
+    assert await asyncio.to_thread(entered.wait, 1)
+    read.cancel()
+    await cleanup_wait_started.wait()
+    read.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await read
+
+    assert shutdown_waits == [False]
+    assert not finished.is_set()
+    release.set()
+    assert await asyncio.to_thread(finished.wait, 1)
+    for _ in range(100):
+        active_threads = {
+            thread.ident
+            for thread in threading.enumerate()
+            if thread.name.startswith("async-batch-llm-sqlite-reader")
+        }
+        if active_threads == baseline_threads:
+            break
+        await asyncio.sleep(0.01)
+    assert active_threads == baseline_threads
 
 
 @pytest.mark.asyncio

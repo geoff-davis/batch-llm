@@ -464,16 +464,22 @@ class SqliteArtifactStore:
         except asyncio.CancelledError:
             # The SQLite connection belongs to the worker thread. Let its
             # operation reach the helper's finally block before propagating
-            # cancellation so neither the connection nor its executor leaks.
+            # cancellation when the caller allows cleanup to finish. A repeated
+            # cancellation remains prompt: the executor is then told to shut
+            # down without synchronously blocking the event loop.
             try:
                 await _await_without_cancelling(future)
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 # Cancellation remains the public outcome, but retrieving the
                 # worker exception prevents an unobserved background failure.
                 pass
             raise
         finally:
-            executor.shutdown(wait=True)
+            if not future.done():
+                future.add_done_callback(cls._consume_future_exception)
+            executor.shutdown(wait=future.done())
 
     @classmethod
     def _read_results_sync(
@@ -494,12 +500,14 @@ class SqliteArtifactStore:
         operation_error: ArtifactError | None = None
         results: list[WorkItemResult[Any, Any]] = []
         try:
-            # A clean WAL-mode database has no sidecars after writer close.
-            # SQLite otherwise creates empty -wal/-shm files even for
-            # ``mode=ro`` when the directory is writable. The immutable hint
-            # avoids those writes for that clean case. If a WAL exists, omit
-            # the hint so an active writer's committed WAL rows stay visible.
-            immutable = not Path(f"{path}-wal").exists()
+            # Normal ``mode=ro`` participates in SQLite locking and change
+            # detection, so a writer may safely start at any point during this
+            # materialization. SQLite may create empty WAL/SHM sidecars for
+            # that coordination. Use ``immutable=1`` only when the parent
+            # directory is not writable and no WAL exists: in that fallback a
+            # writer cannot start through the supported WAL lifecycle.
+            wal_path = Path(f"{path}-wal")
+            immutable = not wal_path.exists() and not os.access(path.parent, os.W_OK)
             immutable_query = "&immutable=1" if immutable else ""
             uri = f"{path.resolve().as_uri()}?mode=ro{immutable_query}"
             connection = sqlite3.connect(uri, uri=True, isolation_level=None)
@@ -556,6 +564,13 @@ class SqliteArtifactStore:
         if operation_error is not None:
             raise operation_error
         return BatchResult(results=results, termination=BatchTermination())
+
+    @staticmethod
+    def _consume_future_exception(future: asyncio.Future[Any]) -> None:
+        """Retrieve a detached reader outcome after repeated cancellation."""
+        if future.cancelled():
+            return
+        future.exception()
 
     async def _before_operation(self) -> None:
         if self._closing or self._closed:

@@ -61,8 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Read-only SQLite path inspection** —
   `SqliteArtifactStore.read_results()` now uses an operationally read-only,
   finite high-water snapshot with no schema, identity, writer, WAL-policy, or
-  checkpoint side effects. It works without database/directory write
-  permission and alongside an active writer.
+  checkpoint changes. Normal reads use SQLite locking and change detection, so
+  a writer may safely start before or during inspection; SQLite may create
+  empty WAL/SHM coordination sidecars. A clean database in a genuinely
+  non-writable directory uses an immutable fallback and remains readable.
+  Repeated caller cancellation never synchronously blocks the event loop while
+  the owned reader thread finishes.
 - **Deterministic SQLite lifecycle errors** — idle writer crashes and detached
   operation failures are retained without making a fatal store usable again.
   `close()` completes checkpoint, connection, and executor cleanup before

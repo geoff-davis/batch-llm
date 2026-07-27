@@ -294,11 +294,39 @@ async def test_context_decoder_failure_uses_artifact_format_error(
     def fail_decoder(value: Any) -> Any:
         raise RuntimeError(f"cannot decode {value!r}")
 
-    with pytest.raises(ArtifactFormatError, match="Stored result decoder failed"):
+    with pytest.raises(ArtifactFormatError, match="Stored context decoder failed"):
         if store_type is JsonlArtifactStore:
             store_type.read_results(path, context_decoder=fail_decoder)
         else:
             await store_type.read_results(path, context_decoder=fail_decoder)
+
+
+@pytest.mark.parametrize(
+    ("store_type", "suffix"),
+    [
+        pytest.param(JsonlArtifactStore, ".jsonl", id="jsonl"),
+        pytest.param(SqliteArtifactStore, ".sqlite", id="sqlite"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_output_decoder_failure_uses_specific_artifact_format_error(
+    tmp_path: Path, store_type: Any, suffix: str
+) -> None:
+    path = tmp_path / f"output-decoder-error{suffix}"
+    await process_prompts(
+        _CountingStrategy(),
+        [("item", "prompt")],
+        artifact_store=store_type(path, identity=_identity()),
+    )
+
+    def fail_decoder(value: Any) -> Any:
+        raise RuntimeError(f"cannot decode {value!r}")
+
+    with pytest.raises(ArtifactFormatError, match="Stored output decoder failed"):
+        if store_type is JsonlArtifactStore:
+            store_type.read_results(path, output_decoder=fail_decoder)
+        else:
+            await store_type.read_results(path, output_decoder=fail_decoder)
 
 
 @pytest.mark.asyncio

@@ -374,11 +374,17 @@ async yield, so a slow consumer never blocks the writer or WAL checkpointing.
 `SqliteArtifactStore.read_results(path)` is a separate path-based,
 materializing convenience. It opens an internal SQLite `mode=ro` connection,
 never creates a schema or identity, never starts a writer, never changes WAL or
-synchronization policy, and never checkpoints an active writer. It requires no
-write permission on a clean database or its parent directory. The method
-captures a committed high-water sequence and excludes rows committed later;
-a subsequent read sees them. Its connection and owned reader thread close
-after success, error, or cancellation. Unlike the synchronous JSONL
+synchronization policy, and never checkpoints an active writer. Normal reads
+participate in SQLite locking and change detection, allowing a writer to start
+before or during inspection; SQLite may create empty `-wal`/`-shm`
+coordination sidecars in a writable directory. A clean database in a
+non-writable directory uses SQLite's immutable fallback, under the filesystem
+guarantee that no writer can start while the read is active. The method
+captures a committed high-water sequence and excludes rows committed later; a
+subsequent read sees them. Its connection and owned reader thread close after
+success, error, or ordinary cancellation. Repeated cancellation remains prompt
+and lets the already-running reader thread clean itself up without
+synchronously blocking the event loop. Unlike the synchronous JSONL
 counterpart, it is an **async** classmethod because SQLite I/O stays off the
 event loop:
 

@@ -312,6 +312,28 @@ def record_is_compatible(
     )
 
 
+class _StoredDecoderFailure(Exception):
+    def __init__(self, channel: str, error: Exception) -> None:
+        self.channel = channel
+        self.error = error
+
+
+def _label_decoder(
+    decoder: ValueDecoder | None,
+    channel: str,
+) -> ValueDecoder | None:
+    if decoder is None:
+        return None
+
+    def decode(value: Any) -> Any:
+        try:
+            return decoder(value)
+        except Exception as exc:
+            raise _StoredDecoderFailure(channel, exc) from exc
+
+    return decode
+
+
 def decode_stored_result(
     record: Mapping[str, Any],
     *,
@@ -330,12 +352,17 @@ def decode_stored_result(
         stored_result["context"] = stored_context
         stored_result["context_included"] = True
         active_context_decoder = context_decoder
+
     try:
         return work_item_result_from_dict(
             stored_result,
-            output_decoder=output_decoder,
-            context_decoder=active_context_decoder,
+            output_decoder=_label_decoder(output_decoder, "output"),
+            context_decoder=_label_decoder(active_context_decoder, "context"),
         )
+    except _StoredDecoderFailure as exc:
+        raise ResultSerializationError(
+            f"Stored {exc.channel} decoder failed: {exc.error}"
+        ) from exc.error
     except ResultSerializationError:
         raise
     except Exception as exc:
