@@ -66,8 +66,8 @@
             <a id="indexLink" class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a id="nextFileLink" class="nav" href="z_54860ed8f01e9c2b_artifact_codec_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-07-27 01:38 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
+            created at 2026-08-16 21:36 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -82,7 +82,7 @@
     </div>
 </header>
 <main id="source">
-    <p class="pln"><span class="n"><a id="t1" href="#t1">1</a></span><span class="t"><span class="str">"""Batch LLM processing utilities for handling bulk LLM requests.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t1" href="#t1">1</a></span><span class="t"><span class="str">&quot;&quot;&quot;Batch LLM processing utilities for handling bulk LLM requests.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t2" href="#t2">2</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t3" href="#t3">3</a></span><span class="t"><span class="str">This module provides a flexible framework for processing multiple LLM requests</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t4" href="#t4">4</a></span><span class="t"><span class="str">efficiently using a strategy pattern for provider-agnostic LLM integration.</span>&nbsp;</span><span class="r"></span></p>
@@ -98,23 +98,23 @@
     <p class="pln"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="str">- Configuration-based setup</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t"><span class="str">Example:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="str">    >>> from async_batch_llm import (</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t"><span class="str">    &gt;&gt;&gt; from async_batch_llm import (</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t18" href="#t18">18</a></span><span class="t"><span class="str">    ...     ParallelBatchProcessor,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t19" href="#t19">19</a></span><span class="t"><span class="str">    ...     ProcessorConfig,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t20" href="#t20">20</a></span><span class="t"><span class="str">    ...     LLMWorkItem,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t21" href="#t21">21</a></span><span class="t"><span class="str">    ...     PydanticAIStrategy,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t22" href="#t22">22</a></span><span class="t"><span class="str">    ... )</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="str">    >>> from pydantic_ai import Agent</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="str">    >>></span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t"><span class="str">    >>> agent = Agent("openai:gpt-4o-mini", result_type=MyOutput)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t"><span class="str">    >>> strategy = PydanticAIStrategy(agent=agent)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t"><span class="str">    >>> config = ProcessorConfig(max_workers=5, attempt_timeout=60.0)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t"><span class="str">    >>></span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t"><span class="str">    >>> async with ParallelBatchProcessor(config=config) as processor:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t23" href="#t23">23</a></span><span class="t"><span class="str">    &gt;&gt;&gt; from pydantic_ai import Agent</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t24" href="#t24">24</a></span><span class="t"><span class="str">    &gt;&gt;&gt;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t25" href="#t25">25</a></span><span class="t"><span class="str">    &gt;&gt;&gt; agent = Agent(&quot;openai:gpt-4o-mini&quot;, result_type=MyOutput)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t26" href="#t26">26</a></span><span class="t"><span class="str">    &gt;&gt;&gt; strategy = PydanticAIStrategy(agent=agent)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t27" href="#t27">27</a></span><span class="t"><span class="str">    &gt;&gt;&gt; config = ProcessorConfig(max_workers=5, attempt_timeout=60.0)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t28" href="#t28">28</a></span><span class="t"><span class="str">    &gt;&gt;&gt;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t29" href="#t29">29</a></span><span class="t"><span class="str">    &gt;&gt;&gt; async with ParallelBatchProcessor(config=config) as processor:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t30" href="#t30">30</a></span><span class="t"><span class="str">    ...     await processor.add_work(LLMWorkItem(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t"><span class="str">    ...         item_id="item_1",</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t31" href="#t31">31</a></span><span class="t"><span class="str">    ...         item_id=&quot;item_1&quot;,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t32" href="#t32">32</a></span><span class="t"><span class="str">    ...         strategy=strategy,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t"><span class="str">    ...         prompt="Process this",</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t33" href="#t33">33</a></span><span class="t"><span class="str">    ...         prompt=&quot;Process this&quot;,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t34" href="#t34">34</a></span><span class="t"><span class="str">    ...     ))</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t35" href="#t35">35</a></span><span class="t"><span class="str">    ...     result = await processor.process_all()</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t36" href="#t36">36</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -131,15 +131,15 @@
     <p class="pln"><span class="n"><a id="t47" href="#t47">47</a></span><span class="t"><span class="str">      Equivalent to ``WorkItemResult[T, None]``</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t48" href="#t48">48</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t49" href="#t49">49</a></span><span class="t"><span class="str">    Example using type aliases:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t50" href="#t50">50</a></span><span class="t"><span class="str">        >>> from async_batch_llm import SimpleBatchProcessor, SimpleWorkItem</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t"><span class="str">        >>></span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t52" href="#t52">52</a></span><span class="t"><span class="str">        >>> async with SimpleBatchProcessor[MyOutput](config=config) as processor:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t50" href="#t50">50</a></span><span class="t"><span class="str">        &gt;&gt;&gt; from async_batch_llm import SimpleBatchProcessor, SimpleWorkItem</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t51" href="#t51">51</a></span><span class="t"><span class="str">        &gt;&gt;&gt;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t52" href="#t52">52</a></span><span class="t"><span class="str">        &gt;&gt;&gt; async with SimpleBatchProcessor[MyOutput](config=config) as processor:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t53" href="#t53">53</a></span><span class="t"><span class="str">        ...     await processor.add_work(SimpleWorkItem[MyOutput](</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t54" href="#t54">54</a></span><span class="t"><span class="str">        ...         item_id="item_1",</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t54" href="#t54">54</a></span><span class="t"><span class="str">        ...         item_id=&quot;item_1&quot;,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t55" href="#t55">55</a></span><span class="t"><span class="str">        ...         strategy=strategy,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t56" href="#t56">56</a></span><span class="t"><span class="str">        ...         prompt="Process this",</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t56" href="#t56">56</a></span><span class="t"><span class="str">        ...         prompt=&quot;Process this&quot;,</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t57" href="#t57">57</a></span><span class="t"><span class="str">        ...     ))</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t58" href="#t58">58</a></span><span class="t"><span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t58" href="#t58">58</a></span><span class="t"><span class="str">&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t59" href="#t59">59</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t60" href="#t60">60</a></span><span class="t"><span class="key">from</span> <span class="nam">typing</span> <span class="key">import</span> <span class="nam">TypeVar</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t61" href="#t61">61</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -193,7 +193,7 @@
     <p class="pln"><span class="n"><a id="t109" href="#t109">109</a></span><span class="t"><span class="com"># Protocols</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t110" href="#t110">110</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">core</span><span class="op">.</span><span class="nam">protocols</span> <span class="key">import</span> <span class="nam">LLMModel</span><span class="op">,</span> <span class="nam">ManagedLLMModel</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t111" href="#t111">111</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t"><span class="com"># String-based strategy factory: llm("openai:gpt-4o-mini")</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t112" href="#t112">112</a></span><span class="t"><span class="com"># String-based strategy factory: llm(&quot;openai:gpt-4o-mini&quot;)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t113" href="#t113">113</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">factory</span> <span class="key">import</span> <span class="nam">llm</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t114" href="#t114">114</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t115" href="#t115">115</a></span><span class="t"><span class="com"># Queue-less convenience surfaces (single call + shared call pool), built on the</span>&nbsp;</span><span class="r"></span></p>
@@ -259,160 +259,160 @@
     <p class="run run2"><span class="n"><a id="t175" href="#t175">175</a></span><span class="t">    <span class="nam">TokenTrackingError</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t176" href="#t176">176</a></span><span class="t"><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t177" href="#t177">177</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t178" href="#t178">178</a></span><span class="t"><span class="com"># High-level streaming API (built on the processor's streaming mode)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t178" href="#t178">178</a></span><span class="t"><span class="com"># High-level streaming API (built on the processor&#x27;s streaming mode)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t179" href="#t179">179</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="nam">streaming</span> <span class="key">import</span> <span class="nam">process_prompts</span><span class="op">,</span> <span class="nam">process_stream</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t180" href="#t180">180</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t181" href="#t181">181</a></span><span class="t"><span class="com"># Type variable for output type in simplified aliases</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t182" href="#t182">182</a></span><span class="t"><span class="nam">_T</span> <span class="op">=</span> <span class="nam">TypeVar</span><span class="op">(</span><span class="str">"_T"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t182" href="#t182">182</a></span><span class="t"><span class="nam">_T</span> <span class="op">=</span> <span class="nam">TypeVar</span><span class="op">(</span><span class="str">&quot;_T&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t183" href="#t183">183</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t184" href="#t184">184</a></span><span class="t"><span class="com"># Type aliases for common use cases</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t185" href="#t185">185</a></span><span class="t"><span class="com"># These reduce verbosity for the most common pattern: string input, typed output, no context</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t186" href="#t186">186</a></span><span class="t"><span class="nam">SimpleBatchProcessor</span> <span class="op">=</span> <span class="nam">ParallelBatchProcessor</span><span class="op">[</span><span class="nam">str</span><span class="op">,</span> <span class="nam">_T</span><span class="op">,</span> <span class="key">None</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t187" href="#t187">187</a></span><span class="t"><span class="str">"""Type alias for ParallelBatchProcessor[str, T, None].</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t187" href="#t187">187</a></span><span class="t"><span class="str">&quot;&quot;&quot;Type alias for ParallelBatchProcessor[str, T, None].</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t188" href="#t188">188</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t189" href="#t189">189</a></span><span class="t"><span class="str">Use when you have string prompts, a typed output, and no context.</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t190" href="#t190">190</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t191" href="#t191">191</a></span><span class="t"><span class="str">Example:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t192" href="#t192">192</a></span><span class="t"><span class="str">    async with SimpleBatchProcessor[MyOutput](config=config) as processor:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t193" href="#t193">193</a></span><span class="t"><span class="str">        ...</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t194" href="#t194">194</a></span><span class="t"><span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t194" href="#t194">194</a></span><span class="t"><span class="str">&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t195" href="#t195">195</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t196" href="#t196">196</a></span><span class="t"><span class="nam">SimpleWorkItem</span> <span class="op">=</span> <span class="nam">LLMWorkItem</span><span class="op">[</span><span class="nam">str</span><span class="op">,</span> <span class="nam">_T</span><span class="op">,</span> <span class="key">None</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t197" href="#t197">197</a></span><span class="t"><span class="str">"""Type alias for LLMWorkItem[str, T, None].</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t197" href="#t197">197</a></span><span class="t"><span class="str">&quot;&quot;&quot;Type alias for LLMWorkItem[str, T, None].</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t198" href="#t198">198</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t199" href="#t199">199</a></span><span class="t"><span class="str">Use when creating work items with string prompts, typed output, and no context.</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t200" href="#t200">200</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t201" href="#t201">201</a></span><span class="t"><span class="str">Example:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t202" href="#t202">202</a></span><span class="t"><span class="str">    item = SimpleWorkItem[MyOutput](item_id="1", strategy=strategy, prompt="Hello")</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t203" href="#t203">203</a></span><span class="t"><span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t202" href="#t202">202</a></span><span class="t"><span class="str">    item = SimpleWorkItem[MyOutput](item_id=&quot;1&quot;, strategy=strategy, prompt=&quot;Hello&quot;)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t203" href="#t203">203</a></span><span class="t"><span class="str">&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t204" href="#t204">204</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t205" href="#t205">205</a></span><span class="t"><span class="nam">SimpleResult</span> <span class="op">=</span> <span class="nam">WorkItemResult</span><span class="op">[</span><span class="nam">_T</span><span class="op">,</span> <span class="key">None</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t206" href="#t206">206</a></span><span class="t"><span class="str">"""Type alias for WorkItemResult[T, None].</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t206" href="#t206">206</a></span><span class="t"><span class="str">&quot;&quot;&quot;Type alias for WorkItemResult[T, None].</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t207" href="#t207">207</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t208" href="#t208">208</a></span><span class="t"><span class="str">Use when working with results that have no context.</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t209" href="#t209">209</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t210" href="#t210">210</a></span><span class="t"><span class="str">Example:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t211" href="#t211">211</a></span><span class="t"><span class="str">    result: SimpleResult[MyOutput] = results[0]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t212" href="#t212">212</a></span><span class="t"><span class="str">"""</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t212" href="#t212">212</a></span><span class="t"><span class="str">&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t213" href="#t213">213</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t214" href="#t214">214</a></span><span class="t"><span class="nam">__all__</span> <span class="op">=</span> <span class="op">[</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t215" href="#t215">215</a></span><span class="t">    <span class="com"># Core</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t216" href="#t216">216</a></span><span class="t">    <span class="str">"BatchProcessor"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t217" href="#t217">217</a></span><span class="t">    <span class="str">"AttemptTiming"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t218" href="#t218">218</a></span><span class="t">    <span class="str">"BatchResult"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t219" href="#t219">219</a></span><span class="t">    <span class="str">"BatchTermination"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t220" href="#t220">220</a></span><span class="t">    <span class="str">"CachedTokenRates"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t221" href="#t221">221</a></span><span class="t">    <span class="str">"LLMWorkItem"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t222" href="#t222">222</a></span><span class="t">    <span class="str">"PostProcessorFunc"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t223" href="#t223">223</a></span><span class="t">    <span class="str">"ProcessingStats"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t224" href="#t224">224</a></span><span class="t">    <span class="str">"ProgressCallbackFunc"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t225" href="#t225">225</a></span><span class="t">    <span class="str">"RetryState"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t226" href="#t226">226</a></span><span class="t">    <span class="str">"TokenUsage"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">    <span class="str">"WorkItemResult"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">    <span class="str">"WorkItemTiming"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t">    <span class="str">"ResultSerializationError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">    <span class="str">"CallOutcome"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t231" href="#t231">231</a></span><span class="t">    <span class="str">"CallableStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t216" href="#t216">216</a></span><span class="t">    <span class="str">&quot;BatchProcessor&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t217" href="#t217">217</a></span><span class="t">    <span class="str">&quot;AttemptTiming&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t218" href="#t218">218</a></span><span class="t">    <span class="str">&quot;BatchResult&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t219" href="#t219">219</a></span><span class="t">    <span class="str">&quot;BatchTermination&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t220" href="#t220">220</a></span><span class="t">    <span class="str">&quot;CachedTokenRates&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t221" href="#t221">221</a></span><span class="t">    <span class="str">&quot;LLMWorkItem&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t222" href="#t222">222</a></span><span class="t">    <span class="str">&quot;PostProcessorFunc&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t223" href="#t223">223</a></span><span class="t">    <span class="str">&quot;ProcessingStats&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t224" href="#t224">224</a></span><span class="t">    <span class="str">&quot;ProgressCallbackFunc&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t225" href="#t225">225</a></span><span class="t">    <span class="str">&quot;RetryState&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t226" href="#t226">226</a></span><span class="t">    <span class="str">&quot;TokenUsage&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">    <span class="str">&quot;WorkItemResult&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">    <span class="str">&quot;WorkItemTiming&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t">    <span class="str">&quot;ResultSerializationError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">    <span class="str">&quot;CallOutcome&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t231" href="#t231">231</a></span><span class="t">    <span class="str">&quot;CallableStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t232" href="#t232">232</a></span><span class="t">    <span class="com"># Audit/checkpoint artifacts</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t233" href="#t233">233</a></span><span class="t">    <span class="str">"ArtifactError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t234" href="#t234">234</a></span><span class="t">    <span class="str">"ArtifactFormatError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t235" href="#t235">235</a></span><span class="t">    <span class="str">"ArtifactIOError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t236" href="#t236">236</a></span><span class="t">    <span class="str">"ArtifactIdentity"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t237" href="#t237">237</a></span><span class="t">    <span class="str">"ArtifactSerializationError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t238" href="#t238">238</a></span><span class="t">    <span class="str">"ArtifactStore"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t239" href="#t239">239</a></span><span class="t">    <span class="str">"JsonlArtifactStore"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t240" href="#t240">240</a></span><span class="t">    <span class="str">"ResumePolicy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t241" href="#t241">241</a></span><span class="t">    <span class="str">"SqliteArtifactStore"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t242" href="#t242">242</a></span><span class="t">    <span class="str">"SqliteDurability"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t233" href="#t233">233</a></span><span class="t">    <span class="str">&quot;ArtifactError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t234" href="#t234">234</a></span><span class="t">    <span class="str">&quot;ArtifactFormatError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t235" href="#t235">235</a></span><span class="t">    <span class="str">&quot;ArtifactIOError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t236" href="#t236">236</a></span><span class="t">    <span class="str">&quot;ArtifactIdentity&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t237" href="#t237">237</a></span><span class="t">    <span class="str">&quot;ArtifactSerializationError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t238" href="#t238">238</a></span><span class="t">    <span class="str">&quot;ArtifactStore&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t239" href="#t239">239</a></span><span class="t">    <span class="str">&quot;JsonlArtifactStore&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t240" href="#t240">240</a></span><span class="t">    <span class="str">&quot;ResumePolicy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t241" href="#t241">241</a></span><span class="t">    <span class="str">&quot;SqliteArtifactStore&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t242" href="#t242">242</a></span><span class="t">    <span class="str">&quot;SqliteDurability&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t243" href="#t243">243</a></span><span class="t">    <span class="com"># Configuration</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t244" href="#t244">244</a></span><span class="t">    <span class="str">"ProcessorConfig"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t245" href="#t245">245</a></span><span class="t">    <span class="str">"AbortMode"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t246" href="#t246">246</a></span><span class="t">    <span class="str">"GuardrailConfig"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t247" href="#t247">247</a></span><span class="t">    <span class="str">"RateLimitConfig"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t248" href="#t248">248</a></span><span class="t">    <span class="str">"RetryConfig"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t249" href="#t249">249</a></span><span class="t">    <span class="str">"StartupRampConfig"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t244" href="#t244">244</a></span><span class="t">    <span class="str">&quot;ProcessorConfig&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t245" href="#t245">245</a></span><span class="t">    <span class="str">&quot;AbortMode&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t246" href="#t246">246</a></span><span class="t">    <span class="str">&quot;GuardrailConfig&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t247" href="#t247">247</a></span><span class="t">    <span class="str">&quot;RateLimitConfig&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t248" href="#t248">248</a></span><span class="t">    <span class="str">&quot;RetryConfig&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t249" href="#t249">249</a></span><span class="t">    <span class="str">&quot;StartupRampConfig&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t250" href="#t250">250</a></span><span class="t">    <span class="com"># High-level convenience API</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">    <span class="str">"process_prompts"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">    <span class="str">"process_stream"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t251" href="#t251">251</a></span><span class="t">    <span class="str">&quot;process_prompts&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t252" href="#t252">252</a></span><span class="t">    <span class="str">&quot;process_stream&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t253" href="#t253">253</a></span><span class="t">    <span class="com"># Single-call + shared-call surfaces</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">    <span class="str">"call"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">    <span class="str">"call_result"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">    <span class="str">"LLMCallError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">    <span class="str">"LLMCallPool"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t258" href="#t258">258</a></span><span class="t">    <span class="str">"LLMGateway"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">    <span class="str">&quot;call&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">    <span class="str">&quot;call_result&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">    <span class="str">&quot;LLMCallError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">    <span class="str">&quot;LLMCallPool&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t258" href="#t258">258</a></span><span class="t">    <span class="str">&quot;LLMGateway&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t259" href="#t259">259</a></span><span class="t">    <span class="com"># String-based strategy factory</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t260" href="#t260">260</a></span><span class="t">    <span class="str">"llm"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t260" href="#t260">260</a></span><span class="t">    <span class="str">&quot;llm&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t261" href="#t261">261</a></span><span class="t">    <span class="com"># LLM Strategies</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t262" href="#t262">262</a></span><span class="t">    <span class="str">"DeepSeekStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t263" href="#t263">263</a></span><span class="t">    <span class="str">"GeminiStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t264" href="#t264">264</a></span><span class="t">    <span class="str">"LLMCallStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t265" href="#t265">265</a></span><span class="t">    <span class="str">"ModelStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t266" href="#t266">266</a></span><span class="t">    <span class="str">"OpenAIStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">    <span class="str">"OpenRouterStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t268" href="#t268">268</a></span><span class="t">    <span class="str">"PydanticAIStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t262" href="#t262">262</a></span><span class="t">    <span class="str">&quot;DeepSeekStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t263" href="#t263">263</a></span><span class="t">    <span class="str">&quot;GeminiStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t264" href="#t264">264</a></span><span class="t">    <span class="str">&quot;LLMCallStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t265" href="#t265">265</a></span><span class="t">    <span class="str">&quot;ModelStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t266" href="#t266">266</a></span><span class="t">    <span class="str">&quot;OpenAIStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t267" href="#t267">267</a></span><span class="t">    <span class="str">&quot;OpenRouterStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t268" href="#t268">268</a></span><span class="t">    <span class="str">&quot;PydanticAIStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t269" href="#t269">269</a></span><span class="t">    <span class="com"># Models</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">    <span class="str">"DeepSeekModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t271" href="#t271">271</a></span><span class="t">    <span class="str">"GeminiModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t272" href="#t272">272</a></span><span class="t">    <span class="str">"GeminiCachedModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t273" href="#t273">273</a></span><span class="t">    <span class="str">"OpenAICompatibleModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t274" href="#t274">274</a></span><span class="t">    <span class="str">"OpenAIModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t275" href="#t275">275</a></span><span class="t">    <span class="str">"OpenRouterModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t276" href="#t276">276</a></span><span class="t">    <span class="str">"MetadataExtractor"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t277" href="#t277">277</a></span><span class="t">    <span class="str">"grounding_metadata_extractor"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t270" href="#t270">270</a></span><span class="t">    <span class="str">&quot;DeepSeekModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t271" href="#t271">271</a></span><span class="t">    <span class="str">&quot;GeminiModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t272" href="#t272">272</a></span><span class="t">    <span class="str">&quot;GeminiCachedModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t273" href="#t273">273</a></span><span class="t">    <span class="str">&quot;OpenAICompatibleModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t274" href="#t274">274</a></span><span class="t">    <span class="str">&quot;OpenAIModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t275" href="#t275">275</a></span><span class="t">    <span class="str">&quot;OpenRouterModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t276" href="#t276">276</a></span><span class="t">    <span class="str">&quot;MetadataExtractor&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t277" href="#t277">277</a></span><span class="t">    <span class="str">&quot;grounding_metadata_extractor&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t278" href="#t278">278</a></span><span class="t">    <span class="com"># Provider auxiliary output (typed metadata views)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t279" href="#t279">279</a></span><span class="t">    <span class="str">"Grounding"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t280" href="#t280">280</a></span><span class="t">    <span class="str">"GroundingSource"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t281" href="#t281">281</a></span><span class="t">    <span class="str">"ToolCall"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t279" href="#t279">279</a></span><span class="t">    <span class="str">&quot;Grounding&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t280" href="#t280">280</a></span><span class="t">    <span class="str">&quot;GroundingSource&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t281" href="#t281">281</a></span><span class="t">    <span class="str">&quot;ToolCall&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t282" href="#t282">282</a></span><span class="t">    <span class="com"># Protocols</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t283" href="#t283">283</a></span><span class="t">    <span class="str">"LLMModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t284" href="#t284">284</a></span><span class="t">    <span class="str">"LLMResponse"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t285" href="#t285">285</a></span><span class="t">    <span class="str">"ManagedLLMModel"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t283" href="#t283">283</a></span><span class="t">    <span class="str">&quot;LLMModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t284" href="#t284">284</a></span><span class="t">    <span class="str">&quot;LLMResponse&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t285" href="#t285">285</a></span><span class="t">    <span class="str">&quot;ManagedLLMModel&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t286" href="#t286">286</a></span><span class="t">    <span class="com"># Error Classification Strategies</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t287" href="#t287">287</a></span><span class="t">    <span class="str">"ErrorClassifier"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t288" href="#t288">288</a></span><span class="t">    <span class="str">"ErrorInfo"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t289" href="#t289">289</a></span><span class="t">    <span class="str">"DefaultErrorClassifier"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t290" href="#t290">290</a></span><span class="t">    <span class="str">"EmptyResponseError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t291" href="#t291">291</a></span><span class="t">    <span class="str">"FrameworkTimeoutError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t292" href="#t292">292</a></span><span class="t">    <span class="str">"ItemDeadlineExceeded"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t293" href="#t293">293</a></span><span class="t">    <span class="str">"BatchDeadlineExceeded"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t294" href="#t294">294</a></span><span class="t">    <span class="str">"BatchAbortedError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t295" href="#t295">295</a></span><span class="t">    <span class="str">"ProviderResponseError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t296" href="#t296">296</a></span><span class="t">    <span class="str">"RateLimitRetriesExceeded"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t297" href="#t297">297</a></span><span class="t">    <span class="str">"TokenTrackingError"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t298" href="#t298">298</a></span><span class="t">    <span class="str">"RateLimitStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t299" href="#t299">299</a></span><span class="t">    <span class="str">"ExponentialBackoffStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t300" href="#t300">300</a></span><span class="t">    <span class="str">"FixedDelayStrategy"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t287" href="#t287">287</a></span><span class="t">    <span class="str">&quot;ErrorClassifier&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t288" href="#t288">288</a></span><span class="t">    <span class="str">&quot;ErrorInfo&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t289" href="#t289">289</a></span><span class="t">    <span class="str">&quot;DefaultErrorClassifier&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t290" href="#t290">290</a></span><span class="t">    <span class="str">&quot;EmptyResponseError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t291" href="#t291">291</a></span><span class="t">    <span class="str">&quot;FrameworkTimeoutError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t292" href="#t292">292</a></span><span class="t">    <span class="str">&quot;ItemDeadlineExceeded&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t293" href="#t293">293</a></span><span class="t">    <span class="str">&quot;BatchDeadlineExceeded&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t294" href="#t294">294</a></span><span class="t">    <span class="str">&quot;BatchAbortedError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t295" href="#t295">295</a></span><span class="t">    <span class="str">&quot;ProviderResponseError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t296" href="#t296">296</a></span><span class="t">    <span class="str">&quot;RateLimitRetriesExceeded&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t297" href="#t297">297</a></span><span class="t">    <span class="str">&quot;TokenTrackingError&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t298" href="#t298">298</a></span><span class="t">    <span class="str">&quot;RateLimitStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t299" href="#t299">299</a></span><span class="t">    <span class="str">&quot;ExponentialBackoffStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t300" href="#t300">300</a></span><span class="t">    <span class="str">&quot;FixedDelayStrategy&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t301" href="#t301">301</a></span><span class="t">    <span class="com"># Middleware</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t302" href="#t302">302</a></span><span class="t">    <span class="str">"Middleware"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t303" href="#t303">303</a></span><span class="t">    <span class="str">"BaseMiddleware"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t302" href="#t302">302</a></span><span class="t">    <span class="str">&quot;Middleware&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t303" href="#t303">303</a></span><span class="t">    <span class="str">&quot;BaseMiddleware&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t304" href="#t304">304</a></span><span class="t">    <span class="com"># Observers</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t305" href="#t305">305</a></span><span class="t">    <span class="str">"ProcessorObserver"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t306" href="#t306">306</a></span><span class="t">    <span class="str">"BaseObserver"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t307" href="#t307">307</a></span><span class="t">    <span class="str">"MetricsObserver"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t308" href="#t308">308</a></span><span class="t">    <span class="str">"ProcessingEvent"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t305" href="#t305">305</a></span><span class="t">    <span class="str">&quot;ProcessorObserver&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t306" href="#t306">306</a></span><span class="t">    <span class="str">&quot;BaseObserver&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t307" href="#t307">307</a></span><span class="t">    <span class="str">&quot;MetricsObserver&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t308" href="#t308">308</a></span><span class="t">    <span class="str">&quot;ProcessingEvent&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t309" href="#t309">309</a></span><span class="t">    <span class="com"># Classifiers</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t310" href="#t310">310</a></span><span class="t">    <span class="str">"GeminiErrorClassifier"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t311" href="#t311">311</a></span><span class="t">    <span class="str">"OpenAIErrorClassifier"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t312" href="#t312">312</a></span><span class="t">    <span class="str">"OpenRouterErrorClassifier"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t310" href="#t310">310</a></span><span class="t">    <span class="str">&quot;GeminiErrorClassifier&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t311" href="#t311">311</a></span><span class="t">    <span class="str">&quot;OpenAIErrorClassifier&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t312" href="#t312">312</a></span><span class="t">    <span class="str">&quot;OpenRouterErrorClassifier&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t313" href="#t313">313</a></span><span class="t">    <span class="com"># Processor</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t314" href="#t314">314</a></span><span class="t">    <span class="str">"ParallelBatchProcessor"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t314" href="#t314">314</a></span><span class="t">    <span class="str">&quot;ParallelBatchProcessor&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t315" href="#t315">315</a></span><span class="t">    <span class="com"># Structured-output parsing helpers</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t316" href="#t316">316</a></span><span class="t">    <span class="str">"pydantic_json_parser"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t317" href="#t317">317</a></span><span class="t">    <span class="str">"strip_code_fences"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t316" href="#t316">316</a></span><span class="t">    <span class="str">&quot;pydantic_json_parser&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t317" href="#t317">317</a></span><span class="t">    <span class="str">&quot;strip_code_fences&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t318" href="#t318">318</a></span><span class="t">    <span class="com"># Type aliases (convenience)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t319" href="#t319">319</a></span><span class="t">    <span class="str">"SimpleBatchProcessor"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t320" href="#t320">320</a></span><span class="t">    <span class="str">"SimpleWorkItem"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t321" href="#t321">321</a></span><span class="t">    <span class="str">"SimpleResult"</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t319" href="#t319">319</a></span><span class="t">    <span class="str">&quot;SimpleBatchProcessor&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t320" href="#t320">320</a></span><span class="t">    <span class="str">&quot;SimpleWorkItem&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t321" href="#t321">321</a></span><span class="t">    <span class="str">&quot;SimpleResult&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t322" href="#t322">322</a></span><span class="t"><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t323" href="#t323">323</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t324" href="#t324">324</a></span><span class="t"><span class="com"># Version is read from package metadata (single source of truth in pyproject.toml)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t325" href="#t325">325</a></span><span class="t"><span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t326" href="#t326">326</a></span><span class="t">    <span class="key">from</span> <span class="nam">importlib</span><span class="op">.</span><span class="nam">metadata</span> <span class="key">import</span> <span class="nam">PackageNotFoundError</span><span class="op">,</span> <span class="nam">version</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t327" href="#t327">327</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t328" href="#t328">328</a></span><span class="t">    <span class="nam">__version__</span> <span class="op">=</span> <span class="nam">version</span><span class="op">(</span><span class="str">"async-batch-llm"</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t328" href="#t328">328</a></span><span class="t">    <span class="nam">__version__</span> <span class="op">=</span> <span class="nam">version</span><span class="op">(</span><span class="str">&quot;async-batch-llm&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t329" href="#t329">329</a></span><span class="t"><span class="key">except</span> <span class="nam">PackageNotFoundError</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t330" href="#t330">330</a></span><span class="t">    <span class="com"># Package not installed (e.g., running from source in development)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t331" href="#t331">331</a></span><span class="t">    <span class="nam">__version__</span> <span class="op">=</span> <span class="str">"0.0.0+dev"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="mis show_mis"><span class="n"><a id="t331" href="#t331">331</a></span><span class="t">    <span class="nam">__version__</span> <span class="op">=</span> <span class="str">&quot;0.0.0+dev&quot;</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -421,8 +421,8 @@
             <a class="nav" href="index.html">&Hat; index</a> &nbsp; &nbsp;
             <a class="nav" href="z_54860ed8f01e9c2b_artifact_codec_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
-            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-07-27 01:38 +0000
+            <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
+            created at 2026-08-16 21:36 +0000
         </p>
     </div>
 </footer>
