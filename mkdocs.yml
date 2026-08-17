@@ -70,6 +70,7 @@ nav:
   - Use Your Existing Async Client: callable-integration.md
   - Testing: testing.md
   - Benchmarks: benchmarks.md
+  - v0.22 Scale Evidence: v0.22-scale-evidence.md
   - Provider Integrations:
     - OpenAI-Compatible High Throughput: openai-high-throughput.md
     - Gemini: GEMINI_INTEGRATION.md

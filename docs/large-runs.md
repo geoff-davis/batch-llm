@@ -118,3 +118,5 @@ See [Benchmarks](benchmarks.md#scale-soak-harness) for what each report
 proves and — just as important — what it does not: fake-provider throughput is
 not live-provider performance, local TPM smoothing is not GPU/KV-cache
 scheduling, and no million-item claim is made without a completed 1m report.
+The [v0.22 dated evidence](v0.22-scale-evidence.md) records exactly which 100k
+and 1m scenarios were completed on the release-candidate behavior.
