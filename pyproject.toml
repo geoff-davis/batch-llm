@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "async-batch-llm"
-version = "0.21.0"
-description = "Provider-neutral asyncio toolkit for concurrent LLM calls with retries, coordinated rate limits, bounded streaming, resumable checkpoints, and deadlines."
+version = "0.22.0"
+description = "Provider-neutral asyncio toolkit for concurrent LLM calls with retries, scoped RPM/TPM admission, bounded streaming, resumable checkpoints, and deadlines."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -29,6 +29,7 @@ keywords = [
     "parallel",
     "concurrency",
     "rate-limiting",
+    "token-quota",
     "retry",
     "streaming",
     "checkpointing",
