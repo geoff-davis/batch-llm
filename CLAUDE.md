@@ -12,7 +12,7 @@ here.
 **strategy pattern** — provider-agnostic at the framework level, with
 first-class support for several providers built in.
 
-**Current version:** v0.21.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
+**Current version:** v0.22.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
 by the release-prep flow, so it may briefly lag `main` between releases).
 
 **Key features:**
@@ -618,6 +618,11 @@ assert result.total_items == result.succeeded + result.failed
 
 Most recent first. See `CHANGELOG.md` for full per-release detail.
 
+- **v0.22.0** — scoped, token-aware admission coordinates per-strategy
+  cooldown, RPM, and TPM through one atomic FIFO gate. Public estimation APIs,
+  exactly-once reservation reconciliation, refunds, underestimation debt,
+  bounded quota observability, and v0.21 artifact compatibility are backed by
+  the mixed-token scale scenario and reviewed 100k/1m evidence.
 - **v0.21.0** — indexed SQLite artifacts for large restartable runs, bounded
   JSONL/SQLite inspection, exact queue high-water diagnostics, and a
   deterministic scale/restart harness with CI, 100k, and 1m profiles. Artifact
