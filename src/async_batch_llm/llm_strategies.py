@@ -247,9 +247,8 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     def recommended_error_classifier(self) -> "ErrorClassifier | None":
         """Return the error classifier best suited to this strategy's provider.
 
-        :class:`~async_batch_llm.ParallelBatchProcessor` calls this to
-        auto-select a classifier when the caller didn't pass ``error_classifier``
-        explicitly — it reads the recommendation off the work items' strategies.
+        The execution host calls this once per strategy identity when the caller
+        didn't pass ``error_classifier`` explicitly.
 
         Returns ``None`` by default ("no preference"), which lets the framework
         fall back to :class:`DefaultErrorClassifier`. Provider strategies
@@ -273,6 +272,17 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     def concurrency_scope(self) -> object:
         """Identity whose capacity is shared by concurrent calls."""
         return self
+
+    @property
+    def quota_scope(self) -> object:
+        """Identity whose RPM, TPM, and coordinated cooldown are shared.
+
+        The default follows :attr:`concurrency_scope` for backward-compatible
+        ownership. Override it when one provider/account quota spans multiple
+        clients or when one shared client serves independent quota budgets.
+        Object identity, not equality, defines sharing.
+        """
+        return self.concurrency_scope
 
 
 class ModelStrategy(LLMCallStrategy[TOutput]):
@@ -303,6 +313,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
     ) -> None: ...
 
     @overload
@@ -313,6 +324,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
     ) -> None: ...
 
     def __init__(
@@ -322,6 +334,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
     ) -> None:
         """
         Initialize strategy.
@@ -343,6 +356,9 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
                 native structured output or grounding without subclassing
                 ``execute()``. A subclass that overrides ``execute()`` and needs a
                 *per-attempt* config can read ``self.generation_config`` and merge.
+            quota_scope: Optional identity shared by strategies consuming the
+                same provider/account quota. Defaults to the model, matching
+                the existing concurrency scope.
         """
         self.model = model
         # The overloads restrict the None-parser path to TOutput=str, so the cast
@@ -350,6 +366,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         self.response_parser = response_parser or (lambda response: cast(TOutput, response.text))
         self.temperature = temperature
         self.generation_config = generation_config
+        self._quota_scope = quota_scope
 
     @property
     def max_concurrency(self) -> int | None:
@@ -363,6 +380,11 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
     def concurrency_scope(self) -> object:
         """Strategies wrapping the same model share one admission limit."""
         return self.model
+
+    @property
+    def quota_scope(self) -> object:
+        """Strategies wrapping the same model share quota by default."""
+        return self.model if self._quota_scope is None else self._quota_scope
 
     async def request_concurrency(self, concurrency: int) -> bool:
         """Forward a concurrency request to the model, when supported.

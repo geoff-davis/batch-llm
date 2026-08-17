@@ -44,9 +44,11 @@ class RateLimitCoordinator:
         # `EventDispatcher` annotation would resolve to [str, Any, None] and
         # reject the processor's concrete dispatcher.
         events: EventDispatcher[Any, Any, Any],
+        quota_scope_id: int | None = None,
     ) -> None:
         self._strategy = rate_limit_strategy
         self._events = events
+        self._quota_scope_id = quota_scope_id
 
         self._rate_limit_event = asyncio.Event()
         self._rate_limit_event.set()  # Start un-paused.
@@ -125,6 +127,7 @@ class RateLimitCoordinator:
         worker_id: int,
         observed_generation: int | None = None,
         suggested_wait: float | None = None,
+        strategy_type: str | None = None,
     ) -> None:
         """Coordinate a cooldown among workers.
 
@@ -140,6 +143,8 @@ class RateLimitCoordinator:
                 it acts as a *floor* on the strategy-computed cooldown — the
                 backoff strategy can wait longer, but never shorter than the
                 server asked. Only the coordinating worker's value is applied.
+            strategy_type: Safe class name for scoped diagnostics. Arbitrary
+                quota-scope values are never formatted or logged.
         """
         if observed_generation is None:
             observed_generation = self._cooldown_generation
@@ -175,6 +180,7 @@ class RateLimitCoordinator:
                         generation,
                         self._consecutive_rate_limits,
                         suggested_wait,
+                        strategy_type,
                     )
                 )
 
@@ -189,6 +195,7 @@ class RateLimitCoordinator:
         generation: int,
         consecutive: int,
         suggested_wait: float | None,
+        strategy_type: str | None,
     ) -> None:
         """Owned cooldown cycle: compute the wait, sleep, finalize."""
         pause_started_at = time.time()
@@ -220,38 +227,49 @@ class RateLimitCoordinator:
                 )
                 cooldown = suggested_wait
 
-            await self._events.emit(
-                ProcessingEvent.COOLDOWN_STARTED,
-                {
-                    "worker_id": worker_id,
-                    "duration": cooldown,
-                    "consecutive": consecutive,
-                },
-            )
+            payload: dict[str, Any] = {
+                "worker_id": worker_id,
+                "duration": cooldown,
+                "consecutive": consecutive,
+            }
+            if self._quota_scope_id is not None:
+                payload["quota_scope_id"] = self._quota_scope_id
+            if strategy_type is not None:
+                payload["strategy_type"] = strategy_type
+            await self._events.emit(ProcessingEvent.COOLDOWN_STARTED, payload)
+
+            scope_log = f" scope={self._quota_scope_id}" if self._quota_scope_id is not None else ""
+            strategy_log = f" strategy={strategy_type}" if strategy_type is not None else ""
 
             if cooldown_error is not None:
                 logger.warning(
-                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d). "
+                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d%s%s). "
                     "Skipping cooldown due to prior error.",
                     worker_id,
                     generation,
+                    scope_log,
+                    strategy_log,
                 )
             elif cooldown > 0:
                 logger.warning(
-                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d). "
+                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d%s%s). "
                     "Pausing all workers for %.1fs...",
                     worker_id,
                     generation,
+                    scope_log,
+                    strategy_log,
                     cooldown,
                 )
             else:
                 # A strategy can legitimately return 0.0 (no cooldown wanted);
                 # don't mislabel that as an error.
                 logger.warning(
-                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d). "
+                    "[RATE-LIMIT]Rate limit detected by worker %s (gen %d%s%s). "
                     "Strategy requested no cooldown; resuming immediately.",
                     worker_id,
                     generation,
+                    scope_log,
+                    strategy_log,
                 )
 
             try:
@@ -267,11 +285,11 @@ class RateLimitCoordinator:
                 )
                 cooldown_error = cooldown_error or exc
 
-            await self._finalize_cooldown(pause_started_at, cooldown_error)
+            await self._finalize_cooldown(pause_started_at, cooldown_error, strategy_type)
         except asyncio.CancelledError:
             # Only shutdown() cancels this owned task — wake the waiters so
             # host teardown never hangs on the pause, then propagate.
-            await asyncio.shield(self._finalize_cooldown(pause_started_at, None))
+            await asyncio.shield(self._finalize_cooldown(pause_started_at, None, strategy_type))
             raise
 
     async def shutdown(self) -> None:
@@ -289,7 +307,12 @@ class RateLimitCoordinator:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    async def _finalize_cooldown(self, start_time: float, error: Exception | None) -> None:
+    async def _finalize_cooldown(
+        self,
+        start_time: float,
+        error: Exception | None,
+        strategy_type: str | None = None,
+    ) -> None:
         """Resume workers and emit COOLDOWN_ENDED."""
         actual_duration = max(0.0, time.time() - start_time)
 
@@ -300,7 +323,11 @@ class RateLimitCoordinator:
             self._rate_limit_event.set()
             self._current_generation_event.set()
 
-        payload: dict[str, float | str] = {"duration": actual_duration}
+        payload: dict[str, float | str | int] = {"duration": actual_duration}
+        if self._quota_scope_id is not None:
+            payload["quota_scope_id"] = self._quota_scope_id
+        if strategy_type is not None:
+            payload["strategy_type"] = strategy_type
         if error is not None:
             payload["error"] = str(error)[:_ERROR_MESSAGE_MAX_LENGTH]
 

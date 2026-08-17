@@ -7,9 +7,8 @@ stats) but no queue, workers, or result stream — so the single-call helper and
 the gateway can run ``executor.execute(work_item)`` directly.
 
 Observers and middlewares are intentionally empty here: these surfaces are the
-request path, not a batch with progress reporting. A single shared host (hence
-a single shared ``RateLimitCoordinator``) is what makes many concurrent callers
-respect one coordinated cooldown.
+request path, not a batch with progress reporting. One registry per shared host
+makes concurrent callers coordinate by quota-scope identity.
 """
 
 from __future__ import annotations
@@ -29,37 +28,19 @@ from ..base import (
 from ..core import ProcessorConfig
 from ..llm_strategies import LLMCallStrategy
 from ..strategies import (
-    DefaultErrorClassifier,
     ErrorClassifier,
     ExponentialBackoffStrategy,
     RateLimitStrategy,
 )
 from ..token_extractor import TokenExtractor
+from .admission import AdmissionRegistry
 from .capacity import CapacityLimiter
+from .classifier_resolver import StrategyClassifierResolver
 from .event_dispatcher import EventDispatcher
 from .guardrails import AbortController
 from .item_executor import ItemExecutor
 from .rate_limit_coordinator import RateLimitCoordinator
 from .strategy_lifecycle import StrategyLifecycle
-
-
-def _resolve_classifier(
-    strategy: LLMCallStrategy | None, explicit: ErrorClassifier | None
-) -> ErrorClassifier:
-    """Use the caller's classifier, else the strategy's recommendation, else default."""
-    if explicit is not None:
-        return explicit
-    if strategy is not None:
-        recommend = getattr(strategy, "recommended_error_classifier", None)
-        if recommend is not None:
-            recommended: ErrorClassifier | None
-            try:
-                recommended = recommend()
-            except Exception:
-                recommended = None
-            if recommended is not None:
-                return recommended
-    return DefaultErrorClassifier()
 
 
 class ExecutorHost(Generic[TInput, TOutput, TContext]):
@@ -78,7 +59,9 @@ class ExecutorHost(Generic[TInput, TOutput, TContext]):
         rate_limit_strategy: RateLimitStrategy | None = None,
     ) -> None:
         self.config = config
-        self.error_classifier = _resolve_classifier(strategy, error_classifier)
+        self._classifier_resolver = StrategyClassifierResolver(error_classifier)
+        # Compatibility/debug alias. Item execution resolves per strategy.
+        self.error_classifier = self._classifier_resolver.compatibility_classifier
         self.rate_limit_strategy = rate_limit_strategy or ExponentialBackoffStrategy(
             initial_cooldown=config.rate_limit.cooldown_seconds,
             max_cooldown=config.rate_limit.max_cooldown_seconds,
@@ -95,11 +78,23 @@ class ExecutorHost(Generic[TInput, TOutput, TContext]):
         self._events: EventDispatcher[TInput, TOutput, TContext] = EventDispatcher(
             observers=[], middlewares=[]
         )
-        # One shared coordinator → coordinated cooldown across all callers.
-        self._rate_limit_coord = RateLimitCoordinator(
+        self._admission_registry = AdmissionRegistry(
             rate_limit_strategy=self.rate_limit_strategy,
             events=self._events,
+            max_requests_per_minute=config.max_requests_per_minute,
         )
+        # Queue-less hosts are constructed for one strategy, so this old
+        # private alias can point at that strategy's real scoped coordinator.
+        if strategy is not None:
+            initial_state = self._admission_registry.resolve(strategy)
+            self._rate_limit_coord = initial_state.cooldown
+            self._owns_compatibility_coordinator = False
+        else:
+            self._rate_limit_coord = RateLimitCoordinator(
+                rate_limit_strategy=self.rate_limit_strategy,
+                events=self._events,
+            )
+            self._owns_compatibility_coordinator = True
         self._strategy_lifecycle: StrategyLifecycle[TOutput] = StrategyLifecycle()
         self._capacity_limiter = CapacityLimiter(
             config.max_provider_concurrency,
@@ -112,16 +107,6 @@ class ExecutorHost(Generic[TInput, TOutput, TContext]):
         # Queue-less call/gateway surfaces have item deadlines but no shared
         # batch abort controller.
         self._abort_controller: AbortController | None = None
-
-        if config.max_requests_per_minute:
-            from aiolimiter import AsyncLimiter
-
-            self._proactive_rate_limiter: AsyncLimiter | None = AsyncLimiter(
-                max_rate=config.max_requests_per_minute,
-                time_period=60,
-            )
-        else:
-            self._proactive_rate_limiter = None
 
         self.executor: ItemExecutor[TInput, TOutput, TContext] = ItemExecutor(self)
 
@@ -164,7 +149,20 @@ class ExecutorHost(Generic[TInput, TOutput, TContext]):
 
     async def aclose(self) -> None:
         """Run cleanup() on every strategy this host prepared."""
-        await self._strategy_lifecycle.cleanup_all()
-        # Cancel any in-flight coordinator-owned cooldown task so a gateway
-        # or single-call host teardown doesn't leak it (issue #88).
-        await self._rate_limit_coord.shutdown()
+        errors: list[BaseException] = []
+        try:
+            await self._strategy_lifecycle.cleanup_all()
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            await self._admission_registry.shutdown()
+        except BaseException as exc:
+            errors.append(exc)
+        if self._owns_compatibility_coordinator:
+            try:
+                await self._rate_limit_coord.shutdown()
+            except BaseException as exc:
+                errors.append(exc)
+        self._classifier_resolver.clear()
+        if errors:
+            raise errors[0]

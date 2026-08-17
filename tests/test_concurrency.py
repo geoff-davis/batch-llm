@@ -481,12 +481,13 @@ async def test_slow_start_engages_after_rate_limit():
         error_classifier=TestRateLimitClassifier(),
         rate_limit_strategy=strategy,
     )
+    shared_call_strategy = PydanticAIStrategy(agent=mock_agent)
 
     for i in range(3):
         await processor.add_work(
             LLMWorkItem(
                 item_id=f"rl_{i}",
-                strategy=PydanticAIStrategy(agent=mock_agent),
+                strategy=shared_call_strategy,
                 prompt=f"Test {i}",
                 context=None,
             )
@@ -736,10 +737,6 @@ async def test_proactive_rate_limiting_configured():
 
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
 
-    # Verify rate limiter is initialized
-    assert processor._proactive_rate_limiter is not None
-    assert hasattr(processor._proactive_rate_limiter, "acquire")
-
     # Add a few items and verify they complete successfully
     for i in range(3):
         work_item = LLMWorkItem(
@@ -749,6 +746,10 @@ async def test_proactive_rate_limiting_configured():
             context=None,
         )
         await processor.add_work(work_item)
+
+    # The configured request gate is now per quota-scope identity.
+    assert len(processor._admission_registry.states) == 3
+    assert all(state.quota_gate.enabled for state in processor._admission_registry.states)
 
     result = await processor.process_all()
 
@@ -814,19 +815,20 @@ async def test_proactive_rate_limiting_with_multiple_workers():
     )
 
     processor = ParallelBatchProcessor[str, TestOutput, None](config=config)
-
-    # Verify same limiter is used (not per-worker)
-    assert processor._proactive_rate_limiter is not None
+    shared_strategy = PydanticAIStrategy(agent=mock_agent)
 
     # Add items
     for i in range(10):
         work_item = LLMWorkItem(
             item_id=f"item_{i}",
-            strategy=PydanticAIStrategy(agent=mock_agent),
+            strategy=shared_strategy,
             prompt=f"Test {i}",
             context=None,
         )
         await processor.add_work(work_item)
+
+    # All workers using the same strategy identity share one request gate.
+    assert len(processor._admission_registry.states) == 1
 
     result = await processor.process_all()
 

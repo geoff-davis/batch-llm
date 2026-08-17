@@ -404,12 +404,18 @@ class ProcessorConfig:
                 "progress_refresh_interval_seconds must be finite and > 0 "
                 f"(got {self.progress_refresh_interval_seconds!r})."
             )
-        if self.max_requests_per_minute is not None and self.max_requests_per_minute <= 0:
-            raise ValueError(
-                f"max_requests_per_minute must be > 0 or None (got {self.max_requests_per_minute}). "
-                f"Set config.max_requests_per_minute to None to disable proactive rate limiting, "
-                f"or a positive number (typical: 10-500 requests/minute)."
-            )
+        if self.max_requests_per_minute is not None:
+            if (
+                isinstance(self.max_requests_per_minute, bool)
+                or not isinstance(self.max_requests_per_minute, (int, float))
+                or not math.isfinite(self.max_requests_per_minute)
+                or self.max_requests_per_minute <= 0
+            ):
+                raise ValueError(
+                    "max_requests_per_minute must be > 0 or None (and finite when set) "
+                    f"(got {self.max_requests_per_minute!r}). Set it to None to disable "
+                    "proactive rate limiting, or a positive number (including fractional RPM)."
+                )
 
         # Validate nested configs first
         self.retry.validate()
@@ -439,7 +445,8 @@ class ProcessorConfig:
                     f"max_workers ({self.max_workers}). "
                     f"At {requests_per_second:.2f} requests/second with {self.max_workers} workers, "
                     f"workers may frequently wait for rate limit tokens. "
-                    f"Consider reducing max_workers to {int(requests_per_second)} or increasing "
+                    f"Consider reducing max_workers to {max(1, int(requests_per_second))} "
+                    f"or increasing "
                     f"max_requests_per_minute."
                 )
 

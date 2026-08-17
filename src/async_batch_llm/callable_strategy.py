@@ -154,6 +154,7 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
         dry_run: DryRunCallback[TOutput] | None = None,
         max_concurrency: int | None = None,
         concurrency_scope: object | None = None,
+        quota_scope: object | None = None,
         request_concurrency: RequestConcurrencyCallback | None = None,
     ) -> None:
         if not callable(invoke):
@@ -178,6 +179,7 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
         self._dry_run_callback = dry_run
         self._max_concurrency = max_concurrency
         self._concurrency_scope = concurrency_scope
+        self._quota_scope = quota_scope
         self._request_concurrency_callback = request_concurrency
 
     @property
@@ -192,6 +194,15 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
     @property
     def concurrency_scope(self) -> object:
         return self if self._concurrency_scope is None else self._concurrency_scope
+
+    @property
+    def quota_scope(self) -> object:
+        """Identity whose RPM and coordinated cooldown this call consumes.
+
+        Defaults to :attr:`concurrency_scope`; pass ``quota_scope=`` when
+        transport capacity and provider/account quota have different owners.
+        """
+        return self.concurrency_scope if self._quota_scope is None else self._quota_scope
 
     def recommended_error_classifier(self) -> ErrorClassifier | None:
         return self._error_classifier
