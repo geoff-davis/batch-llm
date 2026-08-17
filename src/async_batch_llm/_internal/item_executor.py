@@ -15,6 +15,7 @@ rebound by ``start()`` and admission/classifier ownership lives on the host.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, cast
@@ -40,8 +41,18 @@ from ..strategies import (
     FrameworkTimeoutError,
     ItemDeadlineExceeded,
     RateLimitRetriesExceeded,
+    TokenEstimateExceedsLimit,
+    TokenEstimationError,
+    TokenEstimatorRequired,
 )
-from .admission import AdmissionRegistry, ScopeAdmissionState
+from ..token_estimation import TokenEstimate
+from ..token_extractor import TokenUsageObservation
+from .admission import (
+    AdmissionRegistry,
+    QuotaFinalization,
+    QuotaReservation,
+    ScopeAdmissionState,
+)
 from .capacity import CapacityLimiter
 from .classifier_resolver import StrategyClassifierResolver
 from .error_logging import log_retryable_error, log_validation_error
@@ -69,6 +80,14 @@ _LAST_STARTUP_RAMP_KEY = "_abl_last_startup_ramp_wait_seconds"
 _LAST_EXECUTION_KEY = "_abl_last_execution_seconds"
 _LAST_PROVIDER_KEY = "_abl_last_provider_seconds"
 _LAST_COOLDOWN_KEY = "_abl_last_cooldown_wait_seconds"
+_LAST_QUOTA_WAIT_KEY = "_abl_last_quota_wait_seconds"
+_LAST_ESTIMATED_INPUT_KEY = "_abl_last_estimated_input_tokens"
+_LAST_ESTIMATED_OUTPUT_KEY = "_abl_last_estimated_output_tokens"
+_LAST_RESERVED_TOKENS_KEY = "_abl_last_reserved_tokens"
+_LAST_REPORTED_TOKENS_KEY = "_abl_last_reported_tokens"
+_LAST_RECONCILIATION_DELTA_KEY = "_abl_last_reconciliation_delta_tokens"
+_LAST_QUOTA_SCOPE_KEY = "_abl_last_quota_scope_id"
+_PHYSICAL_TRY_KEY = "_abl_physical_try_number"
 _LAST_TIMEOUT_KEY = "_abl_last_timeout_category"
 _LAST_ERROR_CATEGORY_KEY = "_abl_last_error_category"
 _TOTAL_DEADLINE_KEY = "_abl_total_item_deadline"
@@ -80,6 +99,17 @@ _E = TypeVar("_E", bound=BaseException)
 def _state_float(state: RetryState, key: str) -> float:
     value = state.get(key, 0.0)
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _state_optional_int(state: RetryState, key: str) -> int | None:
+    value = state.get(key)
+    return value if not isinstance(value, bool) and isinstance(value, int) else None
+
+
+def _is_async_callable(callback: object) -> bool:
+    return inspect.iscoroutinefunction(callback) or (
+        callable(callback) and inspect.iscoroutinefunction(type(callback).__call__)
+    )
 
 
 def _attempt_timing(
@@ -104,6 +134,13 @@ def _attempt_timing(
         execution_seconds=_state_float(state, _LAST_EXECUTION_KEY),
         provider_seconds=provider_seconds,
         cooldown_wait_seconds=_state_float(state, _LAST_COOLDOWN_KEY),
+        quota_wait_seconds=_state_float(state, _LAST_QUOTA_WAIT_KEY),
+        estimated_input_tokens=_state_optional_int(state, _LAST_ESTIMATED_INPUT_KEY),
+        estimated_output_tokens=_state_optional_int(state, _LAST_ESTIMATED_OUTPUT_KEY),
+        reserved_tokens=_state_optional_int(state, _LAST_RESERVED_TOKENS_KEY) or 0,
+        reported_tokens=_state_optional_int(state, _LAST_REPORTED_TOKENS_KEY),
+        reconciliation_delta_tokens=_state_optional_int(state, _LAST_RECONCILIATION_DELTA_KEY),
+        quota_scope_id=_state_optional_int(state, _LAST_QUOTA_SCOPE_KEY),
         success=success,
         error_type=error_type,
         error_category=error_category,
@@ -149,7 +186,15 @@ def _classify_error(exception: Exception, classifier: ErrorClassifier) -> ErrorI
     cached = getattr(exception, "__dict__", {}).get(_ERROR_INFO_EXCEPTION_KEY)
     if isinstance(cached, ErrorInfo):
         return cached
-    error_info = classifier.classify(exception)
+    if isinstance(exception, TokenEstimationError):
+        error_info = ErrorInfo(
+            is_retryable=False,
+            is_rate_limit=False,
+            is_timeout=False,
+            error_category=exception.error_category,
+        )
+    else:
+        error_info = classifier.classify(exception)
     if hasattr(exception, "__dict__"):
         exception.__dict__[_ERROR_INFO_EXCEPTION_KEY] = error_info
     return error_info
@@ -313,6 +358,232 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
 
     def _log_validation_error(self, exception, work_item, attempt_number, token_msg) -> None:
         log_validation_error(exception, work_item.item_id, attempt_number, token_msg)
+
+    async def _resolve_token_estimate(
+        self,
+        *,
+        prompt: str,
+        strategy: LLMCallStrategy[TOutput],
+        attempt: int,
+        retry_state: RetryState | None,
+        deadline: float | None,
+        item_id: str,
+    ) -> TokenEstimate:
+        estimator = self.config.token_estimator
+
+        async def invoke() -> object:
+            value: object
+            if estimator is not None:
+                if _is_async_callable(estimator):
+                    value = estimator(
+                        prompt,
+                        strategy=strategy,
+                        attempt=attempt,
+                        state=retry_state,
+                    )
+                else:
+                    value = await asyncio.to_thread(
+                        estimator,
+                        prompt,
+                        strategy=strategy,
+                        attempt=attempt,
+                        state=retry_state,
+                    )
+            else:
+                estimate_tokens = strategy.estimate_tokens
+                if _is_async_callable(estimate_tokens):
+                    value = estimate_tokens(prompt, attempt, retry_state)
+                else:
+                    value = await asyncio.to_thread(
+                        estimate_tokens,
+                        prompt,
+                        attempt,
+                        retry_state,
+                    )
+            if inspect.isawaitable(value):
+                return await value
+            return value
+
+        try:
+            value = await await_with_guardrails(
+                invoke(),
+                item_deadline=deadline,
+                item_id=item_id,
+                abort_controller=self._abort_controller,
+            )
+            if value is None:
+                raise TokenEstimatorRequired(
+                    "TPM admission requires ProcessorConfig.token_estimator or a "
+                    "strategy-level token estimator."
+                )
+            if not isinstance(value, TokenEstimate):
+                raise TokenEstimationError(
+                    f"Token estimator must return TokenEstimate (got {type(value).__name__})."
+                )
+            if value.total_tokens <= 0:
+                raise TokenEstimationError(
+                    "Token estimate total must be greater than zero when TPM admission is enabled."
+                )
+            limit = self.config.max_tokens_per_minute
+            assert limit is not None
+            if value.total_tokens > limit:
+                raise TokenEstimateExceedsLimit(
+                    "Token estimate cannot fit in the configured per-minute token limit "
+                    f"({value.total_tokens} > {limit})."
+                )
+            return value
+        except asyncio.CancelledError:
+            raise
+        except (ItemDeadlineExceeded, BatchDeadlineExceeded, BatchAbortedError):
+            raise
+        except TokenEstimationError:
+            async with self._stats_lock:
+                self._stats.token_estimation_failures += 1
+            raise
+        except Exception:
+            async with self._stats_lock:
+                self._stats.token_estimation_failures += 1
+            raise TokenEstimationError(
+                "Token estimation failed; verify the configured local estimator."
+            ) from None
+
+    def _observe_exception_usage(self, exception: Exception) -> TokenUsageObservation:
+        """Preserve processor extraction overrides while retaining known/unknown."""
+        default = self._token_extractor.observe_exception(exception)
+        try:
+            override_usage = self._host._extract_token_usage(exception)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return default
+        nonzero_override = any(
+            not isinstance(value, bool) and isinstance(value, int) and value != 0
+            for value in override_usage.values()
+        )
+        try:
+            observed_override = self._token_extractor.observe_result(override_usage)
+        except (TypeError, ValueError):
+            return default
+        if default.known:
+            return TokenUsageObservation(
+                usage=cast(TokenUsage, dict(override_usage)),
+                known=True,
+                reported_tokens=(
+                    observed_override.reported_tokens
+                    if nonzero_override
+                    else default.reported_tokens
+                ),
+            )
+        if nonzero_override:
+            return TokenUsageObservation(
+                usage=cast(TokenUsage, dict(override_usage)),
+                known=True,
+                reported_tokens=observed_override.reported_tokens,
+            )
+        return TokenUsageObservation(
+            usage=cast(TokenUsage, dict(override_usage)),
+            known=False,
+            reported_tokens=None,
+        )
+
+    async def _record_quota_admitted(
+        self,
+        reservation: QuotaReservation,
+        state: ScopeAdmissionState,
+        work_item: LLMWorkItem[TInput, TOutput, TContext],
+        worker_id: int,
+        attempt_number: int,
+        retry_state: RetryState | None,
+    ) -> None:
+        estimated_input = reservation.estimated_input_tokens or 0
+        estimated_output = reservation.estimated_output_tokens or 0
+        async with self._stats_lock:
+            self._stats.record_quota_admission(
+                wait_seconds=reservation.wait_seconds,
+                estimated_input_tokens=estimated_input,
+                estimated_output_tokens=estimated_output,
+                scope_count=self._admission_registry.entry_count,
+            )
+        if self._events.observers:
+            await self._emit_event(
+                ProcessingEvent.QUOTA_ADMITTED,
+                {
+                    "item_id": work_item.item_id,
+                    "worker_id": worker_id,
+                    "attempt": attempt_number,
+                    "try_number": (
+                        retry_state.get(_PHYSICAL_TRY_KEY) if retry_state is not None else None
+                    ),
+                    "quota_scope_id": state.ordinal,
+                    "wait_seconds": reservation.wait_seconds,
+                    "request_reserved": int(reservation.request_reserved),
+                    "estimated_input_tokens": estimated_input,
+                    "estimated_output_tokens": estimated_output,
+                    "estimated_total_tokens": reservation.reserved_tokens,
+                    "reserved_tokens": reservation.reserved_tokens,
+                    "rpm_configured": state.quota_gate.rpm_enabled,
+                    "tpm_configured": state.quota_gate.tpm_enabled,
+                    "limited_by": reservation.limited_by,
+                },
+            )
+
+    @staticmethod
+    def _store_quota_timing(
+        retry_state: RetryState | None,
+        reservation: QuotaReservation,
+        scope_id: int,
+    ) -> None:
+        if retry_state is None:
+            return
+        retry_state.set(_LAST_QUOTA_WAIT_KEY, reservation.wait_seconds)
+        retry_state.set(_LAST_QUOTA_SCOPE_KEY, scope_id)
+        retry_state.set(_LAST_RESERVED_TOKENS_KEY, reservation.reserved_tokens)
+        if reservation.estimated_input_tokens is not None:
+            retry_state.set(_LAST_ESTIMATED_INPUT_KEY, reservation.estimated_input_tokens)
+        if reservation.estimated_output_tokens is not None:
+            retry_state.set(_LAST_ESTIMATED_OUTPUT_KEY, reservation.estimated_output_tokens)
+
+    async def _record_quota_finalization(
+        self,
+        *,
+        reservation: QuotaReservation,
+        finalization: QuotaFinalization,
+        state: ScopeAdmissionState,
+        work_item: LLMWorkItem[TInput, TOutput, TContext],
+        worker_id: int,
+        attempt_number: int,
+        retry_state: RetryState | None,
+    ) -> None:
+        async with self._stats_lock:
+            self._stats.record_quota_finalization(
+                provider_started=finalization.provider_started,
+                reserved_tokens=reservation.reserved_tokens,
+                reported_tokens=finalization.reported_tokens,
+                delta_tokens=finalization.delta_tokens,
+            )
+        if retry_state is not None:
+            if finalization.provider_started and finalization.reported_tokens is not None:
+                retry_state.set(_LAST_REPORTED_TOKENS_KEY, finalization.reported_tokens)
+            if finalization.delta_tokens is not None:
+                retry_state.set(_LAST_RECONCILIATION_DELTA_KEY, finalization.delta_tokens)
+        if finalization.provider_started and self._events.observers:
+            await self._emit_event(
+                ProcessingEvent.QUOTA_RECONCILED,
+                {
+                    "item_id": work_item.item_id,
+                    "worker_id": worker_id,
+                    "attempt": attempt_number,
+                    "try_number": (
+                        retry_state.get(_PHYSICAL_TRY_KEY) if retry_state is not None else None
+                    ),
+                    "quota_scope_id": state.ordinal,
+                    "reserved_tokens": reservation.reserved_tokens,
+                    "reported_tokens": finalization.reported_tokens,
+                    "known_usage": finalization.known_usage,
+                    "delta_tokens": finalization.delta_tokens,
+                    "disposition": finalization.disposition,
+                },
+            )
 
     # ── Queue-less entry points (used by gateway + single) ───────
     async def wait_for_capacity(
@@ -536,10 +807,18 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
                 _LAST_EXECUTION_KEY,
                 _LAST_PROVIDER_KEY,
                 _LAST_COOLDOWN_KEY,
+                _LAST_QUOTA_WAIT_KEY,
+                _LAST_ESTIMATED_INPUT_KEY,
+                _LAST_ESTIMATED_OUTPUT_KEY,
+                _LAST_RESERVED_TOKENS_KEY,
+                _LAST_REPORTED_TOKENS_KEY,
+                _LAST_RECONCILIATION_DELTA_KEY,
+                _LAST_QUOTA_SCOPE_KEY,
                 _LAST_TIMEOUT_KEY,
                 _LAST_ERROR_CATEGORY_KEY,
             ):
                 retry_state.delete(key)
+            retry_state.set(_PHYSICAL_TRY_KEY, try_number)
             try:
                 # Through the host so a processor subclass override takes effect.
                 result = await self._host._process_item(
@@ -790,6 +1069,7 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
         original_item_id = work_item.item_id
         classifier: ErrorClassifier | None = None
         admission_state: ScopeAdmissionState | None = None
+        known_provider_token_usage: TokenUsage | None = None
 
         # Skip building the event payload entirely when nobody is listening.
         if self._events.observers:
@@ -880,8 +1160,21 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
                     retry_state=retry_state,
                     item_id=work_item.item_id,
                 )
+                estimate: TokenEstimate | None = None
+                if admission_state.quota_gate.tpm_enabled:
+                    estimate = await self._resolve_token_estimate(
+                        prompt=work_item.prompt,
+                        strategy=strategy,
+                        attempt=attempt_number,
+                        retry_state=retry_state,
+                        deadline=deadline,
+                        item_id=work_item.item_id,
+                    )
                 if admission_state.quota_gate.enabled:
-                    reservation_task = asyncio.create_task(admission_state.quota_gate.reserve())
+                    quota_wait_started = time.perf_counter()
+                    reservation_task = asyncio.create_task(
+                        admission_state.quota_gate.reserve(estimate)
+                    )
                     try:
                         reservation = await await_with_guardrails(
                             reservation_task,
@@ -900,12 +1193,32 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
                                 pass
                             else:
                                 unseen_reservation.finalize()
+                        if retry_state is not None:
+                            retry_state.set(
+                                _LAST_QUOTA_WAIT_KEY,
+                                max(0.0, time.perf_counter() - quota_wait_started),
+                            )
+                            retry_state.set(_LAST_QUOTA_SCOPE_KEY, admission_state.ordinal)
                         raise
                 else:
                     # Disabled mode is an allocation-light synchronous fast
                     # path: no waiter or task is created.
-                    reservation = await admission_state.quota_gate.reserve()
+                    reservation = await admission_state.quota_gate.reserve(estimate)
                 try:
+                    if admission_state.quota_gate.enabled:
+                        self._store_quota_timing(
+                            retry_state,
+                            reservation,
+                            admission_state.ordinal,
+                        )
+                        await self._record_quota_admitted(
+                            reservation,
+                            admission_state,
+                            work_item,
+                            worker_id,
+                            attempt_number,
+                            retry_state,
+                        )
                     async with self._capacity_limiter.admit(
                         strategy,
                         deadline=deadline,
@@ -1000,15 +1313,89 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
                                         timeout_exc.__dict__["_failed_token_usage"]
                                     )
                                 raise framework_timeout from timeout_exc
+                            output, token_usage, response_metadata = _unpack_strategy_result(
+                                raw_result
+                            )
+                            usage_observation = self._token_extractor.observe_result(token_usage)
+                            if (
+                                usage_observation.known
+                                and usage_observation.reported_tokens is not None
+                            ):
+                                normalized_usage = cast(
+                                    "dict[str, int]", usage_observation.usage
+                                ).copy()
+                                normalized_usage["total_tokens"] = usage_observation.reported_tokens
+                                known_provider_token_usage = cast(TokenUsage, normalized_usage)
+                        except BaseException as provider_error:
+                            if reservation.provider_started and not reservation.finalized:
+                                if admission_state.quota_gate.tpm_enabled:
+                                    observation = (
+                                        self._observe_exception_usage(provider_error)
+                                        if isinstance(provider_error, Exception)
+                                        else TokenUsageObservation(
+                                            usage=cast(TokenUsage, {}),
+                                            known=False,
+                                            reported_tokens=None,
+                                        )
+                                    )
+                                    finalization = (
+                                        reservation.reconcile(observation.reported_tokens)
+                                        if observation.known
+                                        and observation.reported_tokens is not None
+                                        else reservation.finalize_unknown()
+                                    )
+                                else:
+                                    finalization = reservation.finalize_request_only()
+                                if finalization is not None:
+                                    await self._record_quota_finalization(
+                                        reservation=reservation,
+                                        finalization=finalization,
+                                        state=admission_state,
+                                        work_item=work_item,
+                                        worker_id=worker_id,
+                                        attempt_number=attempt_number,
+                                        retry_state=retry_state,
+                                    )
+                            raise
+                        else:
+                            if admission_state.quota_gate.tpm_enabled:
+                                finalization = (
+                                    reservation.reconcile(usage_observation.reported_tokens)
+                                    if usage_observation.known
+                                    and usage_observation.reported_tokens is not None
+                                    else reservation.finalize_unknown()
+                                )
+                            else:
+                                finalization = reservation.finalize_request_only()
+                            if finalization is not None:
+                                await self._record_quota_finalization(
+                                    reservation=reservation,
+                                    finalization=finalization,
+                                    state=admission_state,
+                                    work_item=work_item,
+                                    worker_id=worker_id,
+                                    attempt_number=attempt_number,
+                                    retry_state=retry_state,
+                                )
                         finally:
                             if retry_state is not None:
                                 retry_state.set(
                                     _LAST_EXECUTION_KEY,
                                     max(0.0, time.perf_counter() - execution_started),
                                 )
-                        output, token_usage, response_metadata = _unpack_strategy_result(raw_result)
                 finally:
-                    reservation.finalize()
+                    if not reservation.finalized:
+                        finalization = reservation.finalize_unknown()
+                        if finalization is not None:
+                            await self._record_quota_finalization(
+                                reservation=reservation,
+                                finalization=finalization,
+                                state=admission_state,
+                                work_item=work_item,
+                                worker_id=worker_id,
+                                attempt_number=attempt_number,
+                                retry_state=retry_state,
+                            )
 
             llm_duration = time.time() - llm_start_time
             logger.debug(
@@ -1089,9 +1476,15 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            if (
+                known_provider_token_usage is not None
+                and hasattr(e, "__dict__")
+                and "_failed_token_usage" not in e.__dict__
+            ):
+                e.__dict__["_failed_token_usage"] = dict(known_provider_token_usage)
             # Notify strategy about the error before handling it
             # This allows strategy to adjust behavior for next retry (v0.3.0: now includes retry_state)
-            if strategy is not None:  # Type guard for mypy
+            if strategy is not None and not isinstance(e, TokenEstimationError):
                 try:
                     await await_with_guardrails(
                         strategy.on_error(e, attempt_number, retry_state),
@@ -1234,7 +1627,11 @@ class ItemExecutor(Generic[TInput, TOutput, TContext]):
             raise exception
 
         # Try middleware error handlers
-        middleware_result = await self._run_middlewares_on_error(work_item, exception)
+        middleware_result = (
+            None
+            if isinstance(exception, TokenEstimationError)
+            else await self._run_middlewares_on_error(work_item, exception)
+        )
         if middleware_result is not None:
             return middleware_result
 

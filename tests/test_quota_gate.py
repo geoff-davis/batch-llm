@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from async_batch_llm import TokenEstimate, TokenEstimateExceedsLimit
 from async_batch_llm._internal.admission import AdmissionGateClosed, QuotaGate
 
 
@@ -176,4 +177,192 @@ async def test_disabled_gate_is_immediate_and_reservation_is_noop() -> None:
     reservation.mark_provider_started()
     assert reservation.finalize()
     assert not gate.has_wake_task
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tpm_only_refills_and_reserves_estimate_atomically() -> None:
+    clock = _ManualClock()
+    gate = QuotaGate(None, 120, clock=clock, sleep=clock.sleep)
+
+    first = await gate.reserve(TokenEstimate(80, 40))
+    assert first.request_reserved is False
+    assert first.reserved_tokens == 120
+    assert gate.token_available == 0
+    first.mark_provider_started()
+    assert first.reconcile(120) is not None
+
+    waiting = asyncio.create_task(gate.reserve(TokenEstimate(30)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert not waiting.done()
+    await clock.advance(14.9)
+    assert not waiting.done()
+    await clock.advance(0.1)
+    second = await waiting
+    assert second.wait_seconds == pytest.approx(15.0)
+    assert second.limited_by == "tpm"
+    second.mark_provider_started()
+    second.reconcile(30)
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_combined_gate_is_fifo_and_cancellation_wakes_smaller_next_waiter() -> None:
+    clock = _ManualClock()
+    gate = QuotaGate(1.0, 60, clock=clock, sleep=clock.sleep)
+    held = await gate.reserve(TokenEstimate(60))
+    held.mark_provider_started()
+    held.reconcile(60)
+
+    large = asyncio.create_task(gate.reserve(TokenEstimate(60)))
+    small = asyncio.create_task(gate.reserve(TokenEstimate(1)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await clock.advance(1.0)
+    assert not large.done()
+    assert not small.done(), "a smaller request must not bypass the FIFO head"
+
+    large.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await large
+    await clock.advance(59.0)
+    reservation = await small
+    assert reservation.limited_by == "rpm"
+    reservation.mark_provider_started()
+    reservation.reconcile(1)
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_refund_debt_known_zero_unknown_and_exactly_once() -> None:
+    clock = _ManualClock()
+    gate = QuotaGate(None, 100, clock=clock, sleep=clock.sleep)
+
+    over = await gate.reserve(TokenEstimate(80))
+    over.mark_provider_started()
+    final = over.reconcile(20)
+    assert final is not None and final.delta_tokens == -60
+    assert gate.token_available == pytest.approx(80)
+    assert over.reconcile(0) is None
+
+    under = await gate.reserve(TokenEstimate(80))
+    under.mark_provider_started()
+    final = under.reconcile(250)
+    assert final is not None and final.delta_tokens == 170
+    assert gate.token_available == pytest.approx(-170)
+
+    waiting = asyncio.create_task(gate.reserve(TokenEstimate(1)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await clock.advance(102.6)
+    reservation = await waiting
+    reservation.mark_provider_started()
+    reservation.reconcile(0)
+    assert gate.token_available == pytest.approx(1)
+    await clock.advance(59.4)
+    assert gate.token_available == pytest.approx(100)
+
+    unknown = await gate.reserve(TokenEstimate(40))
+    unknown.mark_provider_started()
+    final = unknown.finalize_unknown()
+    assert final is not None and final.reported_tokens is None
+    assert gate.token_available == pytest.approx(60)
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tpm_rejects_zero_missing_and_impossible_estimates_immediately() -> None:
+    gate = QuotaGate(None, 10)
+    with pytest.raises(ValueError, match="positive TokenEstimate"):
+        await gate.reserve()
+    with pytest.raises(ValueError, match="positive TokenEstimate"):
+        await gate.reserve(TokenEstimate(0))
+    with pytest.raises(TokenEstimateExceedsLimit, match="11 > 10"):
+        await gate.reserve(TokenEstimate(11))
+    assert gate.waiter_count == 0
+    assert not gate.has_wake_task
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_prestart_finalization_refunds_request_and_tokens_once() -> None:
+    gate = QuotaGate(1.0, 100)
+    reservation = await gate.reserve(TokenEstimate(75))
+    assert gate.request_available == pytest.approx(0, abs=1e-5)
+    assert gate.token_available == pytest.approx(25, abs=1e-3)
+    final = reservation.finalize_before_start()
+    assert final is not None and final.disposition == "refunded_before_start"
+    assert gate.request_available == pytest.approx(1)
+    assert gate.token_available == pytest.approx(100)
+    assert reservation.finalize_before_start() is None
+    await gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_combined_gate_reports_each_limiting_dimension() -> None:
+    clock = _ManualClock()
+
+    rpm_gate = QuotaGate(1, 120, clock=clock, sleep=clock.sleep)
+    first = await rpm_gate.reserve(TokenEstimate(1))
+    first.mark_provider_started()
+    first.reconcile(0)
+    rpm_waiter = asyncio.create_task(rpm_gate.reserve(TokenEstimate(1)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await clock.advance(60)
+    rpm = await rpm_waiter
+    assert rpm.limited_by == "rpm"
+    rpm.finalize_before_start()
+    await rpm_gate.shutdown()
+
+    tpm_gate = QuotaGate(120, 60, clock=clock, sleep=clock.sleep)
+    first = await tpm_gate.reserve(TokenEstimate(60))
+    first.mark_provider_started()
+    first.reconcile(60)
+    tpm_waiter = asyncio.create_task(tpm_gate.reserve(TokenEstimate(60)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await clock.advance(60)
+    tpm = await tpm_waiter
+    assert tpm.limited_by == "tpm"
+    tpm.finalize_before_start()
+    await tpm_gate.shutdown()
+
+    both_gate = QuotaGate(1, 60, clock=clock, sleep=clock.sleep)
+    first = await both_gate.reserve(TokenEstimate(60))
+    first.mark_provider_started()
+    first.reconcile(60)
+    both_waiter = asyncio.create_task(both_gate.reserve(TokenEstimate(60)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await clock.advance(60)
+    both = await both_waiter
+    assert both.limited_by == "both"
+    both.finalize_before_start()
+    await both_gate.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_refunds_cap_at_burst_capacity_and_repeated_cancel_does_not_leak() -> None:
+    clock = _ManualClock()
+    gate = QuotaGate(1, 100, clock=clock, sleep=clock.sleep)
+    reservation = await gate.reserve(TokenEstimate(10))
+    await clock.advance(60)
+    assert reservation.finalize_before_start() is not None
+    assert gate.request_available == pytest.approx(1)
+    assert gate.token_available == pytest.approx(100)
+
+    held = await gate.reserve(TokenEstimate(100))
+    cancelled = asyncio.create_task(gate.reserve(TokenEstimate(1)))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    cancelled.cancel()
+    assert gate.waiter_count == 0
+    held.finalize_before_start()
+    assert gate.request_available == pytest.approx(1)
+    assert gate.token_available == pytest.approx(100)
     await gate.shutdown()

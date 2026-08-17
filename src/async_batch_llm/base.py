@@ -255,6 +255,13 @@ class AttemptTiming:
     error_type: str | None = None
     error_category: str | None = None
     timeout_category: str | None = None
+    quota_wait_seconds: float = 0.0
+    estimated_input_tokens: int | None = None
+    estimated_output_tokens: int | None = None
+    reserved_tokens: int = 0
+    reported_tokens: int | None = None
+    reconciliation_delta_tokens: int | None = None
+    quota_scope_id: int | None = None
 
 
 @dataclass
@@ -284,6 +291,11 @@ class WorkItemTiming:
     @property
     def cooldown_wait_seconds(self) -> float:
         return sum(attempt.cooldown_wait_seconds for attempt in self.attempts)
+
+    @property
+    def quota_wait_seconds(self) -> float:
+        """Combined RPM/TPM wait across physical attempts."""
+        return sum(attempt.quota_wait_seconds for attempt in self.attempts)
 
     @property
     def retry_backoff_seconds(self) -> float:
@@ -366,6 +378,11 @@ class WorkItemResult(ProviderOutputViews, Generic[TOutput, TContext]):
             ratings = self.metadata["safety_ratings"]
             if isinstance(ratings, dict):
                 self.__dict__["gemini_safety_ratings"] = ratings
+
+    @property
+    def quota_wait_seconds(self) -> float:
+        """Combined RPM/TPM wait, separate from provider-capacity admission."""
+        return self.timing.quota_wait_seconds
 
     def to_dict(self, *, encoder: "ValueEncoder | None" = None) -> dict[str, Any]:
         """Return a versioned, JSON-safe representation of this result.
@@ -766,6 +783,39 @@ class BatchResult(Generic[TOutput, TContext]):
             lines.append(
                 _percentile_line("admission wait", [r.admission_wait_seconds for r in timed])
             )
+            quota_attempts = [
+                attempt
+                for result in timed
+                for attempt in result.timing.attempts
+                if attempt.quota_scope_id is not None
+            ]
+            if quota_attempts:
+                lines.append(_percentile_line("quota wait", [r.quota_wait_seconds for r in timed]))
+                reserved = sum(attempt.reserved_tokens for attempt in quota_attempts)
+                reported = sum(
+                    attempt.reported_tokens or 0
+                    for attempt in quota_attempts
+                    if attempt.reported_tokens is not None
+                )
+                refunds = sum(
+                    max(0, -(attempt.reconciliation_delta_tokens or 0))
+                    for attempt in quota_attempts
+                )
+                debt = sum(
+                    max(0, attempt.reconciliation_delta_tokens or 0) for attempt in quota_attempts
+                )
+                unknown = sum(
+                    1
+                    for attempt in quota_attempts
+                    if attempt.reserved_tokens
+                    and attempt.reported_tokens is None
+                    and attempt.reconciliation_delta_tokens is None
+                )
+                if reserved or reported or refunds or debt or unknown:
+                    lines.append(
+                        f"  quota tokens    reserved {reserved:,} · reported {reported:,} · "
+                        f"refunded {refunds:,} · debt {debt:,} · unknown {unknown:,}"
+                    )
             lines.append(_percentile_line("execution", [r.timing.execution_seconds for r in timed]))
 
         if self.failed:
@@ -965,7 +1015,21 @@ class ProcessingStats:
     cached_input_tokens: int = 0  # Tokens served from provider-side caches
     total_admission_wait_seconds: float = 0.0
     max_admission_wait_seconds: float = 0.0
+    total_quota_wait_seconds: float = 0.0
+    max_quota_wait_seconds: float = 0.0
+    quota_admitted_attempts: int = 0
+    estimated_input_tokens: int = 0
+    estimated_output_tokens: int = 0
+    reserved_tokens: int = 0
+    reported_reconciliation_tokens: int = 0
+    refunded_tokens: int = 0
+    underestimated_tokens: int = 0
+    unknown_usage_attempts: int = 0
+    known_zero_usage_attempts: int = 0
+    token_estimation_failures: int = 0
+    quota_scope_count: int = 0
     _admission_wait_samples: list[float] = field(default_factory=list, repr=False)
+    _quota_wait_samples: list[float] = field(default_factory=list, repr=False)
     _execution_samples: list[float] = field(default_factory=list, repr=False)
     structured_output_recoveries: int = 0
     structured_output_retries_avoided: int = 0
@@ -991,6 +1055,19 @@ class ProcessingStats:
             "cached_input_tokens": self.cached_input_tokens,
             "total_admission_wait_seconds": self.total_admission_wait_seconds,
             "max_admission_wait_seconds": self.max_admission_wait_seconds,
+            "total_quota_wait_seconds": self.total_quota_wait_seconds,
+            "max_quota_wait_seconds": self.max_quota_wait_seconds,
+            "quota_admitted_attempts": self.quota_admitted_attempts,
+            "estimated_input_tokens": self.estimated_input_tokens,
+            "estimated_output_tokens": self.estimated_output_tokens,
+            "reserved_tokens": self.reserved_tokens,
+            "reported_reconciliation_tokens": self.reported_reconciliation_tokens,
+            "refunded_tokens": self.refunded_tokens,
+            "underestimated_tokens": self.underestimated_tokens,
+            "unknown_usage_attempts": self.unknown_usage_attempts,
+            "known_zero_usage_attempts": self.known_zero_usage_attempts,
+            "token_estimation_failures": self.token_estimation_failures,
+            "quota_scope_count": self.quota_scope_count,
             "structured_output_recoveries": self.structured_output_recoveries,
             "structured_output_retries_avoided": self.structured_output_retries_avoided,
             "structured_output_recovery_reasons": self.structured_output_recovery_reasons.copy(),
@@ -1001,6 +1078,9 @@ class ProcessingStats:
             "admission_wait_p50_seconds": _percentile(self._admission_wait_samples, 50),
             "admission_wait_p95_seconds": _percentile(self._admission_wait_samples, 95),
             "admission_wait_p99_seconds": _percentile(self._admission_wait_samples, 99),
+            "quota_wait_p50_seconds": _percentile(self._quota_wait_samples, 50),
+            "quota_wait_p95_seconds": _percentile(self._quota_wait_samples, 95),
+            "quota_wait_p99_seconds": _percentile(self._quota_wait_samples, 99),
             "execution_p50_seconds": _percentile(self._execution_samples, 50),
             "execution_p95_seconds": _percentile(self._execution_samples, 95),
             "execution_p99_seconds": _percentile(self._execution_samples, 99),
@@ -1019,6 +1099,52 @@ class ProcessingStats:
             del self._admission_wait_samples[:-sample_limit]
         if len(self._execution_samples) > sample_limit:
             del self._execution_samples[:-sample_limit]
+
+    def record_quota_admission(
+        self,
+        *,
+        wait_seconds: float,
+        estimated_input_tokens: int,
+        estimated_output_tokens: int,
+        scope_count: int,
+        sample_limit: int = 10_000,
+    ) -> None:
+        """Record one live quota reservation with bounded wait samples."""
+        self.quota_admitted_attempts += 1
+        self.total_quota_wait_seconds += wait_seconds
+        self.max_quota_wait_seconds = max(self.max_quota_wait_seconds, wait_seconds)
+        self.estimated_input_tokens += estimated_input_tokens
+        self.estimated_output_tokens += estimated_output_tokens
+        self.reserved_tokens += estimated_input_tokens + estimated_output_tokens
+        self.quota_scope_count = max(self.quota_scope_count, scope_count)
+        self._quota_wait_samples.append(wait_seconds)
+        if len(self._quota_wait_samples) > sample_limit:
+            del self._quota_wait_samples[:-sample_limit]
+
+    def record_quota_finalization(
+        self,
+        *,
+        provider_started: bool,
+        reserved_tokens: int,
+        reported_tokens: int | None,
+        delta_tokens: int | None,
+    ) -> None:
+        """Record a finalized live reservation without changing actual-token totals."""
+        if not provider_started:
+            self.refunded_tokens += reserved_tokens
+            return
+        if not reserved_tokens:
+            return
+        if reported_tokens is None:
+            self.unknown_usage_attempts += 1
+            return
+        self.reported_reconciliation_tokens += reported_tokens
+        if reported_tokens == 0:
+            self.known_zero_usage_attempts += 1
+        if delta_tokens is not None and delta_tokens < 0:
+            self.refunded_tokens += -delta_tokens
+        elif delta_tokens is not None and delta_tokens > 0:
+            self.underestimated_tokens += delta_tokens
 
 
 def _percentile(samples: list[float], percentile: int) -> float:

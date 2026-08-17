@@ -259,6 +259,30 @@ def test_failed_token_usage_coerces_non_int_numerics(extractor):
     assert result["total_tokens"] == 12
 
 
+def test_observation_distinguishes_explicit_zero_from_unknown(extractor):
+    known_zero = Exception("known")
+    known_zero.__dict__["_failed_token_usage"] = {"total_tokens": 0}
+
+    explicit = extractor.observe_exception(known_zero)
+    missing = extractor.observe_exception(Exception("unknown"))
+    empty_success = extractor.observe_result({})
+
+    assert explicit.known and explicit.reported_tokens == 0
+    assert not missing.known and missing.reported_tokens is None
+    assert not empty_success.known and empty_success.reported_tokens is None
+
+
+def test_malformed_exception_usage_is_unknown_and_never_negative(extractor):
+    malformed = Exception("provider failure")
+    malformed.__dict__["_failed_token_usage"] = {"total_tokens": -5}
+
+    observation = extractor.observe_exception(malformed)
+
+    assert not observation.known
+    assert observation.reported_tokens is None
+    assert observation.usage["total_tokens"] == 0
+
+
 def test_extract_pydantic_ai_v1_usage_shape(extractor):
     """pydantic-ai v1 renamed fields to input_tokens/output_tokens and
     surfaces cache hits as cache_read_tokens."""

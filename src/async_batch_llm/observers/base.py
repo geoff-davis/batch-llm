@@ -10,6 +10,8 @@ class ProcessingEvent(Enum):
 
     ITEM_STARTED = "item_started"
     ITEM_ADMITTED = "item_admitted"
+    QUOTA_ADMITTED = "quota_admitted"
+    QUOTA_RECONCILED = "quota_reconciled"
     ITEM_COMPLETED = "item_completed"
     ITEM_FAILED = "item_failed"
     ITEM_REPLAYED = "item_replayed"

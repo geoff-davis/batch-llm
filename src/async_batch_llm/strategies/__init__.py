@@ -11,6 +11,9 @@ from .errors import (
     ItemDeadlineExceeded,
     ProviderResponseError,
     RateLimitRetriesExceeded,
+    TokenEstimateExceedsLimit,
+    TokenEstimationError,
+    TokenEstimatorRequired,
     TokenTrackingError,
 )
 from .rate_limit import (
@@ -30,6 +33,9 @@ __all__ = [
     "ItemDeadlineExceeded",
     "ProviderResponseError",
     "RateLimitRetriesExceeded",
+    "TokenEstimateExceedsLimit",
+    "TokenEstimationError",
+    "TokenEstimatorRequired",
     "TokenTrackingError",
     "RateLimitStrategy",
     "ExponentialBackoffStrategy",

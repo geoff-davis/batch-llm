@@ -251,6 +251,7 @@ class ParallelBatchProcessor(
             rate_limit_strategy=self.rate_limit_strategy,
             events=self._events,
             max_requests_per_minute=config.max_requests_per_minute,
+            max_tokens_per_minute=config.max_tokens_per_minute,
         )
         # A private compatibility coordinator serves direct legacy calls made
         # before a strategy exists. Once the first item is admitted, the old
@@ -576,6 +577,23 @@ class ParallelBatchProcessor(
                     "total_admission_wait_seconds", 0.0
                 ),
                 "max_admission_wait_seconds": stats_snapshot.get("max_admission_wait_seconds", 0.0),
+                "total_quota_wait_seconds": stats_snapshot.get("total_quota_wait_seconds", 0.0),
+                "max_quota_wait_seconds": stats_snapshot.get("max_quota_wait_seconds", 0.0),
+                "quota_wait_p50_seconds": stats_snapshot.get("quota_wait_p50_seconds", 0.0),
+                "quota_wait_p95_seconds": stats_snapshot.get("quota_wait_p95_seconds", 0.0),
+                "quota_wait_p99_seconds": stats_snapshot.get("quota_wait_p99_seconds", 0.0),
+                "estimated_input_tokens": stats_snapshot.get("estimated_input_tokens", 0),
+                "estimated_output_tokens": stats_snapshot.get("estimated_output_tokens", 0),
+                "reserved_tokens": stats_snapshot.get("reserved_tokens", 0),
+                "reported_reconciliation_tokens": stats_snapshot.get(
+                    "reported_reconciliation_tokens", 0
+                ),
+                "refunded_tokens": stats_snapshot.get("refunded_tokens", 0),
+                "underestimated_tokens": stats_snapshot.get("underestimated_tokens", 0),
+                "unknown_usage_attempts": stats_snapshot.get("unknown_usage_attempts", 0),
+                "known_zero_usage_attempts": stats_snapshot.get("known_zero_usage_attempts", 0),
+                "token_estimation_failures": stats_snapshot.get("token_estimation_failures", 0),
+                "quota_scope_count": stats_snapshot.get("quota_scope_count", 0),
                 "admission_wait_p50_seconds": stats_snapshot.get("admission_wait_p50_seconds", 0.0),
                 "admission_wait_p95_seconds": stats_snapshot.get("admission_wait_p95_seconds", 0.0),
                 "admission_wait_p99_seconds": stats_snapshot.get("admission_wait_p99_seconds", 0.0),

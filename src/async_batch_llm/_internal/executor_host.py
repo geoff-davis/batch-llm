@@ -82,6 +82,7 @@ class ExecutorHost(Generic[TInput, TOutput, TContext]):
             rate_limit_strategy=self.rate_limit_strategy,
             events=self._events,
             max_requests_per_minute=config.max_requests_per_minute,
+            max_tokens_per_minute=config.max_tokens_per_minute,
         )
         # Queue-less hosts are constructed for one strategy, so this old
         # private alias can point at that strategy's real scoped coordinator.

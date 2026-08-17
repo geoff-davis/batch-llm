@@ -65,6 +65,31 @@ def test_in_input_order_is_non_mutating_and_requires_indexes() -> None:
         BatchResult(results=[WorkItemResult(item_id="missing", success=True)]).in_input_order()
 
 
+def test_attempt_timing_preserves_v021_positional_layout() -> None:
+    timing = AttemptTiming(
+        1,
+        2,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        True,
+        "Error",
+        "category",
+        "timeout",
+    )
+
+    assert timing.retry_backoff_seconds == 9
+    assert timing.success is True
+    assert timing.error_type == "Error"
+    assert timing.error_category == "category"
+    assert timing.timeout_category == "timeout"
+    assert timing.quota_wait_seconds == 0
+
+
 class _Output(BaseModel):
     label: str
 
@@ -90,6 +115,13 @@ def _rich_result() -> WorkItemResult[Any, Any]:
                 execution_seconds=0.3,
                 provider_seconds=0.25,
                 cooldown_wait_seconds=0.04,
+                quota_wait_seconds=0.03,
+                estimated_input_tokens=12,
+                estimated_output_tokens=8,
+                reserved_tokens=20,
+                reported_tokens=0,
+                reconciliation_delta_tokens=-20,
+                quota_scope_id=2,
                 retry_backoff_seconds=0.1,
                 success=False,
                 error_type="RuntimeError",
@@ -140,6 +172,42 @@ def test_batch_json_round_trip_normalizes_application_types() -> None:
     assert restored.results[0].token_usage["cached_input_tokens"] == 3
     assert restored.results[0].timing == batch.results[0].timing
     assert restored.termination == batch.termination
+
+
+def test_v021_attempt_timing_defaults_and_unknown_usage_round_trip() -> None:
+    data = _rich_result().to_dict()
+    attempt = data["timing"]["attempts"][0]
+    for key in (
+        "quota_wait_seconds",
+        "estimated_input_tokens",
+        "estimated_output_tokens",
+        "reserved_tokens",
+        "reported_tokens",
+        "reconciliation_delta_tokens",
+        "quota_scope_id",
+    ):
+        attempt.pop(key)
+
+    restored_v021 = WorkItemResult.from_dict(data)
+    old_attempt = restored_v021.timing.attempts[0]
+    assert old_attempt.quota_wait_seconds == 0
+    assert old_attempt.estimated_input_tokens is None
+    assert old_attempt.estimated_output_tokens is None
+    assert old_attempt.reserved_tokens == 0
+    assert old_attempt.reported_tokens is None
+    assert old_attempt.reconciliation_delta_tokens is None
+    assert old_attempt.quota_scope_id is None
+
+    unknown = _rich_result()
+    unknown.timing.attempts[0].reported_tokens = None
+    unknown.timing.attempts[0].reconciliation_delta_tokens = None
+    restored_unknown = WorkItemResult.from_dict(unknown.to_dict())
+    assert restored_unknown.timing.attempts[0].reported_tokens is None
+    assert restored_unknown.timing.attempts[0].reconciliation_delta_tokens is None
+
+    restored_zero = WorkItemResult.from_dict(_rich_result().to_dict())
+    assert restored_zero.timing.attempts[0].reported_tokens == 0
+    assert restored_zero.timing.attempts[0].quota_scope_id == 2
 
 
 def test_failure_exception_is_a_safe_descriptor_without_traceback() -> None:

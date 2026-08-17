@@ -12,12 +12,13 @@ import inspect
 import logging
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Generic, NoReturn, TypeVar, cast, overload
 
 from .base import LLMResponse, RetryState, TokenUsage
 from .core.protocols import ManagedLLMModel
 from .strategies.errors import TokenTrackingError
+from .token_estimation import TokenEstimate, TokenEstimator
 
 # Conditional imports for optional dependencies
 if TYPE_CHECKING:
@@ -258,6 +259,21 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         """
         return None
 
+    def estimate_tokens(
+        self,
+        prompt: str,
+        attempt: int,
+        state: RetryState | None,
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None:
+        """Return a local token estimate for TPM admission, if supported.
+
+        The default supplies no estimate. Configure ``ProcessorConfig`` with a
+        run-level estimator or override this hook. No provider call should be
+        made solely to estimate tokens.
+        """
+        del prompt, attempt, state
+        return None
+
     @property
     def max_concurrency(self) -> int | None:
         """Maximum safe concurrent calls advertised by this strategy.
@@ -314,6 +330,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
         quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None: ...
 
     @overload
@@ -325,6 +342,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
         quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None: ...
 
     def __init__(
@@ -335,6 +353,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
         quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None:
         """
         Initialize strategy.
@@ -359,7 +378,11 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
             quota_scope: Optional identity shared by strategies consuming the
                 same provider/account quota. Defaults to the model, matching
                 the existing concurrency scope.
+            token_estimator: Optional strategy-owned local estimator used when
+                TPM admission is enabled and the processor has no override.
         """
+        if token_estimator is not None and not callable(token_estimator):
+            raise TypeError("token_estimator must be callable or None")
         self.model = model
         # The overloads restrict the None-parser path to TOutput=str, so the cast
         # below is sound at static-analysis time.
@@ -367,6 +390,7 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         self.temperature = temperature
         self.generation_config = generation_config
         self._quota_scope = quota_scope
+        self._token_estimator = token_estimator
 
     @property
     def max_concurrency(self) -> int | None:
@@ -385,6 +409,21 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
     def quota_scope(self) -> object:
         """Strategies wrapping the same model share quota by default."""
         return self.model if self._quota_scope is None else self._quota_scope
+
+    def estimate_tokens(
+        self,
+        prompt: str,
+        attempt: int,
+        state: RetryState | None,
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None:
+        if self._token_estimator is None:
+            return None
+        return self._token_estimator(
+            prompt,
+            strategy=self,
+            attempt=attempt,
+            state=state,
+        )
 
     async def request_concurrency(self, concurrency: int) -> bool:
         """Forward a concurrency request to the model, when supported.

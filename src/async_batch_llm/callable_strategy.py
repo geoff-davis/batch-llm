@@ -12,6 +12,7 @@ from .artifacts import ArtifactIdentity
 from .base import RetryState, TokenUsage
 from .llm_strategies import LLMCallStrategy
 from .strategies import ErrorClassifier
+from .token_estimation import TokenEstimate, TokenEstimator
 
 TOutput = TypeVar("TOutput")
 TOutputCallback = TypeVar("TOutputCallback")
@@ -155,6 +156,7 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
         max_concurrency: int | None = None,
         concurrency_scope: object | None = None,
         quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
         request_concurrency: RequestConcurrencyCallback | None = None,
     ) -> None:
         if not callable(invoke):
@@ -169,6 +171,8 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
             or max_concurrency <= 0
         ):
             raise ValueError("max_concurrency must be a positive integer or None")
+        if token_estimator is not None and not callable(token_estimator):
+            raise TypeError("token_estimator must be callable or None")
 
         self._invoke = invoke
         self._artifact_identity = identity
@@ -180,6 +184,7 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
         self._max_concurrency = max_concurrency
         self._concurrency_scope = concurrency_scope
         self._quota_scope = quota_scope
+        self._token_estimator = token_estimator
         self._request_concurrency_callback = request_concurrency
 
     @property
@@ -206,6 +211,21 @@ class CallableStrategy(LLMCallStrategy[TOutput]):
 
     def recommended_error_classifier(self) -> ErrorClassifier | None:
         return self._error_classifier
+
+    def estimate_tokens(
+        self,
+        prompt: str,
+        attempt: int,
+        state: RetryState | None,
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None:
+        if self._token_estimator is None:
+            return None
+        return self._token_estimator(
+            prompt,
+            strategy=self,
+            attempt=attempt,
+            state=state,
+        )
 
     async def prepare(self) -> None:
         if self._prepare_callback is not None:
