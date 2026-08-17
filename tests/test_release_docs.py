@@ -93,8 +93,7 @@ def test_release_history_and_migration_are_coherent() -> None:
     assert "v0.19.0 was not published" in changelog
     assert "## [0.19" not in changelog
     assert "## [0.21.0] - 2026-07-26" in changelog
-    assert "## [0.22.0]\n" in changelog
-    assert not re.search(r"^## \[0\.22\.0] -", changelog, re.MULTILINE)
+    assert "## [0.22.0] - 2026-08-17" in changelog
     assert "## [0.20.0] - 2026-07-20" in changelog
     assert "v0.18.x to v0.20.0" in migration
     assert "v0.19.0 was not published" in migration
