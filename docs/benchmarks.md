@@ -226,6 +226,7 @@ correctness invariants at scale rather than measuring provider speed.
 | `stop_resume` | Category fail-fast stop, then `REUSE_SUCCESSES` restart with replay-call elimination |
 | `artifact_bench` | SQLite append/reopen/lookup/iteration throughput, WAL plateau and close-truncation, JSONL comparison at a safe size |
 | `progress_overhead` | Bundled reporter renders bounded by time, not item count |
+| `token_quota_mixed` | Real streamed RPM+TPM waits, mixed estimates, refunds/debt, known-zero/unknown retries, and two quota scopes |
 
 ### Running it
 
@@ -245,12 +246,13 @@ uploads reports as artifacts.
 ### Report schema
 
 Each run writes one versioned JSON document
-(`schema_name: async-batch-llm-scale-soak`, `schema_version: 1`) containing
+(`schema_name: async-batch-llm-scale-soak`, `schema_version: 2`) containing
 UTC generation time, environment (package version, git revision, Python,
 platform, CPU count, resource-probe methods — never hostnames or home
 paths), the complete effective configuration, per-scenario counts,
-throughput, provider-call and queue high-water measurements, bounded
-resource samples, artifact/WAL measurements, every assertion with its
+throughput, provider-call and queue high-water measurements, quota estimates,
+reservation/reconciliation totals, bounded wait percentiles and per-band
+fairness, bounded resource samples, artifact/WAL measurements, every assertion with its
 evidence, and caveats. Unavailable metrics are `null`, never fabricated
 zeros. Exact item accounting uses an order-independent XOR-of-SHA-256 digest
 plus independent count and modular index-sum cross-checks, so a million-item
@@ -263,6 +265,9 @@ in the docs only after a maintainer actually completes that run and reviews
 its report; reports land in `benchmark-results/` (gitignored) or as CI
 artifacts until then. The harness's fake-provider throughput reflects
 framework overhead only — it says nothing about live-provider latency,
-quotas, or cost, and the report's `deferred_features` list records what v0.21
-deliberately does not validate (token-aware admission #122, adaptive
-concurrency #89, distributed writers, provider-native batch APIs).
+quotas, or cost. The mixed-token scenario proves local integration and bounded
+accounting with a deterministic fake provider; it does not reproduce every
+provider quota window or measure active GPU sequence/KV-cache capacity. The
+report's `deferred_features` list records remaining exclusions such as adaptive
+concurrency #89, distributed writers, provider-native batch APIs, and real
+provider quotas or pricing.

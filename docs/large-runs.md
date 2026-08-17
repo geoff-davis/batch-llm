@@ -104,8 +104,9 @@ commit itself.
 
 The repository ships a deterministic, credential-free harness
 (`benchmarks/scale_soak`) that drives these exact code paths — bounded
-streaming, slow consumers, 429 waves, retry mixes, stop/resume, and the
-SQLite backend — with exact item accounting and resource assertions:
+streaming, slow consumers, 429 waves, retry mixes, stop/resume, the SQLite
+backend, and mixed RPM+TPM reservation/reconciliation — with exact item
+accounting and resource assertions:
 
 ```bash
 make scale-smoke     # reduced CI-sized regression, ~15 s
@@ -114,6 +115,6 @@ make scale-1m        # large-scenario subset, long
 ```
 
 See [Benchmarks](benchmarks.md#scale-soak-harness) for what each report
-proves and — just as important — what it does not: fake-provider throughput
-is not live-provider performance, and no million-item claim is made without a
-completed 1m report.
+proves and — just as important — what it does not: fake-provider throughput is
+not live-provider performance, local TPM smoothing is not GPU/KV-cache
+scheduling, and no million-item claim is made without a completed 1m report.

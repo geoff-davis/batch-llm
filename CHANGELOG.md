@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0]
+
+### Added
+
+- **Scoped token-aware admission ([#122])** — proactive RPM and TPM now share
+  one atomic FIFO gate per quota scope. Each physical live attempt reserves an
+  estimated input-plus-output demand before provider-capacity admission, then
+  reconciles exactly once against known successful or recoverable
+  failed-attempt usage. Overestimates refund, underestimates become debt,
+  explicit known zero refunds tokens while consuming its request, and unknown
+  usage conservatively retains the estimate.
+- **Token estimation API** — public immutable `TokenEstimate`, sync/async
+  `TokenEstimator`, explicit approximate `CharacterTokenEstimator`, strategy
+  hooks, `CallableStrategy`/`ModelStrategy` conveniences,
+  `max_tokens_per_minute`, and stable non-retryable estimation errors.
+- **Quota observability** — per-attempt timing, bounded p50/p95/p99 wait stats,
+  reservation/reconciliation counters, `QUOTA_ADMITTED` /
+  `QUOTA_RECONCILED` events, summary output, serialization defaults, and
+  cardinality-safe metrics use only run-local scope ordinals.
+- **Mixed-token scale evidence ([#127])** — a ninth credential-free scale-soak
+  scenario drives the real lazy `process_stream()` path across two quota
+  scopes with small/medium/large estimates, refunds, debt, known-zero and
+  unknown usage, retries, queue/resource bounds, and exact aggregate oracles.
+
+### Changed
+
+- Error classifier, coordinated cooldown, RPM, TPM, estimator, and provider
+  capacity decisions now follow the effective middleware-replaced strategy.
+  Quota ownership defaults to the existing concurrency scope and may be
+  overridden independently with `quota_scope`.
+- Admission order is cooldown, estimation, atomic quota, provider capacity,
+  then provider start. Quota wait is reported separately from provider-capacity
+  admission wait, and every physical retry receives a fresh reservation.
+- The internal RPM limiter is now framework-owned; `aiolimiter` is no longer a
+  runtime dependency. The scale-soak report schema advances from 1 to 2.
+
+### Fixed
+
+- Dry-run, compatible artifact replay, middleware filtering, and preparation
+  failures no longer consume or mutate live proactive RPM/cooldown state.
+- Cancellation before provider start refunds both dimensions, while started
+  cancellations reconcile known usage or retain unknown estimates. Scope
+  cleanup attempts every coordinator/gate even when another cleanup fails.
+- v0.21 result and JSONL/SQLite artifact records retain schema compatibility;
+  absent quota timing fields default safely and changed local RPM/TPM settings
+  do not invalidate replay.
+
+### Not included
+
+- Adaptive concurrency and distributed quota coordination are not included.
+  TPM is a rolling local quota smoother, not active GPU sequence, KV-cache, or
+  decode-token scheduling. Attempts hidden inside an upstream gateway remain
+  outside ABL visibility unless the gateway reports their usage.
+
 ## [0.21.0] - 2026-07-26
 
 ### Added

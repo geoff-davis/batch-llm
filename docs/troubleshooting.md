@@ -55,6 +55,91 @@ eventually produces a terminal result.
 **Related guide.** [Choosing Your Limits](choosing-your-limits.md)
 and [Callable integration](callable-integration.md#retry-recovery).
 
+## Items wait before provider capacity even though connections are free
+
+**Cause.** A scoped RPM/TPM gate admits work before provider capacity. This is
+intentional: no connection or provider slot is held while a quota refills.
+
+**Confirm and fix.** Compare `result.quota_wait_seconds` with
+`result.admission_wait_seconds` and inspect quota wait percentiles. Tune the
+real RPM/TPM budget or estimator; adding connections cannot overcome quota.
+
+## Token estimate exceeds the configured per-minute limit
+
+**Cause.** One estimated input-plus-output total is larger than the bucket, so
+it can never become admissible by waiting.
+
+**Fix.** Correct an inflated estimator, reduce the expected output allowance,
+raise the limit to the actual account budget, or route the call to a genuinely
+independent quota scope. Do not split one provider request merely to satisfy a
+local configuration unless the application semantics permit it.
+
+## TPM limiting appears conservative after timeouts or 429s
+
+**Cause.** Once provider work starts, unknown usage retains its token
+reservation. A timeout, transport error, or 429 without reliable usage is not
+the same as an explicit zero-token response.
+
+**Confirm and fix.** Monitor `unknown_usage_attempts` and reconciliation
+events. Extract provider-reported failed usage when available. Otherwise keep
+the conservative accounting or increase headroom based on measured behavior;
+do not treat missing usage as zero.
+
+## Two providers unexpectedly share a quota
+
+**Cause.** Their strategies return the same `quota_scope` identity, often
+because quota scope defaults to a shared concurrency scope.
+
+**Fix.** Give genuinely independent accounts distinct stable scope objects.
+Keep them shared if the upstream provider or gateway actually enforces one
+account budget.
+
+## Two models do not share an account quota
+
+**Cause.** Separate strategy/model instances default to separate scopes even
+though the provider bills them against one account-level quota.
+
+**Fix.** Pass the same `quota_scope` object to both strategies. Scope sharing
+also coordinates cooldown, so verify the ownership matches the upstream
+account rather than just the model name.
+
+## Large items delay small items
+
+**Cause.** Quota admission is FIFO. A large estimate at the head waits for
+enough tokens and later small estimates do not bypass it indefinitely.
+
+**Fix.** Improve estimates and expected-output bands. Separate workloads only
+when they spend independent upstream quotas; otherwise head-of-line waiting is
+the fairness trade-off of one shared budget.
+
+## Gateway retrying makes reported usage differ from ABL attempts
+
+**Cause.** A gateway may perform several upstream attempts inside one visible
+`strategy.execute()` call. ABL can account only for the usage the gateway
+returns.
+
+**Fix.** Choose one strong retry owner, inspect gateway logs, and configure the
+gateway to return aggregate usage. Do not claim per-upstream-attempt visibility
+when the gateway hides it.
+
+## Dry-run or replay has no quota events
+
+**Cause.** This is the contract. Dry-run, compatible replay, and
+middleware-filtered items perform no live admission and mutate no RPM/TPM
+state.
+
+**Fix.** None. Test quota behavior with a credential-free live fake strategy
+instead of using dry-run or replay as a quota simulation.
+
+## Why quota wait is separate from admission wait
+
+Quota wait measures cooldown-following RPM/TPM admission. Admission wait
+measures provider-capacity semaphore wait. Keeping them separate shows whether
+the account budget or transport/provider capacity is the bottleneck and
+prevents double-counting in summaries.
+
+**Related guide.** [Token-Aware Admission](token-aware-admission.md).
+
 ## An item takes longer than `attempt_timeout`
 
 **Symptom.** A logical item runs for several multiples of the configured

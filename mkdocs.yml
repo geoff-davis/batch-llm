@@ -60,6 +60,7 @@ nav:
   - Getting Started: getting-started.md
   - Compare Alternatives: comparison.md
   - Choosing Your Limits: choosing-your-limits.md
+  - Token-Aware Admission: token-aware-admission.md
   - Production Checklist: production-checklist.md
   - Troubleshooting and FAQ: troubleshooting.md
   - Results, Artifacts, and Resume: results-and-artifacts.md
@@ -80,6 +81,7 @@ nav:
     - Advanced Patterns: examples/advanced.md
     - Benchmark Walkthrough: examples/benchmark-walkthrough.md
   - Migration Guides:
+    - v0.22 Migration: MIGRATION_V0_22.md
     - v0.20 Migration: MIGRATION_V0_20.md
     - Historical v0.19 Link: MIGRATION_V0_19.md
     - v0.10 Migration: MIGRATION_V0_10.md
