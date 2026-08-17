@@ -12,12 +12,13 @@ import inspect
 import logging
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Generic, NoReturn, TypeVar, cast, overload
 
 from .base import LLMResponse, RetryState, TokenUsage
 from .core.protocols import ManagedLLMModel
 from .strategies.errors import TokenTrackingError
+from .token_estimation import TokenEstimate, TokenEstimator
 
 # Conditional imports for optional dependencies
 if TYPE_CHECKING:
@@ -247,9 +248,8 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     def recommended_error_classifier(self) -> "ErrorClassifier | None":
         """Return the error classifier best suited to this strategy's provider.
 
-        :class:`~async_batch_llm.ParallelBatchProcessor` calls this to
-        auto-select a classifier when the caller didn't pass ``error_classifier``
-        explicitly — it reads the recommendation off the work items' strategies.
+        The execution host calls this once per strategy identity when the caller
+        didn't pass ``error_classifier`` explicitly.
 
         Returns ``None`` by default ("no preference"), which lets the framework
         fall back to :class:`DefaultErrorClassifier`. Provider strategies
@@ -257,6 +257,21 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
         matching classifier. An explicit ``error_classifier=`` on the processor
         always wins over this recommendation.
         """
+        return None
+
+    def estimate_tokens(
+        self,
+        prompt: str,
+        attempt: int,
+        state: RetryState | None,
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None:
+        """Return a local token estimate for TPM admission, if supported.
+
+        The default supplies no estimate. Configure ``ProcessorConfig`` with a
+        run-level estimator or override this hook. No provider call should be
+        made solely to estimate tokens.
+        """
+        del prompt, attempt, state
         return None
 
     @property
@@ -273,6 +288,17 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     def concurrency_scope(self) -> object:
         """Identity whose capacity is shared by concurrent calls."""
         return self
+
+    @property
+    def quota_scope(self) -> object:
+        """Identity whose RPM, TPM, and coordinated cooldown are shared.
+
+        The default follows :attr:`concurrency_scope` for backward-compatible
+        ownership. Override it when one provider/account quota spans multiple
+        clients or when one shared client serves independent quota budgets.
+        Object identity, not equality, defines sharing.
+        """
+        return self.concurrency_scope
 
 
 class ModelStrategy(LLMCallStrategy[TOutput]):
@@ -303,6 +329,8 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None: ...
 
     @overload
@@ -313,6 +341,8 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None: ...
 
     def __init__(
@@ -322,6 +352,8 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
         *,
         temperature: float | None = 0.0,
         generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
     ) -> None:
         """
         Initialize strategy.
@@ -343,13 +375,22 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
                 native structured output or grounding without subclassing
                 ``execute()``. A subclass that overrides ``execute()`` and needs a
                 *per-attempt* config can read ``self.generation_config`` and merge.
+            quota_scope: Optional identity shared by strategies consuming the
+                same provider/account quota. Defaults to the model, matching
+                the existing concurrency scope.
+            token_estimator: Optional strategy-owned local estimator used when
+                TPM admission is enabled and the processor has no override.
         """
+        if token_estimator is not None and not callable(token_estimator):
+            raise TypeError("token_estimator must be callable or None")
         self.model = model
         # The overloads restrict the None-parser path to TOutput=str, so the cast
         # below is sound at static-analysis time.
         self.response_parser = response_parser or (lambda response: cast(TOutput, response.text))
         self.temperature = temperature
         self.generation_config = generation_config
+        self._quota_scope = quota_scope
+        self._token_estimator = token_estimator
 
     @property
     def max_concurrency(self) -> int | None:
@@ -363,6 +404,26 @@ class ModelStrategy(LLMCallStrategy[TOutput]):
     def concurrency_scope(self) -> object:
         """Strategies wrapping the same model share one admission limit."""
         return self.model
+
+    @property
+    def quota_scope(self) -> object:
+        """Strategies wrapping the same model share quota by default."""
+        return self.model if self._quota_scope is None else self._quota_scope
+
+    def estimate_tokens(
+        self,
+        prompt: str,
+        attempt: int,
+        state: RetryState | None,
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None:
+        if self._token_estimator is None:
+            return None
+        return self._token_estimator(
+            prompt,
+            strategy=self,
+            attempt=attempt,
+            state=state,
+        )
 
     async def request_concurrency(self, concurrency: int) -> bool:
         """Forward a concurrency request to the model, when supported.

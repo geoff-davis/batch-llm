@@ -88,22 +88,27 @@ def test_release_history_and_migration_are_coherent() -> None:
     navigation = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     migration = (ROOT / "docs" / "MIGRATION_V0_20.md").read_text(encoding="utf-8")
     historical = (ROOT / "docs" / "MIGRATION_V0_19.md").read_text(encoding="utf-8")
+    migration_v022 = (ROOT / "docs" / "MIGRATION_V0_22.md").read_text(encoding="utf-8")
 
     assert "v0.19.0 was not published" in changelog
     assert "## [0.19" not in changelog
     assert "## [0.21.0] - 2026-07-26" in changelog
+    assert "## [0.22.0] - 2026-08-17" in changelog
     assert "## [0.20.0] - 2026-07-20" in changelog
     assert "v0.18.x to v0.20.0" in migration
     assert "v0.19.0 was not published" in migration
     assert "MIGRATION_V0_20.md" in historical
     assert "v0.20 Migration: MIGRATION_V0_20.md" in navigation
     assert "Historical v0.19 Link: MIGRATION_V0_19.md" in navigation
+    assert "v0.22 Migration: MIGRATION_V0_22.md" in navigation
+    assert "v0.21.x to v0.22" in migration_v022
+    assert "No checkpoint migration or invalidation is required" in migration_v022
 
 
 def test_release_version_and_tag_workflow_agree() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
-    assert re.search(r'^version = "0\.21\.0"$', pyproject, re.MULTILINE)
+    assert re.search(r'^version = "0\.22\.0"$', pyproject, re.MULTILINE)
     assert '"v${PKG_VERSION}" != "${GITHUB_REF_NAME}"' in workflow
 
 

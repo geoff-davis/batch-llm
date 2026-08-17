@@ -20,6 +20,19 @@ def _initial_metrics() -> dict[str, Any]:
         "admission_wait_count": 0,
         "admission_wait_seconds_sum": 0.0,
         "admission_wait_seconds_max": 0.0,
+        "quota_admitted_attempts": 0,
+        "quota_wait_seconds_sum": 0.0,
+        "quota_wait_seconds_max": 0.0,
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "reserved_tokens": 0,
+        "reported_reconciliation_tokens": 0,
+        "refunded_tokens": 0,
+        "underestimated_tokens": 0,
+        "unknown_usage_attempts": 0,
+        "known_zero_usage_attempts": 0,
+        "token_estimation_failures": 0,
+        "quota_scope_count": 0,
         "structured_output_recoveries": 0,
         "structured_output_retries_avoided": 0,
         "structured_output_recovery_reasons": {},
@@ -42,6 +55,7 @@ class MetricsObserver(BaseObserver):
             raise ValueError("max_processing_samples must be positive")
         self.metrics: dict[str, Any] = _initial_metrics()
         self._processing_times: list[float] = []
+        self._quota_scopes: set[int] = set()
         self._max_processing_samples = max_processing_samples
         self._lock = asyncio.Lock()
 
@@ -84,6 +98,42 @@ class MetricsObserver(BaseObserver):
                     self.metrics["admission_wait_seconds_max"], wait_seconds
                 )
 
+            elif event == ProcessingEvent.QUOTA_ADMITTED:
+                wait_seconds = float(data.get("wait_seconds", 0.0))
+                self.metrics["quota_admitted_attempts"] += 1
+                self.metrics["quota_wait_seconds_sum"] += wait_seconds
+                self.metrics["quota_wait_seconds_max"] = max(
+                    self.metrics["quota_wait_seconds_max"], wait_seconds
+                )
+                for key in (
+                    "estimated_input_tokens",
+                    "estimated_output_tokens",
+                    "reserved_tokens",
+                ):
+                    value = data.get(key, 0)
+                    if not isinstance(value, bool) and isinstance(value, int):
+                        self.metrics[key] += value
+                scope_id = data.get("quota_scope_id")
+                if not isinstance(scope_id, bool) and isinstance(scope_id, int):
+                    self._quota_scopes.add(scope_id)
+                    self.metrics["quota_scope_count"] = len(self._quota_scopes)
+
+            elif event == ProcessingEvent.QUOTA_RECONCILED:
+                reported = data.get("reported_tokens")
+                delta = data.get("delta_tokens")
+                reserved = data.get("reserved_tokens", 0)
+                if not isinstance(reported, bool) and isinstance(reported, int):
+                    self.metrics["reported_reconciliation_tokens"] += reported
+                    if reported == 0 and reserved:
+                        self.metrics["known_zero_usage_attempts"] += 1
+                elif reserved:
+                    self.metrics["unknown_usage_attempts"] += 1
+                if not isinstance(delta, bool) and isinstance(delta, int):
+                    if delta < 0:
+                        self.metrics["refunded_tokens"] += -delta
+                    elif delta > 0:
+                        self.metrics["underestimated_tokens"] += delta
+
             elif event == ProcessingEvent.ITEM_FAILED:
                 self.metrics["items_processed"] += 1
                 self.metrics["items_failed"] += 1
@@ -94,6 +144,12 @@ class MetricsObserver(BaseObserver):
                     self.metrics["error_counts"][error_type] = (
                         self.metrics["error_counts"].get(error_type, 0) + 1
                     )
+                if data.get("error_category") in {
+                    "token_estimation_error",
+                    "token_estimator_required",
+                    "token_estimate_exceeds_limit",
+                }:
+                    self.metrics["token_estimation_failures"] += 1
 
             elif event == ProcessingEvent.ITEM_REPLAYED:
                 self.metrics["items_processed"] += 1
@@ -130,6 +186,11 @@ class MetricsObserver(BaseObserver):
                     if self.metrics["admission_wait_count"] > 0
                     else 0
                 ),
+                "avg_quota_wait_seconds": (
+                    self.metrics["quota_wait_seconds_sum"] / self.metrics["quota_admitted_attempts"]
+                    if self.metrics["quota_admitted_attempts"] > 0
+                    else 0
+                ),
                 "success_rate": (
                     self.metrics["items_succeeded"] / self.metrics["items_processed"]
                     if self.metrics["items_processed"] > 0
@@ -147,6 +208,7 @@ class MetricsObserver(BaseObserver):
         async with self._lock:
             self.metrics = _initial_metrics()
             self._processing_times = []
+            self._quota_scopes = set()
 
     async def export_json(self) -> str:
         """Export metrics as JSON string.
@@ -198,6 +260,14 @@ class MetricsObserver(BaseObserver):
             ("items_replayed", "Total terminal items replayed from artifacts"),
             ("items_aborted", "Total collateral items aborted by guardrails"),
             ("batches_aborted", "Total batches stopped by guardrails"),
+            ("quota_admitted_attempts", "Total live quota reservations admitted"),
+            ("reserved_tokens", "Total tokens reserved for TPM admission"),
+            ("reported_reconciliation_tokens", "Total known tokens used for reconciliation"),
+            ("refunded_tokens", "Total unused reserved tokens refunded"),
+            ("underestimated_tokens", "Total token underestimation charged as debt"),
+            ("unknown_usage_attempts", "Started quota attempts with unknown usage"),
+            ("known_zero_usage_attempts", "Started quota attempts reporting zero usage"),
+            ("token_estimation_failures", "Total framework token-estimation failures"),
             (
                 "structured_output_retries_avoided",
                 "Total validation retries avoided by structured-output recovery",
@@ -220,6 +290,12 @@ class MetricsObserver(BaseObserver):
             ("admission_wait_seconds_sum", "Total provider-capacity wait time in seconds"),
             ("admission_wait_seconds_max", "Maximum provider-capacity wait time in seconds"),
             ("avg_admission_wait_seconds", "Average provider-capacity wait time in seconds"),
+            ("quota_wait_seconds_sum", "Total RPM/TPM quota wait time in seconds"),
+            ("quota_wait_seconds_max", "Maximum RPM/TPM quota wait time in seconds"),
+            ("avg_quota_wait_seconds", "Average RPM/TPM quota wait time in seconds"),
+            ("estimated_input_tokens", "Total estimated input tokens"),
+            ("estimated_output_tokens", "Total estimated output tokens"),
+            ("quota_scope_count", "Number of run-local quota scopes observed"),
         ]
 
         for metric_name, help_text in gauges:

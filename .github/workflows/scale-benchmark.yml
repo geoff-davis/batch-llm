@@ -24,6 +24,7 @@ on:
           - stop_resume
           - artifact_bench
           - progress_overhead
+          - token_quota_mixed
         default: all
       store:
         description: Artifact store backend

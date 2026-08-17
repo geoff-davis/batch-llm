@@ -37,12 +37,13 @@ and when to override it.
 ```text
 1. concurrency      how many requests in flight at once?
 2. connection pool  can the HTTP client actually carry that many?
-3. admission        should the framework cap in-flight provider calls?
-4. attempt_timeout  how long may ONE provider call take?
-5. total item deadline   how long may one item take end to end?
-6. batch deadline   how long may the whole run take?
+3. provider concurrency  how many calls may hold provider capacity?
+4. quota scope      which strategies spend the same upstream budget?
+5. RPM              how many physical attempts may start per minute?
+6. TPM + estimator  how much estimated token load may start per minute?
 7. startup ramp     should full concurrency arrive gradually?
 8. cooldown         what happens when the provider says 429?
+9. timeouts         how long may an attempt, item, and batch take?
 ```
 
 ### 1. Concurrency — `concurrency=N`
@@ -82,7 +83,7 @@ throughput and 50 workers waiting in the transport.
 
 Details: [high-throughput guide](openai-high-throughput.md).
 
-### 3. Provider admission — `max_provider_concurrency`
+### 3. Provider concurrency — `max_provider_concurrency`
 
 Admission caps how many attempts may hold a provider "slot" at once, and the
 wait happens **before** `attempt_timeout` starts — so a queued attempt can't
@@ -91,32 +92,44 @@ already `N`; set it explicitly only to run the framework wider than the
 provider (e.g. many cheap local workers feeding a narrow paid API), or when a
 strategy advertises its own `max_concurrency` (the lower limit applies).
 
-### 4. Per-attempt timeout — `attempt_timeout`
+### 4. Quota scope — `strategy.quota_scope`
 
-Bounds **one** `execute()` call (default 120s). Size it for a single slow
-response, not the whole retry chain: p99 latency of one call plus margin.
-30s is a sane starting point for chat-completion workloads; long-output or
-reasoning models may need the default or more. Renamed from
-`timeout_per_item` in v0.20 (the old name still works, with a warning).
+Identify which strategies spend the same provider/account RPM and TPM budget.
+The default follows `concurrency_scope`. Share one stable object when multiple
+models use one account quota; use distinct objects only for genuinely
+independent budgets. Quota scope also owns coordinated cooldown, while
+concurrency scope owns provider/client capacity. See
+[Token-Aware Admission](token-aware-admission.md#quota-scopes).
 
-### 5. Total item deadline — `GuardrailConfig.total_timeout_per_item`
+### 5. Requests per minute — `max_requests_per_minute`
 
-Bounds one **logical item** end to end: admission waits, cooldowns, every
-retry, and backoff. Without it, an item can legitimately take
-`~max_attempts × attempt_timeout` plus waits. Set it when a downstream
-consumer needs a hard per-item SLA; leave it `None` for offline jobs where
-retrying through a cooldown is exactly what you want. A reasonable formula:
-`max_attempts × attempt_timeout + expected_cooldown`.
+Set the provider/account's physical-attempt budget, with safety margin for
+other applications using the same account. Admission is FIFO within each quota
+scope. Every retry is another physical request and gets a fresh reservation. A
+429 still triggers reactive coordinated cooldown; RPM smoothing cannot
+reproduce every provider window exactly.
 
-### 6. Batch deadline — `GuardrailConfig.batch_timeout`
+### 6. Tokens per minute — `max_tokens_per_minute`
 
-Bounds the whole run. On expiry the batch stops **accepting and executing**
-work in a controlled way: accepted items get terminal results, checkpoints
-flush, and `batch.termination` says why. Set it to your job scheduler's
-timeout minus a shutdown margin, or leave `None`. Pair with
-`abort_on_error_categories=frozenset({"authentication",
-"insufficient_balance"})` so a dead credential fails the run in seconds, not
-after 10,000 retries. Details: [guardrails](guardrails.md).
+TPM requires an estimator. Reserve estimated input plus expected output, not
+only prompt tokens:
+
+```python
+from async_batch_llm import CharacterTokenEstimator, ProcessorConfig
+
+config = ProcessorConfig(
+    concurrency=16,
+    max_requests_per_minute=500,
+    max_tokens_per_minute=200_000,
+    token_estimator=CharacterTokenEstimator(expected_output_tokens=300),
+)
+```
+
+Prefer a provider tokenizer over the character heuristic. Review actual
+refunds, underestimation debt, and unknown-usage attempts, then tune the output
+allowance. One estimate must fit inside the configured bucket. Increasing
+workers cannot overcome RPM/TPM and can increase task and queue pressure while
+work waits.
 
 ### 7. Startup ramp — `startup_ramp`
 
@@ -134,7 +147,23 @@ then traffic resumes through a slow-start ramp. Defaults are conservative
 `RateLimitConfig(cooldown_seconds=30.0, max_cooldown_seconds=300.0)` — the
 classifier honors a server-sent `Retry-After` as a floor regardless. If you
 see repeated consecutive cooldowns, your `concurrency` (step 1) is too high;
-fix the cause, not the cooldown.
+fix the cause, not the cooldown. Cooldown precedes estimation and reservation,
+so paused work does not consume live quota state early.
+
+### 9. Attempt, item, and batch timeouts
+
+`attempt_timeout` bounds one `execute()` call (default 120s), not its quota or
+provider-capacity wait. Size it for one slow response: p99 provider latency
+plus margin. Long-output or reasoning models may need more than the common 30s
+starting point. `timeout_per_item` is its deprecated pre-v0.20 alias.
+
+`GuardrailConfig.total_timeout_per_item` bounds one logical item end to end:
+cooldown, estimation, RPM/TPM wait, provider admission, every call, and retry
+backoff. `GuardrailConfig.batch_timeout` bounds the whole run. On expiry,
+accepted items receive terminal results and checkpoints clean up according to
+the configured abort mode. Size the batch deadline below the job scheduler's
+hard kill and pair it with fail-fast categories such as authentication and
+insufficient balance. Details: [guardrails](guardrails.md).
 
 ## Worked example: 10k items against a rate-limited provider
 
@@ -142,16 +171,18 @@ Target: 10,000 classification prompts against an OpenAI-tier endpoint
 (~500 RPM), ~2s per call, overnight job, must survive restarts.
 
 - **Step 1:** `500 / 60 × 2 ≈ 16` → `concurrency=16`.
-- **Step 2–3:** covered by the knob (factory model resizes its pool; admission = 16).
-- **Step 4:** p99 of one call ≈ 10s → `attempt_timeout=30.0`.
-- **Step 5:** 3 attempts × 30s + one 60s cooldown → `total_timeout_per_item=180.0`.
-- **Step 6:** cron kills the job at 2h → `batch_timeout=6600.0` (1h50m), plus
-  fail-fast on `authentication`.
+- **Steps 2–3:** covered by the knob (factory pool and admission both become 16).
+- **Step 4:** this strategy owns one account quota, so its default scope is sufficient.
+- **Step 5:** reserve 450 RPM, leaving shared-account headroom below the published 500.
+- **Step 6:** reserve measured prompt tokens plus 300 expected output tokens.
 - **Step 7:** skip the ramp at this width.
-- **Step 8:** `cooldown_seconds=60.0` — OpenAI-style minute windows.
+- **Step 8:** `cooldown_seconds=60.0` for reactive 429 recovery.
+- **Step 9:** one-call p99 ≈ 10s gives `attempt_timeout=30.0`; allow the
+  complete retry/cooldown chain 180s and stop the batch at 1h50m.
 
 ```python
 from async_batch_llm import (
+    CharacterTokenEstimator,
     GuardrailConfig,
     JsonlArtifactStore,
     ProcessorConfig,
@@ -164,6 +195,9 @@ from async_batch_llm import (
 config = ProcessorConfig(
     concurrency=16,
     attempt_timeout=30.0,
+    max_requests_per_minute=450,
+    max_tokens_per_minute=200_000,
+    token_estimator=CharacterTokenEstimator(expected_output_tokens=300),
     rate_limit=RateLimitConfig(cooldown_seconds=60.0),
     guardrails=GuardrailConfig(
         total_timeout_per_item=180.0,

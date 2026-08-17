@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Generic, cast
 if TYPE_CHECKING:
     from types import TracebackType
 
+from ._internal.admission import AdmissionRegistry
 from ._internal.capacity import CapacityLimiter, warn_if_worker_capacity_exceeded
+from ._internal.classifier_resolver import StrategyClassifierResolver
 from ._internal.event_dispatcher import EventDispatcher
 from ._internal.guardrails import (
     AbortCause,
@@ -37,7 +39,6 @@ from .llm_strategies import LLMCallStrategy
 from .middleware import Middleware
 from .observers import ProcessingEvent, ProcessorObserver
 from .strategies import (
-    DefaultErrorClassifier,
     ErrorClassifier,
     ExponentialBackoffStrategy,
     RateLimitStrategy,
@@ -137,7 +138,8 @@ class ParallelBatchProcessor(
             timeout_per_item: Timeout per item in seconds (deprecated, use config)
             rate_limit_cooldown: Cooldown duration (deprecated, use config)
             config: Processor configuration object (recommended)
-            error_classifier: Strategy for classifying errors (default: DefaultErrorClassifier)
+            error_classifier: Optional global classifier override. When omitted,
+                each strategy's recommendation is resolved independently.
             rate_limit_strategy: Strategy for handling rate limits
             middlewares: List of middleware to apply
             observers: List of observers for events
@@ -221,14 +223,10 @@ class ParallelBatchProcessor(
         # Diagnostic: high max_workers can outrun the OS open-file limit.
         _warn_if_fd_limit_low(resolved_max_workers)
 
-        # Set up strategies. When the caller didn't pass an explicit
-        # error_classifier, it's auto-selected from the work items' strategies at
-        # batch start (see _resolve_error_classifier); until then we hold a
-        # DefaultErrorClassifier so the processor is always usable.
-        self._user_supplied_classifier = error_classifier is not None
-        self.error_classifier: ErrorClassifier = error_classifier or DefaultErrorClassifier()
-        self._recommended_classifiers: list[ErrorClassifier] = []
-        self._classifier_resolved = self._user_supplied_classifier
+        # Automatic classifiers are resolved per actual strategy. Keep the old
+        # host-wide attribute only as a compatibility/debug alias.
+        self._classifier_resolver = StrategyClassifierResolver(error_classifier)
+        self.error_classifier: ErrorClassifier = self._classifier_resolver.compatibility_classifier
         self._capacity_checked_strategy_ids: set[int] = set()
         self.rate_limit_strategy = rate_limit_strategy or ExponentialBackoffStrategy(
             initial_cooldown=config.rate_limit.cooldown_seconds,
@@ -249,16 +247,21 @@ class ParallelBatchProcessor(
             observers=self.observers, middlewares=self.middlewares
         )
 
-        # Rate-limit coordination (extracted in v0.7.0).
-        self._rate_limit_coord = RateLimitCoordinator(
+        self._admission_registry = AdmissionRegistry(
+            rate_limit_strategy=self.rate_limit_strategy,
+            events=self._events,
+            max_requests_per_minute=config.max_requests_per_minute,
+            max_tokens_per_minute=config.max_tokens_per_minute,
+        )
+        # A private compatibility coordinator serves direct legacy calls made
+        # before a strategy exists. Once the first item is admitted, the old
+        # `_rate_limit_coord` alias points at that item's real scoped state.
+        self._compatibility_rate_limit_coord = RateLimitCoordinator(
             rate_limit_strategy=self.rate_limit_strategy,
             events=self._events,
         )
-        # Back-compat aliases — existing private methods and some tests
-        # reach into these attributes directly.
-        self._rate_limit_event = self._rate_limit_coord._rate_limit_event
-        self._current_generation_event = self._rate_limit_coord._current_generation_event
-        self._rate_limit_lock = self._rate_limit_coord._lock
+        self._rate_limit_coord = self._compatibility_rate_limit_coord
+        self._compatibility_scope_bound = False
 
         # Thread-safety locks (_stats_lock / _results_lock) live on the base
         # class so both batch and streaming modes share them.
@@ -275,20 +278,6 @@ class ParallelBatchProcessor(
             max_workers=resolved_max_workers,
             startup_ramp=config.startup_ramp,
         )
-
-        # Proactive rate limiting (prevents hitting rate limits)
-        if config.max_requests_per_minute:
-            from aiolimiter import AsyncLimiter
-
-            # aiolimiter doesn't have explicit burst_size - it uses max_rate as burst capacity
-            # To support burst_size, we'd need to use max_rate + burst_size
-            # For now, we use max_rate directly (no additional burst)
-            self._proactive_rate_limiter: AsyncLimiter | None = AsyncLimiter(
-                max_rate=config.max_requests_per_minute,
-                time_period=60,  # per minute
-            )
-        else:
-            self._proactive_rate_limiter = None
 
         # Centralized token-usage extraction across all exception shapes.
         self._token_extractor = TokenExtractor()
@@ -311,6 +300,18 @@ class ParallelBatchProcessor(
 
     # Back-compat attribute accessors for tests and subclasses that read
     # the rate-limit coordinator's state directly.
+
+    @property
+    def _rate_limit_event(self) -> asyncio.Event:
+        return self._rate_limit_coord._rate_limit_event
+
+    @property
+    def _current_generation_event(self) -> asyncio.Event:
+        return self._rate_limit_coord._current_generation_event
+
+    @property
+    def _rate_limit_lock(self) -> asyncio.Lock:
+        return self._rate_limit_coord._lock
 
     @property
     def _in_cooldown(self) -> bool:
@@ -365,10 +366,19 @@ class ParallelBatchProcessor(
         """
         # Stop workers before closing strategies or their artifact sink: a
         # cancelled/early stream may still have an in-flight terminal write.
-        await self.cleanup()
-        await self._cleanup_strategies()
+        errors: list[BaseException] = []
+        for cleanup in (self.cleanup, self._cleanup_strategies):
+            try:
+                await cleanup()
+            except BaseException as error:
+                errors.append(error)
         if self.artifact_store is not None:
-            await self.artifact_store.close()
+            try:
+                await self.artifact_store.close()
+            except BaseException as error:
+                errors.append(error)
+        if errors and exc_val is None:
+            raise errors[0]
         return False  # Don't suppress exceptions
 
     def _start_guardrail_run(self) -> None:
@@ -429,12 +439,21 @@ class ParallelBatchProcessor(
             await task
 
     async def cleanup(self) -> None:
-        """Cancel the batch timer before the base worker/task cleanup."""
-        await self._cancel_batch_timeout()
-        await super().cleanup()
-        # After workers are gone: cancel any in-flight coordinator-owned
-        # cooldown task so it doesn't outlive the processor (issue #88).
-        await self._rate_limit_coord.shutdown()
+        """Cancel workers, timers, and every quota-scoped admission resource."""
+        errors: list[BaseException] = []
+        for cleanup in (
+            self._cancel_batch_timeout,
+            super().cleanup,
+            self._admission_registry.shutdown,
+            self._compatibility_rate_limit_coord.shutdown,
+        ):
+            try:
+                await cleanup()
+            except BaseException as error:
+                errors.append(error)
+        self._classifier_resolver.clear()
+        if errors:
+            raise errors[0]
 
     def start(self) -> None:
         """Start streaming workers and the batch deadline clock."""
@@ -459,12 +478,7 @@ class ParallelBatchProcessor(
             return self._stats.copy()
 
     async def add_work(self, work_item: LLMWorkItem[TInput, TOutput, TContext]) -> None:
-        """Queue a work item, recording its strategy's classifier recommendation.
-
-        Extends the base queueing with the bookkeeping needed to auto-select an
-        error classifier at batch start when the caller didn't pass one. A
-        no-op recommendation (custom strategies returning ``None``) is ignored.
-        """
+        """Queue a work item and register its identity-scoped admission state."""
         if self.artifact_store is not None:
             work_item._artifact_key = await self.artifact_store.prepare_item(work_item)
 
@@ -498,6 +512,10 @@ class ParallelBatchProcessor(
         assert self._abort_controller is not None
         if self._abort_controller.aborted:
             raise BatchAdmissionStopped("Batch is no longer accepting work")
+        admission_state = self._admission_registry.resolve(work_item.strategy)
+        if not self._compatibility_scope_bound:
+            self._rate_limit_coord = admission_state.cooldown
+            self._compatibility_scope_bound = True
         if self._streaming and self._guardrails_started:
             acceptance = asyncio.create_task(super().add_work(work_item))
             abort_wait = asyncio.create_task(self._abort_controller.event.wait())
@@ -519,64 +537,10 @@ class ParallelBatchProcessor(
                 await asyncio.gather(abort_wait, return_exceptions=True)
         else:
             await super().add_work(work_item)
-        if self._user_supplied_classifier or self._classifier_resolved:
-            return
-        try:
-            recommended = work_item.strategy.recommended_error_classifier()
-        except Exception:
-            # A buggy override must never break queueing — just skip the hint.
-            recommended = None
-        if recommended is not None:
-            self._recommended_classifiers.append(recommended)
-            # Streaming mode has no "batch start" barrier and workers are
-            # already running, so resolve eagerly from the first recommendation
-            # rather than waiting to collect every item's (we can't).
-            if self._streaming:
-                self._resolve_error_classifier()
-
-    def _resolve_error_classifier(self) -> None:
-        """Pick an error classifier from the queued strategies' recommendations.
-
-        Runs once, at batch start, only when the caller didn't pass an explicit
-        ``error_classifier``. If every recommending strategy agrees, that
-        classifier is used; if they disagree (mixed providers), we keep the
-        :class:`DefaultErrorClassifier` and warn. No recommendations → keep the
-        default silently (debug log).
-        """
-        if self._classifier_resolved:
-            return
-        self._classifier_resolved = True
-
-        recommendations = self._recommended_classifiers
-        if not recommendations:
-            logger.debug(
-                "No work-item strategy recommended an error classifier; using %s.",
-                type(self.error_classifier).__name__,
-            )
-            return
-
-        distinct_types = {type(r) for r in recommendations}
-        if len(distinct_types) == 1:
-            self.error_classifier = recommendations[0]
-            logger.debug(
-                "Auto-selected %s from work-item strategies.",
-                type(self.error_classifier).__name__,
-            )
-        else:
-            names = ", ".join(sorted(t.__name__ for t in distinct_types))
-            logger.warning(
-                "[WARN]Work items recommend mixed error classifiers (%s); falling back "
-                "to %s. Pass error_classifier=... to ParallelBatchProcessor to choose "
-                "one explicitly.",
-                names,
-                type(self.error_classifier).__name__,
-            )
 
     async def _on_batch_started(self) -> None:
         """Emit batch start event with initial stats snapshot."""
         self._start_guardrail_run()
-        # Resolve the auto-selected error classifier before any worker runs.
-        self._resolve_error_classifier()
 
         async with self._stats_lock:
             stats_snapshot = self._stats.copy()
@@ -613,6 +577,23 @@ class ParallelBatchProcessor(
                     "total_admission_wait_seconds", 0.0
                 ),
                 "max_admission_wait_seconds": stats_snapshot.get("max_admission_wait_seconds", 0.0),
+                "total_quota_wait_seconds": stats_snapshot.get("total_quota_wait_seconds", 0.0),
+                "max_quota_wait_seconds": stats_snapshot.get("max_quota_wait_seconds", 0.0),
+                "quota_wait_p50_seconds": stats_snapshot.get("quota_wait_p50_seconds", 0.0),
+                "quota_wait_p95_seconds": stats_snapshot.get("quota_wait_p95_seconds", 0.0),
+                "quota_wait_p99_seconds": stats_snapshot.get("quota_wait_p99_seconds", 0.0),
+                "estimated_input_tokens": stats_snapshot.get("estimated_input_tokens", 0),
+                "estimated_output_tokens": stats_snapshot.get("estimated_output_tokens", 0),
+                "reserved_tokens": stats_snapshot.get("reserved_tokens", 0),
+                "reported_reconciliation_tokens": stats_snapshot.get(
+                    "reported_reconciliation_tokens", 0
+                ),
+                "refunded_tokens": stats_snapshot.get("refunded_tokens", 0),
+                "underestimated_tokens": stats_snapshot.get("underestimated_tokens", 0),
+                "unknown_usage_attempts": stats_snapshot.get("unknown_usage_attempts", 0),
+                "known_zero_usage_attempts": stats_snapshot.get("known_zero_usage_attempts", 0),
+                "token_estimation_failures": stats_snapshot.get("token_estimation_failures", 0),
+                "quota_scope_count": stats_snapshot.get("quota_scope_count", 0),
                 "admission_wait_p50_seconds": stats_snapshot.get("admission_wait_p50_seconds", 0.0),
                 "admission_wait_p95_seconds": stats_snapshot.get("admission_wait_p95_seconds", 0.0),
                 "admission_wait_p99_seconds": stats_snapshot.get("admission_wait_p99_seconds", 0.0),
@@ -895,11 +876,6 @@ class ParallelBatchProcessor(
         """Delegate to RateLimitCoordinator._finalize_cooldown (kept for subclass overrides)."""
         await self._rate_limit_coord._finalize_cooldown(start_time, error)
 
-    def _should_retry_error(self, exception: Exception) -> bool:
-        """Determine if error should be retried using error classifier."""
-        error_info = self.error_classifier.classify(exception)
-        return error_info.is_retryable
-
     def _extract_token_usage(self, exception: Exception) -> dict[str, int]:
         """Extract token usage from a failed LLM call exception.
 
@@ -955,5 +931,11 @@ class ParallelBatchProcessor(
 
     async def shutdown(self):
         """Clean up resources: flush observers and cancel pending tasks."""
-        await self._cleanup_strategies()
-        await self.cleanup()
+        errors: list[BaseException] = []
+        for cleanup in (self.cleanup, self._cleanup_strategies):
+            try:
+                await cleanup()
+            except BaseException as error:
+                errors.append(error)
+        if errors:
+            raise errors[0]

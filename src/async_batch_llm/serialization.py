@@ -282,6 +282,13 @@ def _attempt_to_dict(value: AttemptTiming) -> dict[str, JSONValue]:
         "execution_seconds": value.execution_seconds,
         "provider_seconds": value.provider_seconds,
         "cooldown_wait_seconds": value.cooldown_wait_seconds,
+        "quota_wait_seconds": value.quota_wait_seconds,
+        "estimated_input_tokens": value.estimated_input_tokens,
+        "estimated_output_tokens": value.estimated_output_tokens,
+        "reserved_tokens": value.reserved_tokens,
+        "reported_tokens": value.reported_tokens,
+        "reconciliation_delta_tokens": value.reconciliation_delta_tokens,
+        "quota_scope_id": value.quota_scope_id,
         "retry_backoff_seconds": value.retry_backoff_seconds,
         "success": value.success,
         "error_type": value.error_type,
@@ -304,6 +311,36 @@ def _attempt_from_dict(value: Any, *, path: str) -> AttemptTiming:
                 None if data.get("provider_seconds") is None else float(data["provider_seconds"])
             ),
             cooldown_wait_seconds=float(data.get("cooldown_wait_seconds", 0.0)),
+            quota_wait_seconds=float(data.get("quota_wait_seconds", 0.0)),
+            estimated_input_tokens=_optional_int(
+                data.get("estimated_input_tokens"),
+                path=f"{path}.estimated_input_tokens",
+                non_negative=True,
+            ),
+            estimated_output_tokens=_optional_int(
+                data.get("estimated_output_tokens"),
+                path=f"{path}.estimated_output_tokens",
+                non_negative=True,
+            ),
+            reserved_tokens=_required_int(
+                data.get("reserved_tokens", 0),
+                path=f"{path}.reserved_tokens",
+                non_negative=True,
+            ),
+            reported_tokens=_optional_int(
+                data.get("reported_tokens"),
+                path=f"{path}.reported_tokens",
+                non_negative=True,
+            ),
+            reconciliation_delta_tokens=_optional_int(
+                data.get("reconciliation_delta_tokens"),
+                path=f"{path}.reconciliation_delta_tokens",
+            ),
+            quota_scope_id=_optional_int(
+                data.get("quota_scope_id"),
+                path=f"{path}.quota_scope_id",
+                non_negative=True,
+            ),
             retry_backoff_seconds=float(data.get("retry_backoff_seconds", 0.0)),
             success=bool(data.get("success", False)),
             error_type=_optional_str(data.get("error_type")),
@@ -342,6 +379,20 @@ def _timing_from_dict(value: Any) -> WorkItemTiming:
 
 def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _required_int(value: Any, *, path: str, non_negative: bool = False) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ResultSerializationError(f"Expected an integer at {path}")
+    if non_negative and value < 0:
+        raise ResultSerializationError(f"Expected a non-negative integer at {path}")
+    return int(value)
+
+
+def _optional_int(value: Any, *, path: str, non_negative: bool = False) -> int | None:
+    if value is None:
+        return None
+    return _required_int(value, path=path, non_negative=non_negative)
 
 
 def _optional_seconds(value: Any, *, path: str) -> float | None:

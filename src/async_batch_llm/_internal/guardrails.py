@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import inspect
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
@@ -124,6 +124,7 @@ async def await_with_guardrails(
     abort_controller: AbortController | None = None,
     operation_timeout: float | None = None,
     active_provider: bool = False,
+    on_start: Callable[[], None] | None = None,
 ) -> _T:
     """Await work bounded by item deadline, operation timeout, and batch abort.
 
@@ -159,6 +160,15 @@ async def await_with_guardrails(
     if remaining is not None and (timeout is None or remaining <= timeout):
         timeout = remaining
         deadline_is_limit = True
+
+    try:
+        if on_start is not None:
+            on_start()
+    except BaseException:
+        close_unstarted()
+        if provider_registered and abort_controller is not None:
+            await abort_controller.end_provider_call()
+        raise
 
     task = asyncio.ensure_future(awaitable)
     timer = asyncio.create_task(asyncio.sleep(timeout)) if timeout is not None else None

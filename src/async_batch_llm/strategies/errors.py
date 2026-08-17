@@ -108,6 +108,24 @@ class TokenTrackingError(Exception):
         self._failed_token_usage = token_usage or {}
 
 
+class TokenEstimationError(Exception):
+    """Framework-owned, non-retryable token-estimation failure."""
+
+    error_category = "token_estimation_error"
+
+
+class TokenEstimatorRequired(TokenEstimationError):
+    """TPM admission was enabled but no estimator resolved for an item."""
+
+    error_category = "token_estimator_required"
+
+
+class TokenEstimateExceedsLimit(TokenEstimationError):
+    """One attempt's estimate cannot fit in the configured TPM bucket."""
+
+    error_category = "token_estimate_exceeds_limit"
+
+
 class EmptyResponseError(ValueError):
     """The provider returned a billed response with no usable text.
 

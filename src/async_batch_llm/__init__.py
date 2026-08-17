@@ -172,11 +172,15 @@ from .strategies import (
     ProviderResponseError,
     RateLimitRetriesExceeded,
     RateLimitStrategy,
+    TokenEstimateExceedsLimit,
+    TokenEstimationError,
+    TokenEstimatorRequired,
     TokenTrackingError,
 )
 
 # High-level streaming API (built on the processor's streaming mode)
 from .streaming import process_prompts, process_stream
+from .token_estimation import CharacterTokenEstimator, TokenEstimate, TokenEstimator
 
 # Type variable for output type in simplified aliases
 _T = TypeVar("_T")
@@ -224,6 +228,9 @@ __all__ = [
     "ProgressCallbackFunc",
     "RetryState",
     "TokenUsage",
+    "TokenEstimate",
+    "TokenEstimator",
+    "CharacterTokenEstimator",
     "WorkItemResult",
     "WorkItemTiming",
     "ResultSerializationError",
@@ -294,6 +301,9 @@ __all__ = [
     "BatchAbortedError",
     "ProviderResponseError",
     "RateLimitRetriesExceeded",
+    "TokenEstimationError",
+    "TokenEstimatorRequired",
+    "TokenEstimateExceedsLimit",
     "TokenTrackingError",
     "RateLimitStrategy",
     "ExponentialBackoffStrategy",

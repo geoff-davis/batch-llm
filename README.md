@@ -150,11 +150,30 @@ lower-level surfaces.
 | --- | --- |
 | Error-aware retries | Separate budgets for content/transport failures and rate limits |
 | Coordinated cooldowns | One worker's rate limit pauses the shared execution scope |
+| Token-aware admission | Atomic per-scope RPM+TPM reservation with usage reconciliation |
 | Bounded streaming | Lazy sources and slow result consumers apply backpressure independently |
 | Durable resume | Versioned JSONL or indexed SQLite checkpoints replay only compatible prior results |
 | Guardrails | End-to-end item deadlines, batch deadlines, and category-based fail-fast |
 | Accounting | Attempt timing and tokens include retries and failed provider calls |
 | Observability | Typed lifecycle events, metrics, middleware, and progress callbacks |
+
+For providers with both request and token quotas, enable token-aware admission
+explicitly (it is intentionally not part of the minimal quick start):
+
+```python
+from async_batch_llm import CharacterTokenEstimator, ProcessorConfig
+
+config = ProcessorConfig(
+    concurrency=32,
+    max_requests_per_minute=500,
+    max_tokens_per_minute=200_000,
+    token_estimator=CharacterTokenEstimator(expected_output_tokens=400),
+)
+```
+
+The [Token-Aware Admission guide](https://geoff-davis.github.io/async-batch-llm/token-aware-admission/)
+explains estimators, shared quota scopes, refunds, underestimation debt, retries,
+and known-zero versus unknown usage.
 
 ### Why not just use `gather`?
 
@@ -328,8 +347,10 @@ for queue, connection-pool, and lifecycle guidance.
 ## Results, serialization, and accounting
 
 `BatchResult` aggregates input, cached, output, and total tokens across retries,
-including usage recovered from failed attempts. Cost remains caller-supplied;
-the package does not bundle a provider price table:
+including usage recovered from failed attempts. Token accounting covers attempts
+visible to ABL, including recoverable failed-attempt usage. Retries hidden inside
+an upstream gateway require gateway-reported usage to be visible. Cost remains
+caller-supplied; the package does not bundle a provider price table:
 
 ```python
 cost = batch.estimated_cost(

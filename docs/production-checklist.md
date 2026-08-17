@@ -91,7 +91,7 @@ The timeout boundary is deliberately narrow:
 | Worker or shared-call semaphore admission | No |
 | Provider-capacity admission | No |
 | Coordinated cooldown / post-cooldown slow-start | No |
-| Proactive request-rate limiter wait | No |
+| Proactive RPM/TPM quota wait | No |
 | `strategy.execute()` | **Yes** |
 | httpx pool wait occurring inside `strategy.execute()` | **Yes** |
 | Retry backoff between attempts | No |
@@ -167,7 +167,32 @@ a preceding rate limit. Ramp wait remains outside `attempt_timeout`.
 See the [OpenAI-compatible high-throughput guide](openai-high-throughput.md) for
 owned/custom client recipes and troubleshooting.
 
-## 6. Bounded streaming for large inputs
+## 6. Token-aware admission
+
+Before enabling `max_tokens_per_minute`, verify all of the following:
+
+- Identify the provider/account that owns the quota and intentionally share a
+  stable `quota_scope` across every strategy spending that budget.
+- Keep independent account quotas in distinct scopes. Do not use a credential,
+  credential-derived string, or arbitrary `repr()` as a scope label.
+- Use a provider tokenizer where possible and measure estimator accuracy on
+  representative small, medium, and large prompts.
+- Reserve expected output as well as input. Check that the largest single
+  estimate fits inside `max_tokens_per_minute`.
+- Monitor `refunded_tokens`, `underestimated_tokens`,
+  `unknown_usage_attempts`, and `known_zero_usage_attempts`; sustained debt
+  means the estimate is too low.
+- Confirm whether an upstream gateway retries internally and whether it reports
+  aggregate usage. Hidden attempts cannot be reconstructed by ABL.
+- Test one recoverable failed-usage retry, one unknown-usage timeout/transport
+  failure, and cancellation both before and after provider start.
+- Verify replay and dry-run emit no quota events and do not consume live
+  admission state.
+
+See [Token-Aware Admission](token-aware-admission.md) for reservation,
+reconciliation, FIFO, and visibility semantics.
+
+## 7. Bounded streaming for large inputs
 
 For a very large (or unbounded) input, don't buffer all the work up front. Use
 **streaming mode** with bounded `max_queue_size` and
@@ -201,7 +226,7 @@ backpressure to provider workers instead of accumulating completed items. See
 [Bounded Work and Backpressure](bounded-work.md) for incremental database input,
 low-level streaming, and separate input/output/provider/shared-call limits.
 
-## 7. Single calls and the shared call pool (request paths)
+## 8. Single calls and the shared call pool (request paths)
 
 For a web service's request path — where work arrives one call at a time, not as
 a batch — use [`LLMCallPool`](api/single-gateway.md) instead of standing up a
@@ -229,13 +254,13 @@ processor per request:
 For a single ad-hoc call, [`call()` / `call_result()`](api/single-gateway.md)
 run one prompt through the same resilience pipeline with no pool at all.
 
-## 8. Cleanup
+## 9. Cleanup
 
 Use the processor as an `async with` context manager so workers, caches, and
 HTTP clients are released. If you can't, call `await processor.shutdown()` when
 done.
 
-## 9. Artifact storage (checkpoint/resume runs)
+## 10. Artifact storage (checkpoint/resume runs)
 
 - **Backend choice.** JSONL for portable, human-inspectable audit logs;
   `SqliteArtifactStore` for 100k+ restartable runs needing indexed replay.

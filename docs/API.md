@@ -130,9 +130,14 @@ class WorkItemResult(Generic[TOutput, TContext]):
   (what `call()` / `LLMCallPool.submit()` re-raise); None on success
 - `admission_wait_seconds` (float): Cumulative provider-capacity wait across all
   attempts. This wait occurs before `attempt_timeout` starts.
+- `quota_wait_seconds` (float, property): Cumulative RPM/TPM wait across all
+  physical attempts. Kept separate from provider-capacity admission.
 - `timing` (WorkItemTiming): Total wall time and typed per-try timing for
   admission, startup ramp, execution, provider calls where available, cooldown,
-  retry backoff, error classification, and timeout category.
+  retry backoff, error classification, and timeout category. Each
+  `AttemptTiming` also carries `quota_wait_seconds`, estimated input/output,
+  `reserved_tokens`, `reported_tokens` (`None` means unknown; `0` is known
+  zero), `reconciliation_delta_tokens`, and run-local `quota_scope_id`.
 - `structured_output_recovered` (bool): Typed metadata view indicating that
   conservative JSON recovery succeeded.
 - `structured_output_recovery_reason` (str | None): Recovery reason, currently
@@ -440,6 +445,16 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
     async def cleanup(self) -> None: ...
 
     async def dry_run(self, prompt: str) -> tuple[TOutput, TokenUsage]: ...
+
+    def estimate_tokens(
+        self, prompt: str, attempt: int, state: RetryState | None
+    ) -> TokenEstimate | Awaitable[TokenEstimate] | None: ...
+
+    @property
+    def concurrency_scope(self) -> object: ...
+
+    @property
+    def quota_scope(self) -> object: ...
 ```
 
 **Lifecycle:**
@@ -451,6 +466,19 @@ class LLMCallStrategy(ABC, Generic[TOutput]):
 3. `cleanup()` - Called once after all attempts complete
 
 **Methods:**
+
+#### `estimate_tokens(prompt, attempt, state)`
+
+Optional per-strategy TPM estimator. It runs after middleware and coordinated
+cooldown but before the atomic quota reservation and provider-capacity wait.
+It may be synchronous or asynchronous and receives retry state so model
+escalation can change the expected output. `ProcessorConfig.token_estimator`
+takes precedence. The default returns `None`.
+
+`quota_scope` identifies strategies sharing RPM, TPM, and cooldown by object
+identity. It defaults to `concurrency_scope`, which identifies shared provider
+capacity. Override them independently when account quota and client capacity
+have different ownership.
 
 #### `async def prepare() -> None`
 
@@ -858,6 +886,8 @@ class ProcessorConfig:
     enable_detailed_logging: bool = False
     max_queue_size: int = 0
     max_requests_per_minute: float | None = None
+    max_tokens_per_minute: int | None = None
+    token_estimator: TokenEstimator | None = None
     dry_run: bool = False
     max_provider_concurrency: int | None = None
     startup_ramp: StartupRampConfig | None = None
@@ -905,7 +935,14 @@ class ProcessorConfig:
 - `max_result_queue_size` (int): Completed results waiting for a streaming
   consumer (0 = unlimited). Default: 0
 - `max_requests_per_minute` (float | None): Optional proactive rate limiter that throttles
-  requests before hitting provider limits
+  physical attempts per quota scope before hitting provider limits.
+- `max_tokens_per_minute` (int | None): Optional proactive token budget per
+  quota scope. Positive integers only. Enabling it requires an estimator for
+  every live attempt.
+- `token_estimator` (`TokenEstimator | None`): Run-level sync or async estimator;
+  takes precedence over the effective strategy's `estimate_tokens()` hook.
+  Estimation runs after middleware and cooldown and before quota/provider
+  capacity. Default: None.
 - `dry_run` (bool): Skip actual API calls, use mock data from `strategy.dry_run()`. Default: False
 
 **Example:**
@@ -1032,6 +1069,24 @@ wait occurs before `attempt_timeout`.
 ---
 
 ## Error Handling
+
+### Token estimation errors
+
+Token admission uses three public, framework-owned, non-retryable errors:
+
+- `TokenEstimationError` (`token_estimation_error`): an estimator raised,
+  returned an invalid value, or otherwise could not produce a safe estimate.
+  The underlying exception is redacted from item-facing text.
+- `TokenEstimatorRequired` (`token_estimator_required`): TPM is enabled but no
+  config or strategy estimator resolved.
+- `TokenEstimateExceedsLimit` (`token_estimate_exceeds_limit`): one estimate is
+  larger than the configured TPM bucket and cannot become admissible by
+  waiting.
+
+These errors occur before provider start, bypass strategy/middleware error
+recovery, and consume no quota or provider capacity.
+
+---
 
 ### ErrorClassifier
 
@@ -1235,7 +1290,13 @@ class ProcessorObserver(ABC):
 - `BATCH_STARTED`: `{total, max_workers, start_time}`
 - `BATCH_COMPLETED`: `{processed, succeeded, failed, total, total_tokens,
   cached_input_tokens, total_admission_wait_seconds,
-  max_admission_wait_seconds, admission_wait_p50/p95/p99_seconds,
+  max_admission_wait_seconds, total_quota_wait_seconds,
+  max_quota_wait_seconds, quota_wait_p50/p95/p99_seconds,
+  estimated_input_tokens, estimated_output_tokens, reserved_tokens,
+  reported_reconciliation_tokens, refunded_tokens, underestimated_tokens,
+  unknown_usage_attempts, known_zero_usage_attempts,
+  token_estimation_failures, quota_scope_count,
+  admission_wait_p50/p95/p99_seconds,
   execution_p50/p95/p99_seconds, structured_output_recoveries,
   structured_output_retries_avoided, structured_output_recovery_reasons,
   duration}`
@@ -1243,6 +1304,13 @@ class ProcessorObserver(ABC):
 - `ITEM_STARTED`: `{item_id, worker_id}`
 - `ITEM_ADMITTED`: `{item_id, worker_id, attempt, wait_seconds, capacity,
   startup_ramp_wait_seconds}`
+- `QUOTA_ADMITTED`: `{item_id, worker_id, attempt, try_number,
+  quota_scope_id, wait_seconds, request_reserved, estimated_input_tokens,
+  estimated_output_tokens, estimated_total_tokens, reserved_tokens,
+  rpm_configured, tpm_configured, limited_by}`
+- `QUOTA_RECONCILED`: `{item_id, worker_id, attempt, try_number,
+  quota_scope_id, reserved_tokens, reported_tokens, known_usage,
+  delta_tokens, disposition}`
 - `ITEM_COMPLETED`: `{item_id, duration, tokens, admission_wait_seconds,
   structured_output_recovered, structured_output_recovery_reason,
   structured_output_retries_avoided}`
@@ -1267,7 +1335,11 @@ In addition to item, error, cooldown, and processing-time metrics, it reports
 `admission_wait_count`, `admission_wait_seconds_sum`,
 `admission_wait_seconds_max`, `avg_admission_wait_seconds`,
 `structured_output_recoveries`, `structured_output_retries_avoided`, and
-`structured_output_recovery_reasons`.
+`structured_output_recovery_reasons`, `quota_admitted_attempts`,
+`quota_wait_seconds_sum`, `quota_wait_seconds_max`, `reserved_tokens`,
+`reported_reconciliation_tokens`, `refunded_tokens`,
+`underestimated_tokens`, `unknown_usage_attempts`, and `quota_scope_count`.
+Scope ordinals and item IDs are never metric labels.
 
 ```python
 class MetricsObserver(BaseObserver):
@@ -1306,6 +1378,31 @@ prometheus_text = await metrics.export_prometheus()
 ---
 
 ## Core Types
+
+### TokenEstimate and TokenEstimator
+
+`TokenEstimate` is an immutable estimate for one physical attempt:
+
+```python
+@dataclass(frozen=True)
+class TokenEstimate:
+    input_tokens: int
+    output_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int: ...
+```
+
+Both fields are non-negative integers (booleans are rejected). A
+`TokenEstimator` is a sync or async callable with signature
+`(prompt, *, strategy, attempt, state) -> TokenEstimate`. The explicit
+`CharacterTokenEstimator` implements
+`max(minimum_input_tokens, ceil(len(prompt) / characters_per_token))` plus a
+fixed expected output. It is approximate and never auto-enabled.
+
+See [Token-Aware Admission](token-aware-admission.md) for full semantics.
+
+---
 
 ### TokenUsage
 

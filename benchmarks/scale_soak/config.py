@@ -15,6 +15,7 @@ SCENARIOS = (
     "stop_resume",
     "artifact_bench",
     "progress_overhead",
+    "token_quota_mixed",
 )
 
 # The 1m profile deliberately runs only the large-scenario subset; the 100k
@@ -144,6 +145,13 @@ class HarnessConfig:
             raise ValueError("--profile custom requires --items >= 1")
         if self.items is not None and self.items < 1:
             raise ValueError("--items must be >= 1")
+        effective_items = (
+            self.items
+            if self.items is not None
+            else PROFILES.get(self.profile, PROFILES["ci"]).items
+        )
+        if "token_quota_mixed" in self.scenarios and effective_items < 12:
+            raise ValueError("token_quota_mixed requires --items >= 12")
         if self.concurrency is not None and self.concurrency < 1:
             raise ValueError("--concurrency must be >= 1")
         for name in ("max_queue_size", "max_result_queue_size"):

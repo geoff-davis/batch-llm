@@ -1,12 +1,17 @@
 """Configuration management for batch processor."""
 
+from __future__ import annotations
+
 import logging
 import math
 import sys
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from ..token_estimation import TokenEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +308,11 @@ class ProcessorConfig:
     # Appended for positional compatibility.
     progress_refresh_interval_seconds: float = 0.1
 
+    # Per-quota-scope proactive token admission. Appended for positional
+    # compatibility. TPM is disabled unless a positive integer is supplied.
+    max_tokens_per_minute: int | None = None
+    token_estimator: TokenEstimator | None = None
+
     def __post_init__(self) -> None:
         """Resolve the deprecated timeout alias, then validate."""
         # Raw constructor value — the alias property's setter stores writes in
@@ -404,12 +414,30 @@ class ProcessorConfig:
                 "progress_refresh_interval_seconds must be finite and > 0 "
                 f"(got {self.progress_refresh_interval_seconds!r})."
             )
-        if self.max_requests_per_minute is not None and self.max_requests_per_minute <= 0:
+        if self.max_requests_per_minute is not None:
+            if (
+                isinstance(self.max_requests_per_minute, bool)
+                or not isinstance(self.max_requests_per_minute, (int, float))
+                or not math.isfinite(self.max_requests_per_minute)
+                or self.max_requests_per_minute <= 0
+            ):
+                raise ValueError(
+                    "max_requests_per_minute must be > 0 or None (and finite when set) "
+                    f"(got {self.max_requests_per_minute!r}). Set it to None to disable "
+                    "proactive rate limiting, or a positive number (including fractional RPM)."
+                )
+        if self.max_tokens_per_minute is not None and (
+            isinstance(self.max_tokens_per_minute, bool)
+            or not isinstance(self.max_tokens_per_minute, int)
+            or self.max_tokens_per_minute <= 0
+        ):
             raise ValueError(
-                f"max_requests_per_minute must be > 0 or None (got {self.max_requests_per_minute}). "
-                f"Set config.max_requests_per_minute to None to disable proactive rate limiting, "
-                f"or a positive number (typical: 10-500 requests/minute)."
+                "max_tokens_per_minute must be a positive integer or None "
+                f"(got {self.max_tokens_per_minute!r}). Set it to None to disable "
+                "proactive token admission."
             )
+        if self.token_estimator is not None and not callable(self.token_estimator):
+            raise TypeError("token_estimator must be callable or None")
 
         # Validate nested configs first
         self.retry.validate()
@@ -439,7 +467,8 @@ class ProcessorConfig:
                     f"max_workers ({self.max_workers}). "
                     f"At {requests_per_second:.2f} requests/second with {self.max_workers} workers, "
                     f"workers may frequently wait for rate limit tokens. "
-                    f"Consider reducing max_workers to {int(requests_per_second)} or increasing "
+                    f"Consider reducing max_workers to {max(1, int(requests_per_second))} "
+                    f"or increasing "
                     f"max_requests_per_minute."
                 )
 
