@@ -15,10 +15,9 @@ from typing import Any
 from .monitor import resource_methods
 
 REPORT_SCHEMA_NAME = "async-batch-llm-scale-soak"
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 
 DEFERRED_FEATURES = [
-    "token-aware admission for mixed prompt/output sizes (#122)",
     "adaptive concurrency (#89)",
     "distributed writers",
     "provider-native batch execution",
@@ -86,6 +85,7 @@ class ScenarioResult:
     queues: dict[str, Any] = field(default_factory=dict)
     resources: dict[str, Any] = field(default_factory=dict)
     artifact: dict[str, Any] = field(default_factory=dict)
+    quota: dict[str, Any] = field(default_factory=dict)
     assertions: list[Check] = field(default_factory=list)
     caveats: list[str] = field(default_factory=list)
     error: str | None = None
@@ -111,6 +111,7 @@ class ScenarioResult:
             "queues": self.queues,
             "resources": self.resources,
             "artifact": self.artifact,
+            "quota": self.quota,
             "assertions": [check.to_json() for check in self.assertions],
             "caveats": self.caveats,
         }
@@ -188,6 +189,7 @@ def validate_report(report: dict[str, Any]) -> list[str]:
             "queues",
             "resources",
             "artifact",
+            "quota",
             "assertions",
             "caveats",
         ):

@@ -19,7 +19,9 @@ from benchmarks.scale_soak.config import (
 from benchmarks.scale_soak.fake_provider import (
     FakeProviderConfig,
     FakeProviderStrategy,
+    TokenMixLayout,
     behavior_hash,
+    token_mix_expected,
 )
 from benchmarks.scale_soak.monitor import MAX_SAMPLES, ResourceMonitor
 from benchmarks.scale_soak.report import (
@@ -89,6 +91,14 @@ def test_profiles_cover_ci_100k_1m() -> None:
     assert PROFILES["1m"].items == 1_000_000
 
 
+def test_token_quota_scenario_requires_enough_items_for_all_cases() -> None:
+    config = HarnessConfig(
+        profile="custom", items=11, scenarios=("token_quota_mixed",), store="none"
+    )
+    with pytest.raises(ValueError, match="requires --items >= 12"):
+        config.validate()
+
+
 # ── Digest ───────────────────────────────────────────────────────────────
 
 
@@ -136,6 +146,25 @@ async def test_fake_provider_is_deterministic_for_a_seed() -> None:
     assert await run_once() == await run_once()
 
 
+def test_token_mix_layout_and_oracle_are_deterministic_and_bounded() -> None:
+    layout = TokenMixLayout.for_items(120)
+    assert layout.band_counts() == {"small": 108, "medium": 6, "large": 6}
+    assert layout.band_for(layout.known_retry_index) == "medium"
+    assert layout.band_for(layout.unknown_retry_index) == "medium"
+    assert layout.band_for(layout.known_zero_index) == "medium"
+    expected = token_mix_expected(layout)
+    assert expected == token_mix_expected(TokenMixLayout.for_items(120))
+    assert expected["provider_calls"] == 122
+    assert expected["unknown_usage_attempts"] == 1
+    assert expected["known_zero_usage_attempts"] == 1
+    assert expected["reserved_tokens"] == (
+        expected["reported_tokens"]
+        + expected["refunded_tokens"]
+        - expected["underestimated_tokens"]
+        + 50  # retained reservation for the unknown-usage transport failure
+    )
+
+
 # ── Resource probes and bounded retention ────────────────────────────────
 
 
@@ -164,6 +193,8 @@ def test_report_schema_round_trip() -> None:
     report = build_report("ci", [scenario])
     assert report["schema_name"] == REPORT_SCHEMA_NAME
     assert report["schema_version"] == REPORT_SCHEMA_VERSION
+    assert REPORT_SCHEMA_VERSION == 2
+    assert report["scenarios"][0]["quota"] == {}
     assert validate_report(report) == []
     json.dumps(report, allow_nan=False)
 
@@ -221,6 +252,26 @@ async def test_no_raw_prompts_or_outputs_leak_into_report(tmp_path: Path) -> Non
     text = json.dumps(build_report("ci", [result]))
     assert "p:i" not in text  # prompt payload marker
     assert "ok:i" not in text  # output payload marker
+
+    token_settings = _settings("token_quota_mixed", tmp_path / "token", items=40)
+    token_result = await SCENARIO_RUNNERS["token_quota_mixed"](token_settings)
+    token_text = json.dumps(build_report("ci", [token_result]))
+    assert "p:i" not in token_text
+    assert "token-ok:i" not in token_text
+
+
+async def test_token_quota_report_has_machine_readable_evidence(tmp_path: Path) -> None:
+    settings = _settings("token_quota_mixed", tmp_path, items=40)
+    result = await SCENARIO_RUNNERS["token_quota_mixed"](settings)
+    assert result.status == "passed"
+    assert result.configuration["public_quota_window_seconds"] == 60
+    assert result.configuration["scope_count"] == 2
+    assert result.quota["observed_from_batch_stats"]["quota_scope_count"] == 2
+    assert result.quota["wait_seconds"]["total"] > 0
+    assert result.quota["events"]["admitted"] == 42
+    assert result.quota["events"]["reconciled"] == 42
+    assert result.provider["known_usage_failures"] == 1
+    assert result.provider["unknown_usage_failures"] == 1
 
 
 def test_cleanup_after_scenario_exception(tmp_path: Path) -> None:

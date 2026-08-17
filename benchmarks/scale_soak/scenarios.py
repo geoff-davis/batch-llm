@@ -1,4 +1,4 @@
-"""The eight v0.21 scale-soak scenarios (plan §8.1).
+"""The credential-free scale-soak scenarios.
 
 Every scenario drives the real ``process_stream()`` execution surface (or the
 public artifact contract for the microbenchmark) with the seeded fake
@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import math
 import sqlite3
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from async_batch_llm import (
+    BaseMiddleware,
     LLMWorkItem,
     ProcessorConfig,
     RateLimitConfig,
@@ -33,13 +35,18 @@ from async_batch_llm.streaming import _ProgressReporter
 
 from .config import ScenarioSettings
 from .fake_provider import (
+    TOKEN_ESTIMATES,
     TOKENS_FAILED_ATTEMPT,
     TOKENS_OK,
     FakeProviderConfig,
     FakeProviderStrategy,
     ScaleSoakClassifier,
+    TokenMixLayout,
+    TokenMixStrategy,
+    TokenMixTracker,
     behavior_hash,
     item_id_for,
+    token_mix_expected,
 )
 from .monitor import (
     ResourceMonitor,
@@ -67,6 +74,10 @@ class StatsCapture(BaseObserver):
         self.rate_limit_hits = 0
         self.replayed = 0
         self.terminal_failure_categories: dict[str, int] = {}
+        self.quota_admitted = 0
+        self.quota_reconciled = 0
+        self.quota_scopes: dict[int, dict[str, float | int]] = {}
+        self.quota_dispositions: dict[str, int] = {}
 
     async def on_event(self, event: ProcessingEvent, data: dict[str, Any]) -> None:
         if event is ProcessingEvent.BATCH_COMPLETED:
@@ -84,12 +95,32 @@ class StatsCapture(BaseObserver):
             self.terminal_failure_categories[category] = (
                 self.terminal_failure_categories.get(category, 0) + 1
             )
+        elif event is ProcessingEvent.QUOTA_ADMITTED:
+            self.quota_admitted += 1
+            scope = int(data["quota_scope_id"])
+            aggregate = self.quota_scopes.setdefault(
+                scope, {"admitted": 0, "reconciled": 0, "reserved_tokens": 0, "wait_seconds": 0.0}
+            )
+            aggregate["admitted"] += 1
+            aggregate["reserved_tokens"] += int(data["reserved_tokens"])
+            aggregate["wait_seconds"] += float(data["wait_seconds"])
+        elif event is ProcessingEvent.QUOTA_RECONCILED:
+            self.quota_reconciled += 1
+            scope = int(data["quota_scope_id"])
+            aggregate = self.quota_scopes.setdefault(
+                scope, {"admitted": 0, "reconciled": 0, "reserved_tokens": 0, "wait_seconds": 0.0}
+            )
+            aggregate["reconciled"] += 1
+            disposition = str(data["disposition"])
+            self.quota_dispositions[disposition] = self.quota_dispositions.get(disposition, 0) + 1
 
 
 def harness_processor_config(
     settings: ScenarioSettings,
     *,
     guardrails: GuardrailConfig | None = None,
+    max_requests_per_minute: float | None = None,
+    max_tokens_per_minute: int | None = None,
 ) -> ProcessorConfig:
     """Millisecond-scale retry/cooldown waits; everything else per settings."""
     return ProcessorConfig(
@@ -97,6 +128,8 @@ def harness_processor_config(
         max_queue_size=settings.max_queue_size,
         max_result_queue_size=settings.max_result_queue_size,
         attempt_timeout=30.0,
+        max_requests_per_minute=max_requests_per_minute,
+        max_tokens_per_minute=max_tokens_per_minute,
         retry=RetryConfig(
             max_attempts=3,
             initial_wait=0.002,
@@ -1058,6 +1091,419 @@ async def run_progress_overhead(settings: ScenarioSettings) -> ScenarioResult:
     return result
 
 
+# ── Scenario I: mixed-size RPM + TPM reservation/reconciliation ─────────
+
+
+class _TokenScopeRouter(BaseMiddleware[str, str, None]):
+    """Route odd indexes to a second quota scope after middleware processing."""
+
+    def __init__(self, odd_strategy: TokenMixStrategy) -> None:
+        self.odd_strategy = odd_strategy
+
+    async def before_process(
+        self, work_item: LLMWorkItem[str, str, None]
+    ) -> LLMWorkItem[str, str, None] | None:
+        if int(work_item.item_id[1:]) % 2 == 0:
+            return work_item
+        return LLMWorkItem(
+            item_id=work_item.item_id,
+            strategy=self.odd_strategy,
+            prompt=work_item.prompt,
+            context=work_item.context,
+        )
+
+
+def _expected_int(expected: dict[str, object], key: str) -> int:
+    value = expected[key]
+    if not isinstance(value, int):
+        raise TypeError(f"expected integer {key}, got {type(value).__name__}")
+    return value
+
+
+def _quota_background_task_count() -> int:
+    """Count live gate/coordinator timer tasks without retaining task objects."""
+    count = 0
+    for task in asyncio.all_tasks():
+        if task.done():
+            continue
+        coroutine = task.get_coro()
+        name = getattr(coroutine, "__qualname__", "")
+        if "QuotaGate._wake_after" in name or "RateLimitCoordinator._run_cooldown" in name:
+            count += 1
+    return count
+
+
+async def run_token_quota_mixed(settings: ScenarioSettings) -> ScenarioResult:
+    """Exercise real streamed TPM admission with exact bounded accounting."""
+    result = ScenarioResult("token_quota_mixed")
+    before = ResourceSnapshot.capture()
+    monitor = ResourceMonitor(interval_s=settings.monitor_interval_s)
+    monitor.start()
+
+    layout = TokenMixLayout.for_items(settings.items)
+    expected = token_mix_expected(layout)
+    scope_charges = expected["net_quota_tokens_by_scope"]
+    if not isinstance(scope_charges, list) or not all(
+        isinstance(value, int) for value in scope_charges
+    ):
+        raise TypeError("token quota oracle returned invalid per-scope totals")
+    typed_scope_charges = cast(list[int], scope_charges)
+    target_quota_wait_seconds = 5.0 if settings.items >= 10_000 else 1.0
+    tpm_limit = max(
+        TOKEN_ESTIMATES["large"].total_tokens,
+        math.floor(min(typed_scope_charges) * 60 / (60 + target_quota_wait_seconds)),
+    )
+    rpm_limit = max(60_000, settings.items * 10)
+
+    tracker = TokenMixTracker()
+    capacity_scope = object()
+    even_strategy = TokenMixStrategy(
+        layout,
+        tracker,
+        quota_scope_key=object(),
+        concurrency_scope_key=capacity_scope,
+        latency_s=settings.provider_latency_s,
+    )
+    odd_strategy = TokenMixStrategy(
+        layout,
+        tracker,
+        quota_scope_key=object(),
+        concurrency_scope_key=capacity_scope,
+        latency_s=settings.provider_latency_s,
+    )
+    capture = StatsCapture()
+    digest = RollingDigest()
+    bands: dict[str, dict[str, Any]] = {
+        band: {
+            "items": 0,
+            "quota_wait_seconds": 0.0,
+            "max_quota_wait_seconds": 0.0,
+            "first_completion_ordinal": None,
+            "last_completion_ordinal": None,
+        }
+        for band in ("small", "medium", "large")
+    }
+    observed = {
+        "estimated_input_tokens": 0,
+        "estimated_output_tokens": 0,
+        "reserved_tokens": 0,
+        "reported_tokens": 0,
+        "refunded_tokens": 0,
+        "underestimated_tokens": 0,
+        "unknown_usage_attempts": 0,
+        "known_zero_usage_attempts": 0,
+    }
+    result_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    succeeded = 0
+    failed = 0
+    monitor.mark_warmup()
+    started = time.monotonic()
+    async for item in process_stream(
+        even_strategy,
+        source(settings.items),
+        config=harness_processor_config(
+            settings,
+            max_requests_per_minute=rpm_limit,
+            max_tokens_per_minute=tpm_limit,
+        ),
+        error_classifier=ScaleSoakClassifier(),
+        middlewares=[_TokenScopeRouter(odd_strategy)],
+        observers=[capture],
+    ):
+        index = int(item.item_id[1:])
+        digest.add(item.item_id, index, item.success)
+        succeeded += int(item.success)
+        failed += int(not item.success)
+        for key in result_usage:
+            result_usage[key] += cast(int, item.token_usage.get(key, 0))
+        band = layout.band_for(index)
+        aggregate = bands[band]
+        aggregate["items"] = int(aggregate["items"]) + 1
+        aggregate["quota_wait_seconds"] = (
+            float(aggregate["quota_wait_seconds"]) + item.quota_wait_seconds
+        )
+        aggregate["max_quota_wait_seconds"] = max(
+            float(aggregate["max_quota_wait_seconds"]), item.quota_wait_seconds
+        )
+        completion_ordinal = succeeded + failed
+        if aggregate["first_completion_ordinal"] is None:
+            aggregate["first_completion_ordinal"] = completion_ordinal
+        aggregate["last_completion_ordinal"] = completion_ordinal
+
+        for attempt in item.timing.attempts:
+            observed["estimated_input_tokens"] += attempt.estimated_input_tokens or 0
+            observed["estimated_output_tokens"] += attempt.estimated_output_tokens or 0
+            observed["reserved_tokens"] += attempt.reserved_tokens
+            if attempt.reported_tokens is None:
+                if attempt.reserved_tokens:
+                    observed["unknown_usage_attempts"] += 1
+            else:
+                observed["reported_tokens"] += attempt.reported_tokens
+                if attempt.reported_tokens == 0 and attempt.reserved_tokens:
+                    observed["known_zero_usage_attempts"] += 1
+            delta = attempt.reconciliation_delta_tokens
+            if delta is not None and delta < 0:
+                observed["refunded_tokens"] += -delta
+            elif delta is not None and delta > 0:
+                observed["underestimated_tokens"] += delta
+    wall = time.monotonic() - started
+    await monitor.stop()
+
+    stats = capture.batch_completed or {}
+    for aggregate in bands.values():
+        count = int(aggregate["items"])
+        aggregate["mean_quota_wait_seconds"] = (
+            float(aggregate["quota_wait_seconds"]) / count if count else 0.0
+        )
+        aggregate["quota_wait_seconds"] = round(float(aggregate["quota_wait_seconds"]), 6)
+        aggregate["max_quota_wait_seconds"] = round(float(aggregate["max_quota_wait_seconds"]), 6)
+        aggregate["mean_quota_wait_seconds"] = round(float(aggregate["mean_quota_wait_seconds"]), 6)
+
+    event_scopes = [
+        {
+            "ordinal": ordinal,
+            "admitted": int(values["admitted"]),
+            "reconciled": int(values["reconciled"]),
+            "reserved_tokens": int(values["reserved_tokens"]),
+            "wait_seconds": round(float(values["wait_seconds"]), 6),
+        }
+        for ordinal, values in sorted(capture.quota_scopes.items())
+    ]
+    expected_bands = expected["band_counts"]
+    assert isinstance(expected_bands, dict)
+    typed_expected_bands = cast(dict[str, int], expected_bands)
+    expected_calls = _expected_int(expected, "provider_calls")
+
+    result.configuration = {
+        "items": settings.items,
+        "concurrency": settings.concurrency,
+        "max_queue_size": settings.max_queue_size,
+        "max_result_queue_size": settings.max_result_queue_size,
+        "requested_store": settings.store,
+        "effective_store": "none",
+        "seed": settings.seed,
+        "provider_latency_ms": settings.provider_latency_s * 1000,
+        "max_requests_per_minute_per_scope": rpm_limit,
+        "max_tokens_per_minute_per_scope": tpm_limit,
+        "public_quota_window_seconds": 60,
+        "target_aggregate_refill_seconds": target_quota_wait_seconds,
+        "scope_count": 2,
+    }
+    result.counts = {
+        "accepted": stats.get("total"),
+        "processed": stats.get("processed"),
+        "succeeded": succeeded,
+        "failed": failed,
+        "digest": digest.to_json(),
+        "expected_digest": expected_digest(settings.items).to_json(),
+        "bands": {band: int(values["items"]) for band, values in bands.items()},
+        "retries": tracker.calls - settings.items,
+        "total_tokens": stats.get("total_tokens"),
+    }
+    result.throughput = {
+        "wall_seconds": round(wall, 3),
+        "items_per_second": round(settings.items / wall, 1) if wall > 0 else None,
+        "provider_calls_per_second": round(tracker.calls / wall, 1) if wall > 0 else None,
+    }
+    result.provider = {
+        "calls": tracker.calls,
+        "calls_by_band": tracker.calls_by_band,
+        "peak_concurrent_calls": tracker.peak_concurrent_calls,
+        "rate_limit_failures": 0,
+        "known_usage_failures": tracker.known_usage_failures,
+        "unknown_usage_failures": tracker.unknown_usage_failures,
+        "retries_by_class": {
+            "recoverable_known_usage": tracker.known_usage_failures,
+            "unknown_transport": tracker.unknown_usage_failures,
+        },
+        "reported_tokens": tracker.reported_tokens,
+        "prepared_strategies": even_strategy.prepared + odd_strategy.prepared,
+        "cleaned_up_strategies": even_strategy.cleaned_up + odd_strategy.cleaned_up,
+    }
+    result.queues = {
+        "input_bound": settings.max_queue_size,
+        "result_bound": settings.max_result_queue_size,
+        "input_high_water": stats.get("input_queue_high_water_mark"),
+        "result_high_water": stats.get("result_queue_high_water_mark"),
+    }
+    result.quota = {
+        "bands": bands,
+        "estimates": {
+            band: {
+                "input_tokens": estimate.input_tokens,
+                "output_tokens": estimate.output_tokens,
+                "total_tokens": estimate.total_tokens,
+            }
+            for band, estimate in TOKEN_ESTIMATES.items()
+        },
+        "expected": expected,
+        "observed_from_attempt_timings": observed,
+        "observed_from_result_usage": result_usage,
+        "observed_from_batch_stats": {
+            key: stats.get(key)
+            for key in (
+                "estimated_input_tokens",
+                "estimated_output_tokens",
+                "reserved_tokens",
+                "reported_reconciliation_tokens",
+                "refunded_tokens",
+                "underestimated_tokens",
+                "unknown_usage_attempts",
+                "known_zero_usage_attempts",
+                "quota_scope_count",
+            )
+        },
+        "wait_seconds": {
+            "total": stats.get("total_quota_wait_seconds"),
+            "max": stats.get("max_quota_wait_seconds"),
+            "p50": stats.get("quota_wait_p50_seconds"),
+            "p95": stats.get("quota_wait_p95_seconds"),
+            "p99": stats.get("quota_wait_p99_seconds"),
+        },
+        "events": {
+            "admitted": capture.quota_admitted,
+            "reconciled": capture.quota_reconciled,
+            "dispositions": capture.quota_dispositions,
+            "scopes": event_scopes,
+        },
+    }
+
+    result.check(
+        "exact_item_count_and_digest",
+        succeeded == settings.items and failed == 0 and digest == expected_digest(settings.items),
+        f"succeeded {succeeded} failed {failed} digest {digest.to_json()}",
+    )
+    result.check(
+        "exact_band_distribution",
+        result.counts["bands"] == typed_expected_bands,
+        f"observed {result.counts['bands']} expected {typed_expected_bands}",
+    )
+    result.check(
+        "exact_provider_calls_and_retries",
+        tracker.calls == expected_calls and tracker.calls - settings.items == 2,
+        f"calls {tracker.calls} expected {expected_calls}",
+    )
+    for key in (
+        "estimated_input_tokens",
+        "estimated_output_tokens",
+        "reserved_tokens",
+        "reported_tokens",
+        "refunded_tokens",
+        "underestimated_tokens",
+        "unknown_usage_attempts",
+        "known_zero_usage_attempts",
+    ):
+        result.check(
+            f"exact_{key}",
+            observed[key] == _expected_int(expected, key),
+            f"observed {observed[key]} expected {expected[key]}",
+        )
+    result.check(
+        "batch_actual_token_split_matches_oracle",
+        result_usage["input_tokens"] == _expected_int(expected, "reported_input_tokens")
+        and result_usage["output_tokens"] == _expected_int(expected, "reported_output_tokens")
+        and result_usage["total_tokens"] == _expected_int(expected, "reported_tokens")
+        and stats.get("total_tokens") == _expected_int(expected, "reported_tokens"),
+        f"results input/output/total {result_usage['input_tokens']}/"
+        f"{result_usage['output_tokens']}/{result_usage['total_tokens']}; "
+        f"batch total {stats.get('total_tokens')}",
+    )
+    stats_key_by_observed = {
+        "estimated_input_tokens": "estimated_input_tokens",
+        "estimated_output_tokens": "estimated_output_tokens",
+        "reserved_tokens": "reserved_tokens",
+        "reported_tokens": "reported_reconciliation_tokens",
+        "refunded_tokens": "refunded_tokens",
+        "underestimated_tokens": "underestimated_tokens",
+        "unknown_usage_attempts": "unknown_usage_attempts",
+        "known_zero_usage_attempts": "known_zero_usage_attempts",
+    }
+    result.check(
+        "attempt_timings_match_batch_stats",
+        all(
+            observed[key] == stats.get(stats_key)
+            for key, stats_key in stats_key_by_observed.items()
+        ),
+        f"timings {observed} stats {result.quota['observed_from_batch_stats']}",
+    )
+    result.check(
+        "quota_events_are_exactly_once_per_physical_call",
+        capture.quota_admitted == capture.quota_reconciled == expected_calls
+        and all(scope["admitted"] == scope["reconciled"] for scope in event_scopes),
+        f"admitted {capture.quota_admitted} reconciled {capture.quota_reconciled}",
+    )
+    result.check(
+        "two_quota_scopes_observed",
+        stats.get("quota_scope_count") == 2 and len(event_scopes) == 2,
+        f"stats scopes {stats.get('quota_scope_count')} events {event_scopes}",
+    )
+    event_wait = sum(float(scope["wait_seconds"]) for scope in event_scopes)
+    result.check(
+        "real_quota_wait_observed",
+        float(stats.get("total_quota_wait_seconds", 0)) > 0
+        and float(stats.get("max_quota_wait_seconds", 0)) > 0,
+        f"total {stats.get('total_quota_wait_seconds')} max {stats.get('max_quota_wait_seconds')}",
+    )
+    result.check(
+        "quota_event_and_batch_waits_agree",
+        math.isclose(
+            event_wait,
+            float(stats.get("total_quota_wait_seconds", 0)),
+            rel_tol=1e-5,
+            abs_tol=1e-5,
+        ),
+        f"events {event_wait} stats {stats.get('total_quota_wait_seconds')}",
+    )
+    result.check(
+        "every_band_completes_without_starvation",
+        all(
+            int(bands[band]["items"]) == typed_expected_bands[band]
+            and bands[band]["last_completion_ordinal"] is not None
+            for band in bands
+        ),
+        f"bands {bands}",
+    )
+    result.check(
+        "provider_concurrency_within_shared_bound",
+        0 < tracker.peak_concurrent_calls <= settings.concurrency,
+        f"peak {tracker.peak_concurrent_calls} bound {settings.concurrency}",
+    )
+    result.check(
+        "no_rate_limit_storm",
+        capture.rate_limit_hits == 0 and tracker.calls == settings.items + 2,
+        f"rate hits {capture.rate_limit_hits} calls {tracker.calls}",
+    )
+    result.check(
+        "strategy_lifecycle_complete_for_both_scopes",
+        even_strategy.prepared == odd_strategy.prepared == 1
+        and even_strategy.cleaned_up == odd_strategy.cleaned_up == 1,
+        f"prepared {even_strategy.prepared}/{odd_strategy.prepared} "
+        f"cleaned {even_strategy.cleaned_up}/{odd_strategy.cleaned_up}",
+    )
+    check_queue_bounds(result, settings, stats)
+    await check_cleanup(result, settings, before, monitor)
+    quota_background_tasks = _quota_background_task_count()
+    result.quota["cleanup"] = {
+        "processor_context_exited": True,
+        "strategies_cleaned_up": even_strategy.cleaned_up + odd_strategy.cleaned_up,
+        "quota_background_tasks_after": quota_background_tasks,
+    }
+    result.check(
+        "quota_scope_coordinator_tasks_cleaned_up",
+        quota_background_tasks == 0,
+        f"quota/coordinator background tasks remaining: {quota_background_tasks}",
+    )
+    memory_limit_mib = settings.max_post_warmup_rss_growth_mib or 128.0
+    growth = monitor.post_warmup_growth_bytes()
+    result.resources["token_scenario_post_warmup_growth_limit_mib"] = memory_limit_mib
+    result.check(
+        "token_scenario_post_warmup_memory_bounded",
+        growth is not None and growth <= memory_limit_mib * 1024 * 1024,
+        f"growth {growth} limit {memory_limit_mib} MiB",
+    )
+    return result
+
+
 SCENARIO_RUNNERS: dict[str, Callable[[ScenarioSettings], Awaitable[ScenarioResult]]] = {
     "healthy": run_healthy,
     "slow_consumer": run_slow_consumer,
@@ -1067,4 +1513,5 @@ SCENARIO_RUNNERS: dict[str, Callable[[ScenarioSettings], Awaitable[ScenarioResul
     "stop_resume": run_stop_resume,
     "artifact_bench": run_artifact_bench,
     "progress_overhead": run_progress_overhead,
+    "token_quota_mixed": run_token_quota_mixed,
 }
