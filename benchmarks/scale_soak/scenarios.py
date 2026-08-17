@@ -35,6 +35,7 @@ from async_batch_llm.streaming import _ProgressReporter
 
 from .config import ScenarioSettings
 from .fake_provider import (
+    TOKEN_ACTUAL,
     TOKEN_ESTIMATES,
     TOKENS_FAILED_ATTEMPT,
     TOKENS_OK,
@@ -1149,9 +1150,15 @@ async def run_token_quota_mixed(settings: ScenarioSettings) -> ScenarioResult:
         raise TypeError("token quota oracle returned invalid per-scope totals")
     typed_scope_charges = cast(list[int], scope_charges)
     target_quota_wait_seconds = 5.0 if settings.items >= 10_000 else 1.0
+    if settings.items >= 10_000:
+        quota_capacity_basis = layout.large_count // 2 * TOKEN_ACTUAL["large"]["total_tokens"]
+        quota_capacity_basis_name = "initial_large_burst_per_scope"
+    else:
+        quota_capacity_basis = min(typed_scope_charges)
+        quota_capacity_basis_name = "total_workload_per_scope"
     tpm_limit = max(
         TOKEN_ESTIMATES["large"].total_tokens,
-        math.floor(min(typed_scope_charges) * 60 / (60 + target_quota_wait_seconds)),
+        math.floor(quota_capacity_basis * 60 / (60 + target_quota_wait_seconds)),
     )
     rpm_limit = max(60_000, settings.items * 10)
 
@@ -1287,6 +1294,8 @@ async def run_token_quota_mixed(settings: ScenarioSettings) -> ScenarioResult:
         "max_tokens_per_minute_per_scope": tpm_limit,
         "public_quota_window_seconds": 60,
         "target_aggregate_refill_seconds": target_quota_wait_seconds,
+        "quota_capacity_basis": quota_capacity_basis_name,
+        "quota_capacity_basis_tokens_per_scope": quota_capacity_basis,
         "scope_count": 2,
     }
     result.counts = {
