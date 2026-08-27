@@ -9,15 +9,16 @@ benchmark through several providers and shows three things at once:
    backoff / rate-limit handling a bare ``gather`` lacks. Read across rows to
    compare providers, down columns to compare orchestrations.
 
-2. **Provider bake-off** — DeepSeek Flash ``deepseek-v4-flash`` vs Gemini 3.1
-   Flash-Lite ``gemini-3.1-flash-lite`` vs Gemini 2.5 Flash-Lite
-   ``gemini-2.5-flash-lite`` on accuracy, tokens (input / cached / output), and
-   estimated cost. Same framework, swap one strategy per provider.
+2. **Provider bake-off** — DeepSeek Flash ``deepseek-v4-flash`` vs Gemini 3.5
+   Flash-Lite ``gemini-3.5-flash-lite`` vs GLM 5.3 Flash
+   ``z-ai/glm-5.3-flash`` (via OpenRouter) on accuracy, tokens (input / cached /
+   output), and estimated cost. Same framework, swap one strategy per provider.
 
-3. **No-thinking → thinking escalation** — attempts 1-2 run the cheap
-   non-thinking mode; attempt 3 escalates to thinking. Escalation is
-   *validation-gated*: an answer with no parseable ``#### <number>`` raises,
-   which is what triggers the retry (and thus the escalation).
+3. **Fast → thinking escalation** — attempts 1-2 run each model's lowest-cost
+   reasoning mode; attempt 3 escalates to its highest. DeepSeek can disable
+   thinking; Gemini and GLM cannot, so their floors are ``minimal`` and ``low``.
+   Escalation is *validation-gated*: an answer with no parseable
+   ``#### <number>`` raises, which is what triggers the retry.
 
 I/O uses the stdlib ``gzip`` module on both ends: the .jsonl.gz benchmark is
 read once up front, and results stream out to a .jsonl.gz file. The
@@ -43,7 +44,7 @@ outputs whose answer we couldn't parse, and decides whether they match gold.
 ## Installation
 
 ```bash
-pip install 'async-batch-llm[deepseek,gemini,openai]'
+pip install 'async-batch-llm[deepseek,gemini,openrouter,openai]'
 python examples/download_gsm8k.py
 ```
 
@@ -51,6 +52,7 @@ python examples/download_gsm8k.py
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...      # DeepSeek contestant + the wall-time race
+export OPENROUTER_API_KEY=sk-or-... # GLM contestant via OpenRouter
 export GOOGLE_API_KEY=...           # Gemini contestant (GEMINI_API_KEY also works)
 export OPENAI_API_KEY=sk-...        # optional: ChatGPT fallback grader
 ```
@@ -62,7 +64,7 @@ Default Credentials (`gcloud auth application-default login`) — no API key:
 gcloud auth application-default login
 export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=your-project
-export GOOGLE_CLOUD_LOCATION=us-central1
+export GOOGLE_CLOUD_LOCATION=global
 ```
 
 Contestants and the judge are skipped automatically when their credentials
@@ -73,6 +75,7 @@ are absent, so the demo runs with whatever you have configured.
 ```bash
 python examples/example_batch_benchmark.py
 python examples/example_batch_benchmark.py --skip-race    # bake-off only (faster)
+python examples/example_batch_benchmark.py --skip-race --items 10  # cheap smoke test
 python examples/example_batch_benchmark.py --throughput   # only the worker-pool throughput bench
 ```
 
@@ -80,20 +83,21 @@ python examples/example_batch_benchmark.py --throughput   # only the worker-pool
 runtime) and jumps straight to the provider bake-off — handy when iterating.
 
 ``--throughput`` runs *only* the throughput benchmark: for each large-pool
-provider (DeepSeek, Gemini 3.1 — Gemini 2.5's tiny pool is skipped), it races a
-chunked ``asyncio.gather`` against ``async-batch-llm``, both pinned to the
-provider's full worker count, on a big batch (``THROUGHPUT_ITEMS``). Isolates
-how much the worker pool's continuous refill beats per-chunk barriers at scale.
+provider, it races a chunked ``asyncio.gather`` against ``async-batch-llm``,
+both pinned to the provider's full worker count, on a big batch
+(``THROUGHPUT_ITEMS``). Isolates how much the worker pool's continuous refill
+beats per-chunk barriers at scale.
 """
 
+import argparse
 import asyncio
 import gzip
 import json
 import os
 import re
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -106,18 +110,13 @@ RESULTS_DIR = Path(__file__).parent / "data" / "benchmark_results"
 
 BAKEOFF_ITEMS = None  # items per provider in the bake-off; None = the whole dataset
 RACE_ITEMS = 30  # items in the wall-time race (the sequential leg is the slow one)
-# Concurrency is tuned PER PROVIDER — they tolerate very different request rates.
-# DeepSeek allows thousands of concurrent connections; Gemini 3.1 Flash-Lite
-# handled high concurrency cleanly; Gemini 2.5 Flash-Lite rate-limits/503s even
-# at modest concurrency (it still hit limits at 10, so we run it at 5). Each
-# provider's connection pool is sized to match its worker count — DeepSeek via
-# max_connections, Gemini via the genai client's httpx limits — so workers
-# aren't capped at httpx's ~100 default pool (see issue #25).
+# Concurrency is tuned per provider. Each connection pool is sized to match its
+# worker count — OpenAI-compatible clients via max_connections and Gemini via
+# the genai client's httpx limits — so workers aren't capped at httpx's ~100
+# default pool (see issue #25).
 DEEPSEEK_WORKERS = 250
-GEMINI_31_WORKERS = 250
-GEMINI_25_WORKERS = (
-    5  # 2.5 Flash-Lite overloads (503s) / rate-limits even at 10; keep this very low
-)
+GEMINI_WORKERS = 250
+GLM_WORKERS = 250
 JUDGE_WORKERS = 10  # concurrency for the fallback grader
 GATHER_CHUNK_SIZE = 50  # naive baseline: gather this many at a time (barrier per chunk)
 # --throughput benchmark: isolate the worker-pool win at large concurrency.
@@ -135,34 +134,31 @@ SHOWCASE_N = 5
 
 # Rate-limit handling for the benchmark. The library default cooldown is 300s,
 # tuned for production *quota* exhaustion — far too long for a small demo, where
-# a single transient Gemini 2.5 "503 high demand" would otherwise pause every
-# worker for 5 minutes and dominate wall time. Use a short cooldown here, and
-# bound rate-limit retries so a persistently-overloaded provider can't stack many
-# cooldowns (rate limits are exempt from max_attempts, so this is the real bound).
+# a single transient overload would otherwise pause every worker for 5 minutes
+# and dominate wall time. Use a short cooldown here, and bound rate-limit retries
+# so a persistently-overloaded provider can't stack many cooldowns (rate limits
+# are exempt from max_attempts, so this is the real bound).
 BENCH_COOLDOWN_S = 30.0
 BENCH_MAX_RATE_LIMIT_RETRIES = 5
 
-# Model ids (as of June 2026 — adjust to taste).
+# Model ids (verified 2026-08-27).
 DEEPSEEK_MODEL = "deepseek-v4-flash"
-GEMINI_31_MODEL = "gemini-3.1-flash-lite"
-GEMINI_25_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+GLM_MODEL = "z-ai/glm-5.3-flash"
+GLM_PROVIDER = "z-ai"
 JUDGE_MODEL = "gpt-5-nano"
 
-# Gemini thinking is set per-call. Gemini 3.1 uses a thinking *level*
-# (minimal/low/medium/high); Gemini 2.5 uses a numeric thinking *budget*
-# (0 disables, positive enables). Each contestant's fast pass minimizes thinking
-# and its escalation maximizes it.
+# Gemini and OpenRouter reasoning are set per-call. Each contestant's fast pass
+# minimizes reasoning and its escalation maximizes it.
 #
-# CAVEAT — the two Gemini fast passes are NOT a matched "no thinking" setup:
-# 2.5's budget=0 turns thinking fully OFF, but 3.1's level enum has no "off" —
-# "minimal" is the floor and still does a little thinking. So 3.1 gets a small
-# thinking edge that 2.5 doesn't; don't read the 3.1-vs-2.5 gap as pure model
-# quality. (2.5 Flash-Lite defaults to thinking off, so budget=0 matches its
-# default; 3.1 Flash-Lite ships with thinking on by default.)
-GEMINI_31_FAST_CONFIG = {"thinking_config": {"thinking_level": "minimal"}}
-GEMINI_31_THINK_CONFIG = {"thinking_config": {"thinking_level": "high"}}
-GEMINI_25_FAST_CONFIG = {"thinking_config": {"thinking_budget": 0}}
-GEMINI_25_THINK_CONFIG = {"thinking_config": {"thinking_budget": 2048}}
+# CAVEAT — this is not a matched "no thinking" setup: Gemini 3.5 Flash-Lite's
+# floor is minimal and GLM 5.3 Flash's floor is low; both still reason. DeepSeek
+# alone supports a true no-thinking fast pass.
+GEMINI_FAST_CONFIG = {"thinking_config": {"thinking_level": "minimal"}}
+GEMINI_THINK_CONFIG = {"thinking_config": {"thinking_level": "high"}}
+GLM_FAST_CONFIG = {"reasoning": {"effort": "low", "exclude": True}}
+GLM_THINK_CONFIG = {"reasoning": {"effort": "max", "exclude": True}}
+GLM_PROVIDER_ROUTING = {"provider": {"only": [GLM_PROVIDER], "allow_fallbacks": False}}
 
 
 @dataclass(frozen=True)
@@ -184,13 +180,42 @@ class Pricing:
 
 # Verify against each provider's current pricing page before quoting numbers.
 # PRICING_DATE stamps when these were last checked (recorded in summary.json).
-PRICING_DATE = "2026-06-01"
+PRICING_DATE = "2026-08-27"
+DEEPSEEK_OFF_PEAK_PRICING = Pricing(input=0.22, cached_input=0.007, output=0.66)
+DEEPSEEK_PEAK_PRICING = Pricing(input=0.44, cached_input=0.014, output=1.32)
+GLM_ZAI_PRICING = Pricing(input=0.075, cached_input=0.015, output=0.25)
 PRICING = {
-    DEEPSEEK_MODEL: Pricing(input=0.14, cached_input=0.0028, output=0.28),
-    GEMINI_31_MODEL: Pricing(input=0.25, cached_input=0.025, output=1.50),
-    GEMINI_25_MODEL: Pricing(input=0.10, cached_input=0.010, output=0.40),
+    # The static DeepSeek entry is the off-peak rate. Contestants resolve the
+    # active peak/off-peak tier at build time via ``pricing_for`` below.
+    DEEPSEEK_MODEL: DEEPSEEK_OFF_PEAK_PRICING,
+    GEMINI_MODEL: Pricing(input=0.30, cached_input=0.03, output=2.50),
+    # Z.AI is pinned through OpenRouter. Exact billed cost is also read from
+    # every response's ``usage.cost``.
+    GLM_MODEL: GLM_ZAI_PRICING,
     JUDGE_MODEL: Pricing(input=0.05, cached_input=0.005, output=0.50),
 }
+
+
+def pricing_for(model_id: str, at: datetime | None = None) -> tuple[Pricing, str]:
+    """Resolve the applicable rate and a reproducible description of its basis."""
+    if model_id == DEEPSEEK_MODEL:
+        instant = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        hour = instant.hour
+        is_weekday = instant.weekday() < 5
+        is_peak = is_weekday and (1 <= hour < 4 or 6 <= hour < 10)
+        tier = "peak" if is_peak else "off-peak"
+        pricing = DEEPSEEK_PEAK_PRICING if is_peak else DEEPSEEK_OFF_PEAK_PRICING
+        return pricing, f"DeepSeek direct API {tier} rate at {instant.isoformat()}"
+    if model_id == GEMINI_MODEL:
+        backend = "Vertex AI global" if GEMINI_USE_VERTEX else "Gemini Developer API (AI Studio)"
+        return PRICING[model_id], f"{backend} standard rate"
+    if model_id == GLM_MODEL:
+        return (
+            PRICING[model_id],
+            "OpenRouter pinned to Z.AI with fallbacks disabled; cost summed from response usage.cost",
+        )
+    return PRICING[model_id], "standard API rate"
+
 
 PROMPT_TEMPLATE = (
     "Solve this grade-school math problem. Think briefly step by step, then on "
@@ -211,6 +236,7 @@ JUDGE_TEMPLATE = (
 # message instead of an ImportError (examples are exempt from ruff E402).
 # ---------------------------------------------------------------------------
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # Vertex AI backend (Application Default Credentials) as an alternative to an
@@ -350,7 +376,7 @@ class StreamingGzipWriter:
 
 
 # ---------------------------------------------------------------------------
-# Strategy: no-thinking → thinking escalation, validation-gated
+# Strategy: fast → high-reasoning escalation, validation-gated
 # ---------------------------------------------------------------------------
 from async_batch_llm import ErrorClassifier, ErrorInfo  # noqa: E402
 from async_batch_llm.core.protocols import ManagedLLMModel  # noqa: E402
@@ -395,8 +421,8 @@ class ModelCall:
     """A model plus the per-call kwargs that select its thinking mode.
 
     Hides provider differences from the strategy: for DeepSeek the two modes
-    are two model objects (thinking baked into ``extra_body``); for Gemini it's
-    one model with two different per-call ``config`` dicts.
+    are two model objects (thinking baked into ``extra_body``); for Gemini and
+    OpenRouter it's one model with two different per-call ``config`` dicts.
     """
 
     model: Any
@@ -430,8 +456,8 @@ class ModelCall:
 
 
 class EscalatingStrategy(LLMCallStrategy[GSM8KAnswer]):
-    """Attempts ``< escalate_at`` use the fast (non-thinking) call; attempt
-    ``>= escalate_at`` uses the thinking call.
+    """Attempts ``< escalate_at`` use the fast call; attempt ``>= escalate_at``
+    uses the highest-reasoning call.
 
     On a non-final attempt, an unparseable answer raises (with the spent tokens
     attached so they're still accounted for) — that retry is what escalates. On
@@ -512,12 +538,14 @@ class Contestant:
     fast_call: ModelCall
     error_classifier: Any
     pricing: Pricing
+    pricing_basis: str
     workers: int  # per-provider concurrency (and pool size)
 
 
 def make_deepseek() -> Contestant:
     from async_batch_llm import DeepSeekModel, OpenAIErrorClassifier
 
+    pricing, pricing_basis = pricing_for(DEEPSEEK_MODEL)
     fast = ModelCall(
         DeepSeekModel.from_api_key(
             DEEPSEEK_MODEL, thinking=False, max_connections=DEEPSEEK_WORKERS
@@ -535,7 +563,8 @@ def make_deepseek() -> Contestant:
         fast_call=fast,
         # DeepSeek is OpenAI-compatible; wrap so parse failures escalate.
         error_classifier=EscalationErrorClassifier(OpenAIErrorClassifier()),
-        pricing=PRICING[DEEPSEEK_MODEL],
+        pricing=pricing,
+        pricing_basis=pricing_basis,
         workers=DEEPSEEK_WORKERS,
     )
 
@@ -571,6 +600,7 @@ def _make_gemini(
 ) -> Contestant:
     from async_batch_llm import GeminiErrorClassifier, GeminiModel
 
+    pricing, pricing_basis = pricing_for(model_id)
     model = GeminiModel(model_id, _gemini_client(workers))  # one model, two thinking configs
     fast = ModelCall(model, label=f"{model_id}:fast", kwargs={"config": fast_config})
     thinking = ModelCall(model, label=f"{model_id}:think", kwargs={"config": think_config})
@@ -580,28 +610,68 @@ def _make_gemini(
         strategy=EscalatingStrategy(fast, thinking),
         fast_call=fast,
         error_classifier=EscalationErrorClassifier(GeminiErrorClassifier()),
-        pricing=PRICING[model_id],
+        pricing=pricing,
+        pricing_basis=pricing_basis,
         workers=workers,
     )
 
 
-def make_gemini_31() -> Contestant:
+def make_gemini() -> Contestant:
     return _make_gemini(
-        "gemini-3.1",
-        GEMINI_31_MODEL,
-        GEMINI_31_FAST_CONFIG,
-        GEMINI_31_THINK_CONFIG,
-        GEMINI_31_WORKERS,
+        "gemini-3.5-flash-lite",
+        GEMINI_MODEL,
+        GEMINI_FAST_CONFIG,
+        GEMINI_THINK_CONFIG,
+        GEMINI_WORKERS,
     )
 
 
-def make_gemini_25() -> Contestant:
-    return _make_gemini(
-        "gemini-2.5",
-        GEMINI_25_MODEL,
-        GEMINI_25_FAST_CONFIG,
-        GEMINI_25_THINK_CONFIG,
-        GEMINI_25_WORKERS,
+def _openrouter_billing_metadata(response: Any) -> dict[str, Any]:
+    """Capture exact OpenRouter billing fields without storing prompt content."""
+    metadata: dict[str, Any] = {}
+    generation_id = getattr(response, "id", None)
+    if generation_id:
+        metadata["openrouter_generation_id"] = str(generation_id)
+    usage = getattr(response, "usage", None)
+    cost = getattr(usage, "cost", None)
+    if cost is not None:
+        metadata["provider_cost_usd"] = float(cost)
+    details = getattr(usage, "cost_details", None)
+    if isinstance(details, dict):
+        upstream_cost = details.get("upstream_inference_cost")
+    else:
+        upstream_cost = getattr(details, "upstream_inference_cost", None)
+    if upstream_cost is not None:
+        metadata["upstream_inference_cost_usd"] = float(upstream_cost)
+    return metadata
+
+
+def make_glm() -> Contestant:
+    from async_batch_llm import OpenRouterErrorClassifier, OpenRouterModel
+
+    pricing, pricing_basis = pricing_for(GLM_MODEL)
+    model = OpenRouterModel.from_api_key(
+        GLM_MODEL,
+        max_connections=GLM_WORKERS,
+        title="async-batch-llm benchmark",
+        extra_body=GLM_PROVIDER_ROUTING,
+        metadata_extractors=[_openrouter_billing_metadata],
+    )
+    fast = ModelCall(model, label=f"{GLM_MODEL}:low", kwargs={"config": GLM_FAST_CONFIG})
+    thinking = ModelCall(
+        model,
+        label=f"{GLM_MODEL}:max",
+        kwargs={"config": GLM_THINK_CONFIG},
+    )
+    return Contestant(
+        name="glm-5.3-flash",
+        model_id=GLM_MODEL,
+        strategy=EscalatingStrategy(fast, thinking),
+        fast_call=fast,
+        error_classifier=EscalationErrorClassifier(OpenRouterErrorClassifier()),
+        pricing=pricing,
+        pricing_basis=pricing_basis,
+        workers=GLM_WORKERS,
     )
 
 
@@ -664,14 +734,18 @@ async def run_contestant(
             # The post_processor runs for every completed item, including ones
             # that exhausted their retries — so result.output may be None.
             output = result.output if result.success else None
+            metadata = result.metadata or {}
             await writer.write(
                 {
                     "item_id": result.item_id,
                     "success": result.success,
                     "answer": output.value if output is not None else None,
                     "gold": result.context.get("gold") if result.context else None,
-                    "thinking": (result.metadata or {}).get("thinking"),
-                    "model": (result.metadata or {}).get("model_label"),
+                    "thinking": metadata.get("thinking"),
+                    "model": metadata.get("model_label"),
+                    "provider": metadata.get("provider"),
+                    "provider_cost_usd": metadata.get("provider_cost_usd"),
+                    "openrouter_generation_id": metadata.get("openrouter_generation_id"),
                     "error": result.error if not result.success else None,
                 }
             )
@@ -723,7 +797,12 @@ class Scorecard:
     ambiguous: int
     wall: float
     batch_result: Any
+    pricing: Pricing
+    pricing_basis: str
     workers: int = 0
+    provider_reported_cost_usd: float | None = None
+    provider_reported_cost_items: int = 0
+    provider_counts: dict[str, int] = field(default_factory=dict)
     # Strategy telemetry (how hard the model made us work).
     attempts: int = 0  # total LLM calls, including retries
     escalations: int = 0  # attempts that used the thinking pass
@@ -741,15 +820,37 @@ class Scorecard:
         return max(0, self.attempts - self.total)
 
 
+def scorecard_cost(card: Scorecard) -> tuple[float, str]:
+    """Prefer provider-reported billing; otherwise estimate from the active rate."""
+    if card.provider_reported_cost_usd is not None:
+        return card.provider_reported_cost_usd, "provider_reported"
+    return estimate_cost(card.batch_result, card.pricing), "token_estimate"
+
+
 def score_batch(
-    name: str, model_id: str, batch_result: Any, wall: float
+    name: str,
+    model_id: str,
+    batch_result: Any,
+    wall: float,
+    pricing: Pricing,
+    pricing_basis: str,
 ) -> tuple[Scorecard, list[tuple]]:
     """Grade by exact match; return the ambiguous (unparseable) items for the judge."""
     exact_correct = 0
     errors = 0
     ambiguous: list[tuple[str, str, float | None]] = []
+    provider_costs: list[float] = []
+    provider_counts: dict[str, int] = {}
 
     for r in batch_result.results:
+        metadata = r.metadata or {}
+        provider = metadata.get("provider")
+        if provider:
+            provider_name = str(provider)
+            provider_counts[provider_name] = provider_counts.get(provider_name, 0) + 1
+        reported_cost = metadata.get("provider_cost_usd")
+        if isinstance(reported_cost, int | float) and not isinstance(reported_cost, bool):
+            provider_costs.append(float(reported_cost))
         gold = r.context.get("gold") if r.context else None
         if not r.success:
             errors += 1
@@ -770,6 +871,11 @@ def score_batch(
         ambiguous=len(ambiguous),
         wall=wall,
         batch_result=batch_result,
+        pricing=pricing,
+        pricing_basis=pricing_basis,
+        provider_reported_cost_usd=sum(provider_costs) if provider_costs else None,
+        provider_reported_cost_items=len(provider_costs),
+        provider_counts=provider_counts,
     )
     return card, ambiguous
 
@@ -984,8 +1090,8 @@ async def run_throughput_for(
 ) -> "ThroughputResult | None":
     """Throughput at a large worker pool: chunked gather vs the worker pool, both
     pinned to the provider's full concurrency — so the only orchestration
-    difference is per-chunk barriers vs continuous refill. Skips small-pool
-    providers (e.g. Gemini 2.5, which can't sustain a large pool).
+    difference is per-chunk barriers vs continuous refill. Skips any provider
+    configured with a small pool.
 
     The two legs share the provider's per-minute quota, so we pause between them
     (THROUGHPUT_LEG_GAP_S) to let it reset — otherwise the first leg's burst
@@ -1060,9 +1166,8 @@ def print_race(rows: list[RaceResult], n: int) -> None:
             "riding out a\n  rate-limit / 503-overload cooldown rather than dropping "
             "results — that's the\n  resilience story, not a speed number. It still "
             "completed every item; a bare\n  gather 'finished faster' only by losing "
-            "the throttled calls. (Heavily throttled\n  providers like Gemini 2.5 "
-            "Flash-Lite, capped here at "
-            f"{GEMINI_25_WORKERS} workers, hit this.)"
+            "the throttled calls. Provider quotas and transient upstream capacity "
+            "can both trigger this."
         )
 
 
@@ -1118,7 +1223,7 @@ def print_bakeoff(cards: list[Scorecard], judge_card: Scorecard | None) -> None:
     print("-" * 96)
     for card in cards:
         br = card.batch_result
-        cost = estimate_cost(br, PRICING[card.model_id])
+        cost, _ = scorecard_cost(card)
         acc = f"{card.accuracy * 100:.1f}%"
         print(
             f"{card.name + ' (' + card.model_id + ')':<22}"
@@ -1139,7 +1244,7 @@ def print_bakeoff(cards: list[Scorecard], judge_card: Scorecard | None) -> None:
     print("\nPer-provider detail:")
     for card in cards:
         br = card.batch_result
-        billable = br.effective_input_tokens(PRICING[card.model_id].cached_rate)
+        billable = br.effective_input_tokens(card.pricing.cached_rate)
         cache_pct = (
             (br.total_cached_tokens / br.total_input_tokens * 100) if br.total_input_tokens else 0.0
         )
@@ -1151,6 +1256,16 @@ def print_bakeoff(cards: list[Scorecard], judge_card: Scorecard | None) -> None:
             f"      billable input tokens (cache-adjusted)={billable:,} "
             f"| cache hit rate={cache_pct:.1f}%"
         )
+        print(f"      pricing basis: {card.pricing_basis}")
+        if card.provider_counts:
+            routes = ", ".join(
+                f"{name}={count}" for name, count in sorted(card.provider_counts.items())
+            )
+            print(f"      OpenRouter routes: {routes}")
+            print(
+                f"      provider-reported cost covers "
+                f"{card.provider_reported_cost_items}/{card.total} results"
+            )
         # How hard the model made us work: total attempts vs items (retries),
         # malformed-output rate, escalations, and a breakdown by error type.
         parse_pct = (card.parse_failures / card.attempts * 100) if card.attempts else 0.0
@@ -1174,15 +1289,14 @@ def write_summary(
     cost — so this dumps the same numbers ``print_race``/``print_bakeoff`` show,
     letting a run be cited (e.g. in docs) without re-running it.
     """
-    from datetime import datetime, timezone
-
     from async_batch_llm import __version__ as abl_version
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     def _bakeoff_row(card: Scorecard) -> dict[str, Any]:
         br = card.batch_result
-        pricing = PRICING[card.model_id]
+        pricing = card.pricing
+        cost, cost_source = scorecard_cost(card)
         cache_pct = (
             br.total_cached_tokens / br.total_input_tokens * 100 if br.total_input_tokens else 0.0
         )
@@ -1196,9 +1310,13 @@ def write_summary(
             "input_tokens": br.total_input_tokens,
             "cached_tokens": br.total_cached_tokens,
             "output_tokens": br.total_output_tokens,
-            # Avg output tokens/item — the "DeepSeek is terser" cost driver.
+            # Avg output tokens/item — verbosity can dominate sticker price.
             "avg_output_tokens_per_item": round(avg_output, 1),
-            "cost_usd": round(estimate_cost(br, pricing), 4),
+            "cost_usd": round(cost, 6),
+            "cost_source": cost_source,
+            "pricing_basis": card.pricing_basis,
+            "provider_reported_cost_items": card.provider_reported_cost_items,
+            "provider_counts": card.provider_counts,
             "billable_input_tokens": br.effective_input_tokens(pricing.cached_rate),
             "cache_hit_rate_pct": round(cache_pct, 1),
             "exact_correct": card.exact_correct,
@@ -1231,19 +1349,25 @@ def write_summary(
             },
             "models": {
                 "deepseek": DEEPSEEK_MODEL,
-                "gemini_3.1": GEMINI_31_MODEL,
-                "gemini_2.5": GEMINI_25_MODEL,
+                "gemini_flash_lite": GEMINI_MODEL,
+                "glm_openrouter": GLM_MODEL,
                 "judge": JUDGE_MODEL,
             },
             "worker_caps": {
                 DEEPSEEK_MODEL: DEEPSEEK_WORKERS,
-                GEMINI_31_MODEL: GEMINI_31_WORKERS,
-                GEMINI_25_MODEL: GEMINI_25_WORKERS,
+                GEMINI_MODEL: GEMINI_WORKERS,
+                GLM_MODEL: GLM_WORKERS,
             },
             "notes": [
-                "Gemini 2.5 Flash-Lite is throttle-capped at "
-                f"{GEMINI_25_WORKERS} workers (503s / rate-limits even at 10); "
-                "other providers run at their full pool.",
+                "Fast passes: DeepSeek no-thinking, Gemini minimal thinking, "
+                "and GLM low reasoning; the latter two models do not support "
+                "fully disabled reasoning.",
+                "Escalation passes: DeepSeek thinking, Gemini high thinking, "
+                "and GLM max reasoning.",
+                "DeepSeek resolves its weekday UTC peak/off-peak tier when the "
+                "contestant is built.",
+                "GLM is pinned to OpenRouter's Z.AI provider with fallbacks disabled; "
+                "the reported cost and serving provider come from API responses.",
             ],
             "pricing": {
                 "as_of": PRICING_DATE,
@@ -1255,6 +1379,18 @@ def write_summary(
                         "cached_rate": round(p.cached_rate, 4),
                     }
                     for model_id, p in PRICING.items()
+                },
+                "deepseek_peak_usd_per_mtok": {
+                    "input": DEEPSEEK_PEAK_PRICING.input,
+                    "cached_input": DEEPSEEK_PEAK_PRICING.cached_input,
+                    "output": DEEPSEEK_PEAK_PRICING.output,
+                },
+                "deepseek_peak_hours_utc": (
+                    "Monday-Friday 01:00-04:00 and 06:00-10:00; all other times are off-peak"
+                ),
+                "glm_openrouter_provider": {
+                    "slug": GLM_PROVIDER,
+                    "allow_fallbacks": False,
                 },
             },
         },
@@ -1382,7 +1518,32 @@ def _raise_fd_limit(target: int) -> None:
         pass
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the GSM8K provider bake-off.")
+    parser.add_argument(
+        "--skip-race",
+        action="store_true",
+        help="skip the sequential/gather/worker-pool wall-time race",
+    )
+    parser.add_argument(
+        "--throughput",
+        action="store_true",
+        help="run only the worker-pool throughput benchmark",
+    )
+    parser.add_argument(
+        "--items",
+        type=int,
+        default=BAKEOFF_ITEMS,
+        help="limit bake-off items per provider (default: full GSM8K test split)",
+    )
+    args = parser.parse_args()
+    if args.items is not None and args.items < 1:
+        parser.error("--items must be at least 1")
+    return args
+
+
 async def main() -> None:
+    args = _parse_args()
     if not DATA_PATH.exists():
         print(f"Benchmark data not found at {DATA_PATH}")
         print("Run:  python examples/download_gsm8k.py")
@@ -1390,24 +1551,26 @@ async def main() -> None:
 
     # Each concurrent request holds a socket; give the fd limit headroom for the
     # largest provider pool (plus leaked keepalive sockets and overhead).
-    _raise_fd_limit(max(DEEPSEEK_WORKERS, GEMINI_31_WORKERS, GEMINI_25_WORKERS) * 2 + 512)
+    _raise_fd_limit(max(DEEPSEEK_WORKERS, GEMINI_WORKERS, GLM_WORKERS) * 2 + 512)
 
     builders: list[Callable[[], Contestant]] = []
     if DEEPSEEK_API_KEY:
         builders.append(make_deepseek)
     if GOOGLE_API_KEY or GEMINI_USE_VERTEX:
-        builders.append(make_gemini_31)
-        builders.append(make_gemini_25)
+        builders.append(make_gemini)
+    if OPENROUTER_API_KEY:
+        builders.append(make_glm)
 
     if not builders:
         print("No provider credentials found. Configure at least one contestant:")
         print("  DeepSeek: export DEEPSEEK_API_KEY=sk-...")
+        print("  GLM:      export OPENROUTER_API_KEY=sk-or-...")
         print("  Gemini:   export GOOGLE_API_KEY=...  (or GOOGLE_GENAI_USE_VERTEXAI=true + ADC)")
         print("Optionally OPENAI_API_KEY for the fallback grader. Then re-run.")
         return
 
     # --throughput runs ONLY the worker-pool throughput benchmark and exits.
-    if "--throughput" in sys.argv[1:]:
+    if args.throughput:
         items = await load_items(DATA_PATH, THROUGHPUT_ITEMS)
         print(f"Loaded {len(items)} GSM8K items from {DATA_PATH.name} (gzip).")
         print(
@@ -1427,9 +1590,7 @@ async def main() -> None:
             print("No large-pool providers configured; nothing to benchmark.")
         return
 
-    skip_race = "--skip-race" in sys.argv[1:]
-
-    bakeoff_items = await load_items(DATA_PATH, BAKEOFF_ITEMS)
+    bakeoff_items = await load_items(DATA_PATH, args.items)
     race_items = bakeoff_items[:RACE_ITEMS]
     print(f"Loaded {len(bakeoff_items)} GSM8K items from {DATA_PATH.name} (gzip).")
 
@@ -1441,7 +1602,7 @@ async def main() -> None:
     # The sequential leg runs one call at a time, so it dominates runtime;
     # --skip-race jumps straight to the bake-off for faster iteration.
     race_rows: list[RaceResult] = []
-    if skip_race:
+    if args.skip_race:
         print("\nSkipping wall-time race (--skip-race).")
     else:
         print(f"\nRunning wall-time race on {RACE_ITEMS} items per provider...")
@@ -1461,7 +1622,14 @@ async def main() -> None:
         contestant = build()
         print(f"\nRunning bake-off batch: {contestant.name} ({len(bakeoff_items)} items)...")
         batch_result, wall, samples = await run_contestant(contestant, bakeoff_items, showcase_ids)
-        card, ambiguous = score_batch(contestant.name, contestant.model_id, batch_result, wall)
+        card, ambiguous = score_batch(
+            contestant.name,
+            contestant.model_id,
+            batch_result,
+            wall,
+            contestant.pricing,
+            contestant.pricing_basis,
+        )
         card.workers = contestant.workers
         card.samples = samples
         strat = contestant.strategy
@@ -1497,6 +1665,8 @@ async def main() -> None:
             ambiguous=0,
             wall=judge_wall,
             batch_result=judge_br,
+            pricing=PRICING[JUDGE_MODEL],
+            pricing_basis="OpenAI standard API rate",
             workers=JUDGE_WORKERS,
         )
     elif all_ambiguous:
