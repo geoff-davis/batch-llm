@@ -1,0 +1,3076 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Provider-neutral asyncio toolkit for concurrent LLM calls with retries, coordinated rate limits, bounded streaming, resumable checkpoints, and deadlines.">
+      
+      
+      
+        <link rel="canonical" href="https://geoff-davis.github.io/async-batch-llm/benchmarks/">
+      
+      
+        <link rel="prev" href="../testing/">
+      
+      
+        <link rel="next" href="../v0.22-scale-evidence/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Benchmarks - async-batch-llm</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#benchmarks" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="async-batch-llm" class="md-header__button md-logo" aria-label="async-batch-llm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            async-batch-llm
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Benchmarks
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/geoff-davis/async-batch-llm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    geoff-davis/async-batch-llm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../comparison/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Compare Alternatives
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../choosing-your-limits/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Choosing Your Limits
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../token-aware-admission/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Token-Aware Admission
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../production-checklist/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Production Checklist
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting and FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../results-and-artifacts/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Results, Artifacts, and Resume
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../large-runs/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Large Runs (100k–1M)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../guardrails/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Deadlines and Fail-Fast Guardrails
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../bounded-work/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Bounded Work and Backpressure
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../callable-integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Use Your Existing Async Client
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../testing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Testing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Benchmarks
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../v0.22-scale-evidence/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  v0.22 Scale Evidence
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../openai-high-throughput/" class="md-tabs__link">
+          
+  
+  
+  Provider Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/basic/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../MIGRATION_V0_22/" class="md-tabs__link">
+          
+  
+  
+  Migration Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/core/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="async-batch-llm" class="md-nav__button md-logo" aria-label="async-batch-llm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    async-batch-llm
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/geoff-davis/async-batch-llm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    geoff-davis/async-batch-llm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Alternatives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../choosing-your-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing Your Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../token-aware-admission/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Token-Aware Admission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../production-checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Production Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting and FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results-and-artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results, Artifacts, and Resume
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../large-runs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large Runs (100k–1M)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guardrails/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deadlines and Fail-Fast Guardrails
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bounded-work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bounded Work and Backpressure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../callable-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Your Existing Async Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#latest-provider-bake-off-august-27-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latest provider bake-off — August 27, 2026
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Latest provider bake-off — August 27, 2026">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pricing-and-cost-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pricing and cost provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reliability-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reliability result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#original-benchmark-june-10-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original benchmark — June 10, 2026
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Original benchmark — June 10, 2026">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodology
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wall-time-race" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wall-time race
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#throughput-at-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Throughput at scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-bake-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider bake-off
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider bake-off">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terse-vs-verbose-same-answer-very-different-bills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terse vs. verbose: same answer, very different bills
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-retry-resilience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error &amp; retry resilience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-provider-beyond-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a provider: beyond cost
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scale-soak-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scale-soak harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scale-soak harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#report-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dated-results-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dated results policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v0.22-scale-evidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.22 Scale Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_16" >
+        
+          
+          <label class="md-nav__link" for="__nav_16" id="__nav_16_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Provider Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openai-high-throughput/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAI-Compatible High Throughput
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GEMINI_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gemini
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OPENAI_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OPENROUTER_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenRouter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/basic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/custom-strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/benchmark-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Migration Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.22 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_20/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.20 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_19/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical v0.19 Link
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.10 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/v0.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.4 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/v0.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.1 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_19" >
+        
+          
+          <label class="md-nav__link" for="__nav_19" id="__nav_19_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifacts and Serialization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/single-gateway/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single Call & Shared Call Pool
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/observers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#latest-provider-bake-off-august-27-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latest provider bake-off — August 27, 2026
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Latest provider bake-off — August 27, 2026">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pricing-and-cost-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pricing and cost provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reliability-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reliability result
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#original-benchmark-june-10-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Original benchmark — June 10, 2026
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Original benchmark — June 10, 2026">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methodology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methodology
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wall-time-race" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wall-time race
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#throughput-at-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Throughput at scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-bake-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider bake-off
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider bake-off">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terse-vs-verbose-same-answer-very-different-bills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terse vs. verbose: same answer, very different bills
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-retry-resilience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error &amp; retry resilience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#caveats_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Caveats
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-a-provider-beyond-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a provider: beyond cost
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scale-soak-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scale-soak harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scale-soak harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenarios
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#report-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dated-results-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dated results policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="benchmarks">Benchmarks</h1>
+<p>Two kinds of evidence live here:</p>
+<ul>
+<li>the <strong>live-provider GSM8K benchmark</strong> below — real API calls, real cost,
+  illustrative throughput; and</li>
+<li>the <strong><a href="#scale-soak-harness">scale-soak harness</a></strong> — deterministic,
+  credential-free correctness-at-scale evidence (bounded queues, restart,
+  exact accounting) with <strong>no</strong> live-provider performance claims.</li>
+</ul>
+<p>Real end-to-end numbers from the GSM8K bulk benchmark
+(<code>examples/example_batch_benchmark.py</code>). For <em>how</em> it's built — the escalation
+strategy, the classifier pitfall, gzip streaming, the judge — see the
+<a href="../examples/benchmark-walkthrough/">Benchmark Walkthrough</a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Reproducibility</p>
+<p>Numbers shift run-to-run with network latency, model sampling, and your
+account's rate limits — treat them as illustrative, not a spec. Each run has
+a dated, machine-readable summary so the original and updated bake-offs can
+coexist without rewriting history.</p>
+</div>
+<h2 id="latest-provider-bake-off-august-27-2026">Latest provider bake-off — August 27, 2026</h2>
+<p>The latest run replaces the two older Gemini generations with Gemini 3.5
+Flash-Lite and adds GLM 5.3 Flash through OpenRouter. It reruns the complete
+1,319-problem test split, but skips the separate wall-time and throughput races.
+The original June benchmark and its orchestration measurements follow this
+section unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>async-batch-llm</code> version</td>
+<td>0.23.0</td>
+</tr>
+<tr>
+<td>Dataset</td>
+<td>GSM8K <strong>test split</strong>, 1,319 problems</td>
+</tr>
+<tr>
+<td>Models</td>
+<td><code>deepseek-v4-flash</code>, <code>gemini-3.5-flash-lite</code>, <code>z-ai/glm-5.3-flash</code></td>
+</tr>
+<tr>
+<td>API paths</td>
+<td>DeepSeek direct; Gemini Developer API (AI Studio); GLM through OpenRouter</td>
+</tr>
+<tr>
+<td>OpenRouter route</td>
+<td>Z.AI only (<code>provider.only=["z-ai"]</code>), fallbacks disabled</td>
+</tr>
+<tr>
+<td>Worker pools</td>
+<td>250 for every contestant</td>
+</tr>
+<tr>
+<td>Run mode</td>
+<td><code>--skip-race</code>; identical prompts, retry policy, and exact-match scorer</td>
+</tr>
+<tr>
+<td>Pricing snapshot</td>
+<td>2026-08-27; USD per million tokens</td>
+</tr>
+</tbody>
+</table>
+<p>The three batches cost <strong>$0.847693 total</strong>. No fallback judge calls were needed.</p>
+<p><img alt="Updated cost per provider, labelled with accuracy" src="../assets/benchmark-cost-2026-08-27.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Provider (model)</th>
+<th style="text-align: right;">Correct</th>
+<th style="text-align: right;">Accuracy</th>
+<th style="text-align: right;">Wall (s)</th>
+<th style="text-align: right;">Input</th>
+<th style="text-align: right;">Cached</th>
+<th style="text-align: right;">Output</th>
+<th style="text-align: right;">Avg out/item</th>
+<th style="text-align: right;">Cost ($)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek (<code>deepseek-v4-flash</code>)</td>
+<td style="text-align: right;">1,278</td>
+<td style="text-align: right;"><strong>96.9%</strong></td>
+<td style="text-align: right;"><strong>14.5</strong></td>
+<td style="text-align: right;">139,093</td>
+<td style="text-align: right;">19,968</td>
+<td style="text-align: right;">121,384</td>
+<td style="text-align: right;">92.0</td>
+<td style="text-align: right;">0.106461</td>
+</tr>
+<tr>
+<td>Gemini (<code>gemini-3.5-flash-lite</code>)</td>
+<td style="text-align: right;">1,274</td>
+<td style="text-align: right;">96.6%</td>
+<td style="text-align: right;">20.6</td>
+<td style="text-align: right;">129,951</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">269,130</td>
+<td style="text-align: right;">204.0</td>
+<td style="text-align: right;">0.711810</td>
+</tr>
+<tr>
+<td>GLM / Z.AI (<code>z-ai/glm-5.3-flash</code>)</td>
+<td style="text-align: right;">1,270</td>
+<td style="text-align: right;">96.3%</td>
+<td style="text-align: right;">37.0</td>
+<td style="text-align: right;">140,753</td>
+<td style="text-align: right;">3,456</td>
+<td style="text-align: right;">76,291</td>
+<td style="text-align: right;"><strong>57.8</strong></td>
+<td style="text-align: right;"><strong>0.029422</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Three tradeoffs stand out:</p>
+<ul>
+<li><strong>DeepSeek led this run on accuracy and wall time.</strong> It answered four more
+  problems correctly than Gemini and eight more than GLM.</li>
+<li><strong>GLM was cheapest by a wide margin.</strong> The pinned Z.AI route cost about 3.6×
+  less than DeepSeek and 24.2× less than Gemini, while finishing within 0.6
+  percentage points of the best score.</li>
+<li><strong>Gemini used the most output tokens and cost the most.</strong> Its 204 output
+  tokens per item were 2.2× DeepSeek's and 3.5× GLM's.</li>
+</ul>
+<p>The accuracy ordering is not statistically persuasive on this single split.
+Paired exact tests on the models' disagreements produced p-values of 0.58
+(DeepSeek/Gemini), 0.28 (DeepSeek/GLM), and 0.65 (Gemini/GLM). The defensible
+reading is therefore “approximately tied on GSM8K,” not a durable leaderboard.</p>
+<h3 id="pricing-and-cost-provenance">Pricing and cost provenance</h3>
+<table>
+<thead>
+<tr>
+<th>Model/API</th>
+<th style="text-align: right;">Input</th>
+<th style="text-align: right;">Cached input</th>
+<th style="text-align: right;">Output</th>
+<th>Cost source in this run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek direct, off-peak</td>
+<td style="text-align: right;">$0.22</td>
+<td style="text-align: right;">$0.007</td>
+<td style="text-align: right;">$0.66</td>
+<td>Estimate using the active off-peak tier</td>
+</tr>
+<tr>
+<td>Gemini Developer API</td>
+<td style="text-align: right;">$0.30</td>
+<td style="text-align: right;">$0.03</td>
+<td style="text-align: right;">$2.50</td>
+<td>Estimate using standard AI Studio rates</td>
+</tr>
+<tr>
+<td>GLM through OpenRouter/Z.AI</td>
+<td style="text-align: right;">$0.075</td>
+<td style="text-align: right;">$0.015</td>
+<td style="text-align: right;">$0.25</td>
+<td>Sum of <code>usage.cost</code> from 1,319 responses</td>
+</tr>
+</tbody>
+</table>
+<p>DeepSeek's weekday peak windows double all three rates; this run began outside
+those windows. See the current
+<a href="https://api-docs.deepseek.com/quick_start/pricing/">DeepSeek pricing and peak schedule</a>,
+<a href="https://ai.google.dev/gemini-api/docs/pricing">Gemini Developer API pricing</a>,
+and OpenRouter's live
+<a href="https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints">GLM endpoint listing</a>.</p>
+<p>OpenRouter normally has permission to select among upstream providers. For a
+reproducible comparison, the harness sends this on every GLM request:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="s2">&quot;provider&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;only&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;z-ai&quot;</span><span class="p">],</span> <span class="s2">&quot;allow_fallbacks&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}}</span>
+</code></pre></div>
+<p>All 1,319 responses reported <code>Z.AI</code> as the serving provider. The benchmark sums
+OpenRouter's per-response <code>usage.cost</code> instead of estimating GLM spend from a
+catalog headline. See OpenRouter's
+<a href="https://openrouter.ai/docs/guides/routing/provider-selection">provider-routing controls</a>
+and <a href="https://openrouter.ai/docs/cookbook/administration/usage-accounting">usage accounting</a>.</p>
+<h3 id="reliability-result">Reliability result</h3>
+<p>All three providers completed every item with <strong>zero terminal errors</strong>:</p>
+<ul>
+<li><strong>DeepSeek:</strong> 1,385 attempts, 66 validation retries, and 26 escalations to
+  thinking mode. Every malformed answer recovered within the attempt budget.</li>
+<li><strong>Gemini:</strong> 1,319 attempts, no retries, and no escalations.</li>
+<li><strong>GLM/Z.AI:</strong> 1,319 attempts, no retries, no escalations, and no routing
+  fallbacks.</li>
+</ul>
+<p>DeepSeek's retries were <code>AnswerParseError</code> events from the benchmark's strict
+<code>#### &lt;number&gt;</code> output contract, not provider transport failures.</p>
+<h3 id="caveats">Caveats</h3>
+<ul>
+<li>This is one exact-match dataset and one run. It does not measure instruction
+  following, long context, tool use, safety, or quality in other domains.</li>
+<li>The lowest reasoning modes differ: DeepSeek thinking is off, Gemini uses
+  <code>minimal</code>, and GLM uses <code>low</code>. Gemini and GLM cannot fully disable reasoning
+  for these models.</li>
+<li>All models had 250 client workers, but backend capacity, caching, and network
+  paths differ. Wall time is observed end-to-end latency, not pure model speed.</li>
+<li>DeepSeek and Gemini costs are estimates from published token rates. GLM cost
+  is provider-reported and therefore has stronger billing provenance.</li>
+</ul>
+<p>The full updated result, including sample outputs, token counts, pricing basis,
+and provider routing counts, is in
+<a href="../assets/benchmark-summary-2026-08-27.json"><code>benchmark-summary-2026-08-27.json</code></a>.</p>
+<h2 id="original-benchmark-june-10-2026">Original benchmark — June 10, 2026</h2>
+<p>The original run is preserved below with its wall-time race, throughput
+comparison, provider bake-off, and contemporary pricing snapshot.</p>
+<h3 id="methodology">Methodology</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Date</td>
+<td>2026-06-10</td>
+</tr>
+<tr>
+<td><code>async-batch-llm</code> version</td>
+<td>0.12.0 + this release's pre-merge changes (streaming API, 503 per-item backoff)</td>
+</tr>
+<tr>
+<td>Dataset</td>
+<td>GSM8K <strong>test split</strong>, 1,319 problems</td>
+</tr>
+<tr>
+<td>Models</td>
+<td><code>deepseek-v4-flash</code>, <code>gemini-3.1-flash-lite</code>, <code>gemini-2.5-flash-lite</code>; judge <code>gpt-5-nano</code></td>
+</tr>
+<tr>
+<td>Worker pools</td>
+<td>DeepSeek 250, Gemini 3.1 250, <strong>Gemini 2.5 Flash-Lite 5</strong> (throttle-capped — 503s/rate-limits even at 10)</td>
+</tr>
+<tr>
+<td>Pricing snapshot</td>
+<td>2026-06-01 (USD/Mtok; confirm against each provider's current page)</td>
+</tr>
+<tr>
+<td>Hardware/network</td>
+<td>single client host; results bounded by provider latency, not local CPU</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Estimated cost to reproduce:</strong> ~<strong>$1–2</strong> total in API spend (full 1,319-item
+bake-off across three providers + a 1,000-item throughput run + a handful of
+judge calls), plus ~30–35 minutes of wall time — dominated by Gemini 2.5's
+~21-minute bake-off at its 5-worker ceiling, the sequential race leg, and the
+60s inter-leg throughput pauses.</p>
+<h3 id="wall-time-race">Wall-time race</h3>
+<p>The same 30-item workload run three ways per provider — a one-at-a-time
+sequential loop, a naive <code>asyncio.gather</code>, and async-batch-llm — to show how much
+concurrency collapses wall time.</p>
+<p><img alt="Wall time per orchestration, per provider" src="../assets/benchmark-wall-time.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th style="text-align: right;">Workers</th>
+<th style="text-align: right;">Sequential (s)</th>
+<th style="text-align: right;"><code>gather</code> (s)</th>
+<th style="text-align: right;">async-batch-llm (s)</th>
+<th style="text-align: right;">Speedup (seq→abl)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deepseek-flash</td>
+<td style="text-align: right;">250</td>
+<td style="text-align: right;">65.0</td>
+<td style="text-align: right;">5.0</td>
+<td style="text-align: right;">4.2</td>
+<td style="text-align: right;">15.6×</td>
+</tr>
+<tr>
+<td>gemini-3.1</td>
+<td style="text-align: right;">250</td>
+<td style="text-align: right;">39.1</td>
+<td style="text-align: right;">2.6</td>
+<td style="text-align: right;">2.1</td>
+<td style="text-align: right;">19.1×</td>
+</tr>
+<tr>
+<td>gemini-2.5</td>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">40.6</td>
+<td style="text-align: right;">2.9</td>
+<td style="text-align: right;">8.1</td>
+<td style="text-align: right;">5.0×</td>
+</tr>
+</tbody>
+</table>
+<p>Concurrency collapses wall time (≈16–19× on the unthrottled providers). The race
+runs only 30 items, so a 250-worker pool never fills — every call fires at once
+regardless of orchestration, which is why <code>gather</code> and async-batch-llm are
+neck-and-neck here. Gemini 2.5 is the exception: the framework respects its
+5-worker cap (and retried a few transient 503s with backoff), while the bare
+<code>gather</code> ignores the cap, fires all 30 at once, and got away with it on this
+small batch — so the <code>abl</code> leg trails. That's the throttle ceiling plus the
+framework playing it safe, not orchestration overhead. The pool's real advantage
+shows up at scale, below.</p>
+<h3 id="throughput-at-scale">Throughput at scale</h3>
+<p>To see what the worker pool buys you once it <em>does</em> fill, <code>--throughput</code> runs a
+large batch (1,000 items) three ways at the <strong>same</strong> concurrency: a chunked
+<code>asyncio.gather</code> (per-chunk barriers), a semaphore-bounded <code>gather</code> (continuous
+refill — the fair hand-rolled baseline), and async-batch-llm.</p>
+<p><img alt="Throughput at the same concurrency, per provider" src="../assets/benchmark-throughput.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th style="text-align: right;">Workers</th>
+<th style="text-align: right;">chunked gather (it/s)</th>
+<th style="text-align: right;">semaphore pool (it/s)</th>
+<th style="text-align: right;">async-batch-llm (it/s)</th>
+<th style="text-align: center;">RL hits (g / s / a)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deepseek-flash</td>
+<td style="text-align: right;">250</td>
+<td style="text-align: right;">29.3</td>
+<td style="text-align: right;">58.4</td>
+<td style="text-align: right;"><strong>72.1</strong></td>
+<td style="text-align: center;">0 / 0 / 0</td>
+</tr>
+<tr>
+<td>gemini-3.1</td>
+<td style="text-align: right;">250</td>
+<td style="text-align: right;">20.4</td>
+<td style="text-align: right;">55.2</td>
+<td style="text-align: right;"><strong>108.4</strong></td>
+<td style="text-align: center;">0 / 0 / 0</td>
+</tr>
+</tbody>
+</table>
+<p>With <strong>zero</strong> rate limits on any leg (<code>RL = 0</code>), this is a clean comparison — and
+async-batch-llm comes out <strong>ahead of even the fair semaphore pool</strong> (≈1.2× on
+DeepSeek, ≈2× on Gemini 3.1), with the chunked baseline trailing both. Why the
+worker pool wins: a <code>Semaphore</code>-over-<code>gather</code> still <em>schedules all 1,000
+coroutines up front</em> and lets them contend on the semaphore, whereas the worker
+pool runs a fixed N tasks pulling from a bounded queue — fewer tasks, less
+event-loop churn, and backpressure for free. It's the optimized version of the
+pattern you'd otherwise hand-roll.</p>
+<div class="admonition warning">
+<p class="admonition-title">Read the multiple with a grain of salt</p>
+<p>The legs run back-to-back (with a 60s gap to reset quota), so connection
+warmth and ordering can move the exact ratio. The robust takeaway is the
+<em>direction</em>: the bounded worker pool is at least as fast as a fair semaphore
+pool, and the chunked-barrier baseline is the one that actually loses. And
+against a provider that throttles you, the framework is the only leg that
+survives it (the <code>RL</code> columns) rather than shedding results.</p>
+</div>
+<h3 id="provider-bake-off">Provider bake-off</h3>
+<p>Same framework, one strategy swap per provider, over the full test split.</p>
+<p><img alt="Cost per provider for the full test split, labelled with accuracy" src="../assets/benchmark-cost.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Provider (model)</th>
+<th style="text-align: right;">Accuracy</th>
+<th style="text-align: right;">Wall (s)</th>
+<th style="text-align: right;">Input</th>
+<th style="text-align: right;">Cached</th>
+<th style="text-align: right;">Output</th>
+<th style="text-align: right;">Avg out/item</th>
+<th style="text-align: right;">Cost ($)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deepseek-flash (<code>deepseek-v4-flash</code>)</td>
+<td style="text-align: right;">97.0%</td>
+<td style="text-align: right;">18.3</td>
+<td style="text-align: right;">131,083</td>
+<td style="text-align: right;">17,024</td>
+<td style="text-align: right;">135,468</td>
+<td style="text-align: right;">103</td>
+<td style="text-align: right;"><strong>0.0539</strong></td>
+</tr>
+<tr>
+<td>gemini-2.5 (<code>gemini-2.5-flash-lite</code>)</td>
+<td style="text-align: right;">95.4%</td>
+<td style="text-align: right;">1,293.2</td>
+<td style="text-align: right;">133,759</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">618,428</td>
+<td style="text-align: right;">469</td>
+<td style="text-align: right;">0.2607</td>
+</tr>
+<tr>
+<td>gemini-3.1 (<code>gemini-3.1-flash-lite</code>)</td>
+<td style="text-align: right;">96.6%</td>
+<td style="text-align: right;">43.5</td>
+<td style="text-align: right;">129,951</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">267,258</td>
+<td style="text-align: right;">203</td>
+<td style="text-align: right;">0.4334</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Accuracy is 95–97% across all three; cost spans ~8× ($0.054 → $0.43).</strong> The
+cost gap isn't only sticker price — it decomposes into three multiplicative
+factors, all visible in the table:</p>
+<ol>
+<li><strong>Output price/token</strong> — DeepSeek's output rate ($0.28/Mtok) is the lowest here.</li>
+<li><strong>Output <em>length</em></strong> — DeepSeek is dramatically terser: <strong>103</strong> output
+   tokens/item vs Gemini 2.5's <strong>469</strong> and Gemini 3.1's <strong>203</strong>, for the <em>same</em>
+   accuracy. Fewer tokens, same answer (see below).</li>
+<li><strong>Caching</strong> — DeepSeek is the only provider with cache hits in this workload
+   (<strong>13%</strong>), and its discount is steeper (<code>CachedTokenRates.DEEPSEEK</code> = 2% of
+   normal input vs Gemini's 10%).</li>
+</ol>
+<h4 id="terse-vs-verbose-same-answer-very-different-bills">Terse vs. verbose: same answer, very different bills</h4>
+<blockquote>
+<p><em>James decides to run 3 sprints 3 times a week. He runs 60 meters each sprint.
+How many total meters does he run a week?</em> (gold: <strong>540</strong>)</p>
+</blockquote>
+<p><strong>DeepSeek — 57 output tokens:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>He runs 3 sprints per session, each 60 meters, so per session that&#39;s 3 × 60 = 180 meters.
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>He does this 3 times a week, so total per week is 180 × 3 = 540 meters.
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>#### 540
+</code></pre></div>
+<p><strong>Gemini 2.5 Flash-Lite — 185 output tokens (3.2× more, identical answer):</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Here&#39;s how to solve the problem step-by-step:
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>1.  **Meters per sprint:** James runs 60 meters per sprint.
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>2.  **Sprints per session:** He runs 3 sprints each time he exercises.
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>3.  **Meters per session:** ... 60 meters/sprint * 3 sprints/session = 180 meters/session.
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>4.  **Sessions per week:** He exercises 3 times a week.
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>5.  **Total meters per week:** ... 180 meters/session * 3 sessions/week = 540 meters/week.
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>#### 540
+</code></pre></div>
+<p>Across the bake-off that ~3–5× verbosity multiplier — not the per-token price —
+is the largest single driver of Gemini 2.5's cost over DeepSeek.</p>
+<h3 id="error-retry-resilience">Error &amp; retry resilience</h3>
+<p>The same run, counting what the framework <em>absorbed</em>:</p>
+<ul>
+<li><strong>deepseek-flash</strong> — 97.0%, <strong>0 permanent errors, 0 items reaching the judge</strong>.
+  1,328 attempts (9 retries, 2 thinking escalations); 9 <code>AnswerParseError</code>
+  occurrences, all recovered on retry. Only provider with cache hits (13%).</li>
+<li><strong>gemini-3.1</strong> — 96.6%, a clean run: 1,319 attempts, <strong>0 retries, 0
+  escalations, 0 errors</strong>.</li>
+<li><strong>gemini-2.5</strong> — 95.4% over a rough session at its 5-worker ceiling: 1,439
+  attempts (<strong>120 retries, 41 escalations</strong>), with exception occurrences (across
+  attempts, incl. recovered) of <code>AnswerParseError=36, FrameworkTimeoutError=29,
+  ServerError=57</code>. Transient 503s are now retried per-item with backoff (not a
+  global cooldown); the framework absorbed the churn and still landed 95.4% with
+  exactly <strong>1</strong> output reaching the fallback judge. A bare <code>gather</code> would have
+  dropped every one of those 503s/timeouts as lost results.</li>
+</ul>
+<p>The LLM-as-judge fired on exactly the 1 item the free regex grader couldn't parse.</p>
+<h3 id="caveats_1">Caveats</h3>
+<ul>
+<li><strong>Worker counts differ</strong>, so "Wall (s)" in the bake-off is <strong>not</strong> an
+  apples-to-apples speed race — Gemini 2.5 runs at 5 workers (its rate-limit
+  ceiling — hence the ~21-minute wall), the others at 250. Worker count doesn't
+  affect accuracy/token/cost.</li>
+<li><strong>The two Gemini fast passes aren't a matched "no-thinking" setup</strong> (2.5's
+  <code>budget=0</code> is fully off; 3.1's <code>minimal</code> still thinks a little) — don't read
+  the 3.1-vs-2.5 accuracy gap as pure model quality.</li>
+<li><strong>The throughput multiple has ordering/warmth caveats</strong> (see the warning
+  above); the direction (worker pool ≥ semaphore pool ≫ chunked) is the point.</li>
+</ul>
+<h2 id="choosing-a-provider-beyond-cost">Choosing a provider: beyond cost</h2>
+<p>Cost and accuracy are the easy axes; for production the <strong>data-governance</strong> delta
+often matters more, and can swing the decision regardless of price. The framework
+makes the swap a one-liner, so pick on what actually matters to you. <strong>Verify
+each provider's <em>current</em> terms — these move.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Axis</th>
+<th>DeepSeek (direct API)</th>
+<th>Google (Gemini API / Vertex AI)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Primary jurisdiction</td>
+<td>China</td>
+<td>US-based; Vertex offers data-residency regions</td>
+</tr>
+<tr>
+<td>Train-on-your-API-data default</td>
+<td>Verify current ToS; consumer terms have historically been permissive</td>
+<td>Paid API/Vertex: not used to train models (per Google's terms)</td>
+</tr>
+<tr>
+<td>Compliance certifications</td>
+<td>Verify</td>
+<td>SOC 2 / ISO / HIPAA / GDPR posture via Google Cloud / Vertex</td>
+</tr>
+<tr>
+<td>Enterprise controls (VPC, audit, DPA)</td>
+<td>Limited on the direct API</td>
+<td>Available via Vertex AI / Google Cloud</td>
+</tr>
+<tr>
+<td>Regulatory exposure</td>
+<td>Some governments restrict DeepSeek for official use</td>
+<td>Widely enterprise-approved</td>
+</tr>
+</tbody>
+</table>
+<p>This table is a <em>starting checklist</em>, not legal advice or a current statement of
+any provider's policy — confirm against the live terms and your own compliance
+requirements before committing a workload.</p>
+<p>For the updated GLM path, treat OpenRouter and Z.AI as separate services in that
+review: the request passes through the gateway to the pinned upstream. Provider
+pinning makes routing reproducible; it does not collapse the two services' data
+handling, retention, compliance, or contractual terms into one.</p>
+<hr />
+<p><em>The original tables and charts use
+<a href="../assets/benchmark-summary.json"><code>benchmark-summary.json</code></a> and
+<a href="../assets/benchmark-throughput.json"><code>benchmark-throughput.json</code></a>. The follow-up
+uses <a href="../assets/benchmark-summary-2026-08-27.json"><code>benchmark-summary-2026-08-27.json</code></a>.
+Regenerate new dated assets with
+<code>uv run python examples/generate_benchmark_charts.py</code>.</em></p>
+<h2 id="scale-soak-harness">Scale-soak harness</h2>
+<p><code>benchmarks/scale_soak</code> (v0.21, issue #127 phase one) is the deterministic
+counterpart to the live benchmark above: a credential-free, no-network
+harness that drives the real <code>process_stream()</code> / <code>ParallelBatchProcessor</code> /
+artifact-store code paths with a seeded fake provider and <em>asserts</em>
+correctness invariants at scale rather than measuring provider speed.</p>
+<h3 id="scenarios">Scenarios</h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Exercises</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>healthy</code></td>
+<td>Lazy bounded streaming, SQLite checkpoint batching, clean close</td>
+</tr>
+<tr>
+<td><code>slow_consumer</code></td>
+<td>Result-queue backpressure reaching (never exceeding) its bound</td>
+</tr>
+<tr>
+<td><code>rate_limit_wave</code></td>
+<td>Coordinated 429 cooldown without a retry storm — provider-call count is asserted exactly</td>
+</tr>
+<tr>
+<td><code>transport_retry</code></td>
+<td>Deterministic 5xx/connection first-attempt failures through the production retry path</td>
+</tr>
+<tr>
+<td><code>validation_recovery</code></td>
+<td>Per-item <code>RetryState</code> feedback with cross-item isolation asserted, failed-attempt tokens retained</td>
+</tr>
+<tr>
+<td><code>stop_resume</code></td>
+<td>Category fail-fast stop, then <code>REUSE_SUCCESSES</code> restart with replay-call elimination</td>
+</tr>
+<tr>
+<td><code>artifact_bench</code></td>
+<td>SQLite append/reopen/lookup/iteration throughput, WAL plateau and close-truncation, JSONL comparison at a safe size</td>
+</tr>
+<tr>
+<td><code>progress_overhead</code></td>
+<td>Bundled reporter renders bounded by time, not item count</td>
+</tr>
+<tr>
+<td><code>token_quota_mixed</code></td>
+<td>Real streamed RPM+TPM waits, mixed estimates, refunds/debt, known-zero/unknown retries, and two quota scopes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="running-it">Running it</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>make<span class="w"> </span>scale-smoke<span class="w">                  </span><span class="c1"># ci profile, ~15 s, runs in CI on every PR</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>make<span class="w"> </span>scale-100k<span class="w">                   </span><span class="c1"># 100k reference profile (minutes)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>make<span class="w"> </span>scale-1m<span class="w">                     </span><span class="c1"># 1m profile, large-scenario subset (long)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>benchmarks.scale_soak<span class="w"> </span>--help<span class="w">   </span><span class="c1"># every option</span>
+</code></pre></div>
+<p>Profiles: <code>ci</code> (~2k items/scenario), <code>100k</code> (all scenarios — the release
+approval run), <code>1m</code> (healthy, slow_consumer, stop_resume, artifact_bench),
+<code>custom</code> (<code>--items</code>). A manual <code>workflow_dispatch</code> workflow
+(<strong>Scale Benchmark</strong>) runs the large profiles on GitHub-hosted runners and
+uploads reports as artifacts.</p>
+<h3 id="report-schema">Report schema</h3>
+<p>Each run writes one versioned JSON document
+(<code>schema_name: async-batch-llm-scale-soak</code>, <code>schema_version: 2</code>) containing
+UTC generation time, environment (package version, git revision, Python,
+platform, CPU count, resource-probe methods — never hostnames or home
+paths), the complete effective configuration, per-scenario counts,
+throughput, provider-call and queue high-water measurements, quota estimates,
+reservation/reconciliation totals, bounded wait percentiles and per-band
+fairness, bounded resource samples, artifact/WAL measurements, every assertion with its
+evidence, and caveats. Unavailable metrics are <code>null</code>, never fabricated
+zeros. Exact item accounting uses an order-independent XOR-of-SHA-256 digest
+plus independent count and modular index-sum cross-checks, so a million-item
+run proves no loss or duplication without retaining IDs.</p>
+<h3 id="dated-results-policy">Dated results policy</h3>
+<p>The reviewed <a href="../v0.22-scale-evidence/">v0.22 scale evidence</a> records the
+completed 2026-08-17 full 100k profile and the exact 1m <code>healthy</code> scenario,
+including revision, environment, report hashes, quota reconciliation totals,
+and explicitly unrun 1m scenarios.</p>
+<p>A profile's <em>existence</em> is not a scale claim. Reference numbers are published
+in the docs only after a maintainer actually completes that run and reviews
+its report; reports land in <code>benchmark-results/</code> (gitignored) or as CI
+artifacts until then. The harness's fake-provider throughput reflects
+framework overhead only — it says nothing about live-provider latency,
+quotas, or cost. The mixed-token scenario proves local integration and bounded
+accounting with a deterministic fake provider; it does not reproduce every
+provider quota window or measure active GPU sequence/KV-cache capacity. The
+report's <code>deferred_features</code> list records remaining exclusions such as adaptive
+concurrency #89, distributed writers, provider-native batch APIs, and real
+provider quotas or pricing.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.tabs", "navigation.top", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2647 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Provider-neutral asyncio toolkit for concurrent LLM calls with retries, coordinated rate limits, bounded streaming, resumable checkpoints, and deadlines.">
+      
+      
+      
+        <link rel="canonical" href="https://geoff-davis.github.io/async-batch-llm/results-and-artifacts/">
+      
+      
+        <link rel="prev" href="../troubleshooting/">
+      
+      
+        <link rel="next" href="../large-runs/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Results, Artifacts, and Resume - async-batch-llm</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#results-audit-artifacts-and-resume" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="async-batch-llm" class="md-header__button md-logo" aria-label="async-batch-llm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            async-batch-llm
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Results, Artifacts, and Resume
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/geoff-davis/async-batch-llm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    geoff-davis/async-batch-llm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../comparison/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Compare Alternatives
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../choosing-your-limits/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Choosing Your Limits
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../token-aware-admission/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Token-Aware Admission
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../production-checklist/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Production Checklist
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting and FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Results, Artifacts, and Resume
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../large-runs/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Large Runs (100k–1M)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../guardrails/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Deadlines and Fail-Fast Guardrails
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../bounded-work/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Bounded Work and Backpressure
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../callable-integration/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Use Your Existing Async Client
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../testing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Testing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../benchmarks/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Benchmarks
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../v0.22-scale-evidence/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  v0.22 Scale Evidence
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../openai-high-throughput/" class="md-tabs__link">
+          
+  
+  
+  Provider Integrations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/basic/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../MIGRATION_V0_22/" class="md-tabs__link">
+          
+  
+  
+  Migration Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/core/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="async-batch-llm" class="md-nav__button md-logo" aria-label="async-batch-llm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    async-batch-llm
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/geoff-davis/async-batch-llm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    geoff-davis/async-batch-llm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compare Alternatives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../choosing-your-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Choosing Your Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../token-aware-admission/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Token-Aware Admission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../production-checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Production Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting and FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results, Artifacts, and Resume
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results, Artifacts, and Resume
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#completion-order-and-input-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion order and input order
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-result-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON result serialization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resumable-jsonl-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resumable JSONL artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resumable JSONL artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compatibility-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resume-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume policies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#privacy-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privacy controls
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate-review-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generate, review, apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indexed-sqlite-artifacts-for-large-restartable-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexed SQLite artifacts for large restartable runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Indexed SQLite artifacts for large restartable runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#batched-commits-and-durability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batched commits and durability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#process-safety-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process-safety boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../large-runs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large Runs (100k–1M)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guardrails/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deadlines and Fail-Fast Guardrails
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bounded-work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bounded Work and Backpressure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../callable-integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Your Existing Async Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../v0.22-scale-evidence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.22 Scale Evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_16" >
+        
+          
+          <label class="md-nav__link" for="__nav_16" id="__nav_16_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Provider Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openai-high-throughput/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAI-Compatible High Throughput
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../GEMINI_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gemini
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OPENAI_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../OPENROUTER_INTEGRATION/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenRouter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_17" >
+        
+          
+          <label class="md-nav__link" for="__nav_17" id="__nav_17_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_17_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_17">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/basic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/custom-strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/benchmark-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_18" >
+        
+          
+          <label class="md-nav__link" for="__nav_18" id="__nav_18_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Migration Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_22/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.22 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_20/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.20 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_19/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical v0.19 Link
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MIGRATION_V0_10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.10 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/v0.4/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.4 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/v0.1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    v0.1 Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_19" >
+        
+          
+          <label class="md-nav__link" for="__nav_19" id="__nav_19_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_19_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_19">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artifacts and Serialization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/single-gateway/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single Call & Shared Call Pool
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/observers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#completion-order-and-input-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion order and input order
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#json-result-serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON result serialization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resumable-jsonl-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resumable JSONL artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resumable JSONL artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compatibility-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resume-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume policies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#privacy-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privacy controls
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generate-review-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generate, review, apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indexed-sqlite-artifacts-for-large-restartable-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexed SQLite artifacts for large restartable runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Indexed SQLite artifacts for large restartable runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#batched-commits-and-durability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batched commits and durability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspection
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#process-safety-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process-safety boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="results-audit-artifacts-and-resume">Results, Audit Artifacts, and Resume</h1>
+<p>Production runs often need two different outputs: a convenient batch summary and
+an append-only checkpoint that survives interruption. <code>BatchResult</code> serialization
+serves the first use case; <code>JsonlArtifactStore</code> serves the second.</p>
+<h2 id="completion-order-and-input-order">Completion order and input order</h2>
+<p>Batch processing and <code>process_stream()</code> publish results in <strong>completion order</strong> by
+default. This keeps fast items visible while a slow or retrying item is still in
+flight and preserves existing behavior.</p>
+<p>Use <code>preserve_order=True</code> when collecting a batch in input order:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_prompts</span><span class="p">(</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">strategy</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="p">[(</span><span class="s2">&quot;duplicate&quot;</span><span class="p">,</span> <span class="s2">&quot;slow prompt&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;duplicate&quot;</span><span class="p">,</span> <span class="s2">&quot;fast prompt&quot;</span><span class="p">)],</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">preserve_order</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">)</span>
+</code></pre></div>
+<p>The processor assigns an internal <code>submission_index</code> when each item is accepted.
+It does not derive order from <code>item_id</code>, so duplicate IDs are safe. To reorder an
+existing batch without mutating it, call <code>ordered = result.in_input_order()</code>.
+This raises <code>ValueError</code> if any result predates submission indexes; it never
+guesses.</p>
+<p>Each <code>LLMWorkItem</code> object is a single submission. Duplicate IDs on distinct
+objects are supported, but submitting the identical mutable object twice raises
+<code>ValueError</code>; create a new work item for each queue entry.</p>
+<p><code>process_stream()</code> intentionally remains completion ordered. Ordered streaming
+would block all later results behind one slow early item and require a reorder
+buffer that can grow without a safe bound.</p>
+<h2 id="json-result-serialization">JSON result serialization</h2>
+<p>Result mappings use the named <code>async-batch-llm-result</code> schema and an integer
+schema version. They include terminal status, submission index, error category,
+replay state, token usage, complete attempt/item timing, and batch termination
+metadata.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">BatchResult</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">value</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;summary.json&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">restored</span> <span class="o">=</span> <span class="n">BatchResult</span><span class="o">.</span><span class="n">from_json</span><span class="p">(</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;summary.json&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">result</span><span class="o">.</span><span class="n">to_jsonl</span><span class="p">(</span><span class="s2">&quot;summary.jsonl&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">restored_lines</span> <span class="o">=</span> <span class="n">BatchResult</span><span class="o">.</span><span class="n">from_jsonl</span><span class="p">(</span><span class="s2">&quot;summary.jsonl&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>JSONL result files contain one complete versioned <code>WorkItemResult</code> record per
+line. A zero-result batch uses one versioned batch-metadata record so termination
+state still round-trips. These are summary exports, not resumable checkpoints;
+use an artifact store for checkpoint/resume.</p>
+<p>The safe encoder accepts normal JSON primitives plus dataclasses, Pydantic
+models, enums, <code>datetime</code>/<code>date</code>/<code>time</code>, UUIDs, filesystem paths, tuples, and
+sets. Tuples and sets normalize to JSON lists; dataclasses and Pydantic models
+normalize to mappings; dates, UUIDs, and paths normalize to strings. Sets are
+ordered deterministically. Without explicit decoders, those normalized values
+remain JSON-native mappings, lists, and strings after deserialization.</p>
+<p>Application-specific values need an explicit encoder:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">payload</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">to_json</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">encoder</span><span class="o">=</span><span class="k">lambda</span> <span class="n">value</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;widget_id&quot;</span><span class="p">:</span> <span class="n">value</span><span class="o">.</span><span class="n">id</span><span class="p">}</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="p">)</span>
+</code></pre></div>
+<p><code>WorkItemResult.from_dict()</code> and the <code>BatchResult.from_*()</code> methods accept
+<code>output_decoder</code> and <code>context_decoder</code> hooks for trusted type reconstruction.
+Deserialization never imports a class named by untrusted data. Exceptions are
+stored only as module name, class name, and redacted message; the restored
+runtime <code>exception</code> is <code>None</code>. Tracebacks and raw exception objects are never
+persisted. Framework-controlled error text and values under structured
+authorization/API-key/token keys are redacted. Other user-controlled strings
+round-trip without text rewriting, so applications must keep credentials out
+of prompts, outputs, context, and metadata.</p>
+<p>Unsupported values, malformed input, and future schema versions raise
+<code>ResultSerializationError</code>; values are never silently replaced with <code>repr()</code>.</p>
+<h2 id="resumable-jsonl-artifacts">Resumable JSONL artifacts</h2>
+<p>An artifact begins with a version-1 manifest followed by versioned item records.
+The manifest records UTC creation time, package version, canonical identity,
+its SHA-256 fingerprint, and optional user metadata. Each terminal item record
+contains input fingerprints, current submission index, strategy class,
+identity/provenance, safe result data, timing, token use, error category, replay
+eligibility, and optional caller-calculated cost.</p>
+<p>The minimal form needs only a path (v0.20.0):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonlArtifactStore</span><span class="p">,</span> <span class="n">ResumePolicy</span><span class="p">,</span> <span class="n">process_prompts</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_prompts</span><span class="p">(</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">strategy</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">prompts</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">artifact_store</span><span class="o">=</span><span class="n">JsonlArtifactStore</span><span class="p">(</span><span class="s2">&quot;runs/customer-tagging.jsonl&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">resume</span><span class="o">=</span><span class="n">ResumePolicy</span><span class="o">.</span><span class="n">REUSE_SUCCESSES</span><span class="p">,</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">)</span>
+</code></pre></div>
+<p>When no <code>ArtifactIdentity</code> is given, <code>provider</code> and <code>model</code> are inferred from
+ordinary model-backed strategies at run start (built-in models map to their
+provider names; custom models use their class name) and the remaining identity
+fields default to <code>"unversioned"</code>. Prompt — and, by default, context — still
+participate in the per-item compatibility fingerprint, so a changed prompt or
+a changed model never silently replays a stale result.</p>
+<p>Automatic identity is homogeneous within one live store instance/run. The first
+prepared item pins its inferred identity; every later item is inferred and must
+match before artifact lookup, append, or provider work begins. Use separate
+stores for heterogeneous strategies, or pass one deliberate explicit
+<code>ArtifactIdentity</code> that describes the mixed/routed run. A later store instance
+may pin a different automatic identity and append to the same physical
+artifact—older identities remain audit history and only compatible records
+participate in replay.</p>
+<p><code>CallableStrategy</code> is intentionally stricter: an arbitrary function cannot
+safely reveal its provider, model, route, parser, or application version. Pass
+<code>identity=ArtifactIdentity(...)</code> to <code>CallableStrategy</code> or directly to
+<code>JsonlArtifactStore</code>. Omitting both fails before the invocation callback runs;
+ABL never derives identity from a lambda, closure, object ID, memory address, or
+unstable <code>repr()</code>. An explicit store identity takes precedence over the
+strategy's identity.</p>
+<p><strong>When to use the full identity:</strong> versioned production pipelines. An
+explicit <code>ArtifactIdentity</code> lets a prompt-template change, parser change, or
+application release invalidate replay even when the literal prompt text is
+unchanged (e.g. context assembled outside the prompt, or a new parser reading
+the same outputs):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">ArtifactIdentity</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">JsonlArtifactStore</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">ResumePolicy</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">process_prompts</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">store</span> <span class="o">=</span> <span class="n">JsonlArtifactStore</span><span class="p">(</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="s2">&quot;runs/customer-tagging.jsonl&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">identity</span><span class="o">=</span><span class="n">ArtifactIdentity</span><span class="p">(</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>        <span class="n">provider</span><span class="o">=</span><span class="s2">&quot;openai&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>        <span class="n">model</span><span class="o">=</span><span class="s2">&quot;example-model&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>        <span class="n">prompt_version</span><span class="o">=</span><span class="s2">&quot;v3&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>        <span class="n">parser_version</span><span class="o">=</span><span class="s2">&quot;v2&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>        <span class="n">application_version</span><span class="o">=</span><span class="s2">&quot;2026.07&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>    <span class="p">),</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="p">)</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_prompts</span><span class="p">(</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>    <span class="n">strategy</span><span class="p">,</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>    <span class="n">prompts</span><span class="p">,</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>    <span class="n">artifact_store</span><span class="o">=</span><span class="n">store</span><span class="p">,</span>
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>    <span class="n">resume</span><span class="o">=</span><span class="n">ResumePolicy</span><span class="o">.</span><span class="n">REUSE_SUCCESSES</span><span class="p">,</span>
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="p">)</span>
+</code></pre></div>
+<p>An explicit identity is the caller-owned compatibility boundary. It may
+intentionally describe a mixed-strategy run, but the caller must change it
+whenever routing, provider, model, parser, prompt policy, or application
+semantics should invalidate replay.</p>
+<p>A terminal record is flushed before its result is returned or yielded. Set
+<code>fsync=True</code> for an operating-system durability barrier after every record;
+flush-only is the default. A crash-truncated final line is ignored on reopening,
+while malformed complete or middle records fail clearly.</p>
+<h3 id="compatibility-matching">Compatibility matching</h3>
+<p>Replay requires all of the following to match:</p>
+<ul>
+<li>item ID;</li>
+<li>SHA-256 prompt fingerprint;</li>
+<li>context fingerprint when <code>context_in_identity=True</code> (the default);</li>
+<li>combined input fingerprint; and</li>
+<li>complete <code>ArtifactIdentity</code> fingerprint and supported artifact schema.</li>
+</ul>
+<p>Matching only an item ID is never sufficient. Changing provider, model,
+prompt/parser/application version, identity <code>extra</code>, prompt, or participating
+context invalidates the old record. When several records match, the newest
+complete record wins.</p>
+<p>Context is canonically JSON-encoded before a provider call. Supply <code>encoder=</code>
+or <code>context_fingerprinter=</code> when an application context is not supported; the
+store raises <code>ArtifactSerializationError</code> rather than silently excluding that
+identity component.</p>
+<p>Sensitive structured values are redacted from persisted identity, context,
+output, and metadata mappings. Their original values still feed the one-way
+context/identity fingerprint, so a credential change invalidates replay without
+writing the credential itself to the artifact.</p>
+<h3 id="resume-policies">Resume policies</h3>
+<ul>
+<li><code>ResumePolicy.NONE</code> never reuses old results but still checkpoints new ones.</li>
+<li><code>ResumePolicy.REUSE_SUCCESSES</code> reuses the newest compatible success and reruns
+  failures, missing items, and stale items.</li>
+<li><code>ResumePolicy.REUSE_ALL</code> also reuses the newest compatible terminal failure.</li>
+</ul>
+<p>Replayed items do not call the provider and are not appended a second time.
+They retain historical output, timing, error, and token use, receive the current
+run's <code>submission_index</code> and current work-item context, and set
+<code>replayed_from_artifact=True</code>. Persisted historical context is never decoded or
+substituted during replay. Historical
+tokens remain visible on the item for audit but are excluded from newly consumed
+provider-token statistics returned by <code>processor.get_stats()</code>. In contrast,
+<code>BatchResult</code> aggregate token fields are computed from all returned results and
+therefore include replayed historical usage. This makes live processor stats a
+"spent this run" view and the collected batch an auditable result-history view.</p>
+<p>For a callable, compatible replay likewise bypasses the invocation callback.
+Changing its explicit identity invalidates replay and executes it again.</p>
+<p>When a billed response fails parsing or validation, raise
+<code>TokenTrackingError(token_usage=...)</code> from the callback. That attempt's usage is
+retained and added to later successful or terminal usage. ABL cannot account
+for transport retries hidden inside an upstream gateway unless the gateway
+reports them.</p>
+<p>Setting <code>include_output=False</code> makes a success record audit-only and therefore
+ineligible for replay. A failure remains reusable under <code>REUSE_ALL</code> because it
+does not need a successful output.</p>
+<h3 id="privacy-controls">Privacy controls</h3>
+<p>Prompt and context hashes are always stored for matching, but raw prompts and
+raw context are excluded by default. Raw provider responses are never stored.
+The independent options are:</p>
+<ul>
+<li><code>include_output=True</code> (default);</li>
+<li><code>include_metadata=True</code> (default);</li>
+<li><code>include_prompt=False</code> (default); and</li>
+<li><code>include_context=False</code> (default).</li>
+</ul>
+<p>Outputs and metadata can themselves contain sensitive application data. Review
+their shape before enabling artifacts, or disable either field. Raw prompt and
+context persistence must be explicitly enabled.</p>
+<h3 id="generate-review-apply">Generate, review, apply</h3>
+<p>Artifacts support a provider-free review/apply phase:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">JsonlArtifactStore</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">review</span> <span class="o">=</span> <span class="n">JsonlArtifactStore</span><span class="o">.</span><span class="n">read_results</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="s2">&quot;runs/customer-tagging.jsonl&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">successes_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">review</span><span class="o">.</span><span class="n">results</span><span class="p">:</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="k">await</span> <span class="n">apply_approved_output</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">item_id</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">output</span><span class="p">)</span>
+</code></pre></div>
+<p>Inspection restores raw context only when the writer explicitly used
+<code>include_context=True</code>. Without a <code>context_decoder</code>, the restored value remains
+JSON-native; a supplied decoder is applied only when stored context exists.
+Context omitted by the default privacy policy, including an original <code>None</code>,
+inspects as <code>None</code>.</p>
+<p>Replay never substitutes that historical audit context for the live input and
+does not invoke the stored-context decoder. It always attaches the current work
+item's context and submission index to the replayed result.</p>
+<p>For asynchronous inspection through an open store, use
+<code>async for item in store.iter_results(successes_only=True)</code>.</p>
+<p>Costs are optional and caller-supplied because this package does not maintain a
+provider price database:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">store</span> <span class="o">=</span> <span class="n">JsonlArtifactStore</span><span class="p">(</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="s2">&quot;run.jsonl&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">identity</span><span class="o">=</span><span class="n">identity</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">cost_calculator</span><span class="o">=</span><span class="k">lambda</span> <span class="n">item</span><span class="p">:</span> <span class="n">calculate_cost_from_current_prices</span><span class="p">(</span><span class="n">item</span><span class="p">),</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="p">)</span>
+</code></pre></div>
+<p>The artifact stores <code>null</code> when there is no calculator.</p>
+<h2 id="indexed-sqlite-artifacts-for-large-restartable-runs">Indexed SQLite artifacts for large restartable runs</h2>
+<p><code>SqliteArtifactStore</code> (v0.21) stores the same logical version-1 records in a
+standard-library SQLite database with indexed replay lookup and bounded
+iteration. It exists for 100k–1M-item restartable runs where scanning or
+retaining a JSONL history on open becomes the bottleneck; JSONL remains the
+recommended portable, human-inspectable audit format.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ResumePolicy</span><span class="p">,</span> <span class="n">SqliteArtifactStore</span><span class="p">,</span> <span class="n">process_stream</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">store</span> <span class="o">=</span> <span class="n">SqliteArtifactStore</span><span class="p">(</span><span class="s2">&quot;runs/customer-tagging.sqlite&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="k">async</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">process_stream</span><span class="p">(</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">strategy</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">prompts</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">artifact_store</span><span class="o">=</span><span class="n">store</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">resume</span><span class="o">=</span><span class="n">ResumePolicy</span><span class="o">.</span><span class="n">REUSE_SUCCESSES</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">):</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="k">await</span> <span class="n">sink</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+</code></pre></div>
+<p>Everything documented above for JSONL applies unchanged: identity resolution
+and explicit <code>ArtifactIdentity</code>, the complete compatibility fingerprint, the
+three resume policies, replay accounting, privacy controls
+(<code>include_output</code> / <code>include_metadata</code> / <code>include_prompt</code> /
+<code>include_context</code>), custom encoders/decoders and <code>context_fingerprinter</code>, and
+optional <code>cost_calculator</code>. The two backends share one codec, so a record
+that would replay from JSONL replays from SQLite under the same conditions.
+Context-free items match through a NULL-safe indexed predicate. There is no
+automatic JSONL→SQLite import; opt in by creating a new store, and existing
+JSONL files remain fully supported.</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Best fit</th>
+<th>Reopen behavior</th>
+<th>Write behavior</th>
+<th>Human inspection</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSONL</td>
+<td>Small/medium runs, portable audit log</td>
+<td>Resume scans/indexes complete history; <code>iter_results()</code> streams line pages</td>
+<td>One flushed line per record</td>
+<td>Excellent</td>
+</tr>
+<tr>
+<td>SQLite</td>
+<td>100k–1M restartable runs</td>
+<td>Indexed replay and bounded keyset iteration — no history decode on open</td>
+<td>Batched transactions with WAL checkpoints</td>
+<td>Use SQLite tools/API</td>
+</tr>
+</tbody>
+</table>
+<p>“100k+” is a recommendation, not a cliff — the crossover depends on record
+size and environment.</p>
+<h3 id="batched-commits-and-durability">Batched commits and durability</h3>
+<p>Appends are grouped into transactions (<code>commit_batch_size</code>, default 100,
+within <code>commit_interval_seconds</code>, default 0.01). An <code>append()</code> — and therefore
+the processor's publication of that item's result — completes only after its
+transaction commits, preserving checkpoint-before-result-publication. A
+transaction failure rolls back without exposing partial rows.</p>
+<p><code>SqliteDurability</code> selects the synchronization policy:</p>
+<ul>
+<li><code>BALANCED</code> (default) — WAL with <code>synchronous=NORMAL</code>. A normal process
+  crash retains a consistent database and committed history. A sudden OS or
+  power failure may lose transactions committed since the last WAL sync;
+  the loss window can span more than one transaction.</li>
+<li><code>FULL</code> — WAL with <code>synchronous=FULL</code>; stronger power-loss durability at
+  lower throughput. Exact guarantees always depend on SQLite, the OS,
+  filesystem, and storage hardware.</li>
+</ul>
+<p>WAL auto-checkpointing keeps the log at a bounded plateau during healthy
+writes; <code>close()</code> drains accepted appends, attempts a truncating checkpoint,
+and terminates the store's worker thread. An external long-lived reader can
+make that final checkpoint report “busy” — recorded, not an error and not
+data loss. SQLite may leave an <code>-shm</code> sidecar after a healthy close, and the
+database directory will transiently contain <code>-wal</code>/<code>-shm</code> files during a run.
+ABL does not encrypt SQLite artifacts; use filesystem permissions and volume
+encryption as your deployment requires.</p>
+<p>Cleanup finishes before <code>close()</code> reports an error. A previously unobserved
+writer or cancelled-caller operation error is delivered first; a distinct
+checkpoint or connection-close error is retained for the next <code>close()</code>.
+Each store-level error is delivered once, and later closes return silently.
+Observing an error never restores a failed store to usability.</p>
+<h3 id="inspection">Inspection</h3>
+<p>Live <code>store.iter_results()</code> first settles detached errors, prepares the
+writable store, and flushes its accepted writes. It then streams a finite
+committed high-water snapshot in keyset-paged batches (<code>read_batch_size</code>),
+decoding one row at a time. No cursor or read transaction is held across an
+async yield, so a slow consumer never blocks the writer or WAL checkpointing.</p>
+<p><code>SqliteArtifactStore.read_results(path)</code> is a separate path-based,
+materializing convenience. It opens an internal SQLite <code>mode=ro</code> connection,
+never creates a schema or identity, never starts a writer, never changes WAL or
+synchronization policy, and never checkpoints an active writer. Normal reads
+participate in SQLite locking and change detection, allowing a writer to start
+before or during inspection; SQLite may create empty <code>-wal</code>/<code>-shm</code>
+coordination sidecars in a writable directory. A clean database in a
+non-writable directory uses SQLite's immutable fallback, under the filesystem
+guarantee that no writer can start while the read is active. The method
+captures a committed high-water sequence and excludes rows committed later; a
+subsequent read sees them. Its connection and owned reader thread close after
+success, error, or ordinary cancellation. Repeated cancellation remains prompt
+and lets the already-running reader thread clean itself up without
+synchronously blocking the event loop. Unlike the synchronous JSONL
+counterpart, it is an <strong>async</strong> classmethod because SQLite I/O stays off the
+event loop:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">async_batch_llm</span><span class="w"> </span><span class="kn">import</span> <span class="n">SqliteArtifactStore</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">review</span> <span class="o">=</span> <span class="k">await</span> <span class="n">SqliteArtifactStore</span><span class="o">.</span><span class="n">read_results</span><span class="p">(</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="s2">&quot;runs/customer-tagging.sqlite&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="n">successes_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="p">)</span>
+</code></pre></div>
+<p>Opening a writable store validates schema and version markers, records the
+current run's distinct identity when needed (a sequential identity history for
+provenance), and never decodes stored history before a lookup needs it. The
+read-only path validates the same application ID, versions, tables, columns,
+required index names, and manifest without recording an identity. Each item row
+consumed by either path is checked against the supported logical artifact
+schema before its result or persisted context JSON is decoded; unsupported or
+malformed row versions fail loudly instead of falling back to an older
+compatible row.</p>
+<h2 id="process-safety-boundary">Process-safety boundary</h2>
+<p>Both stores are single-process, single-writer designs. <code>JsonlArtifactStore</code>
+serializes writes with an <code>asyncio.Lock</code>, guaranteeing complete,
+non-interleaved JSON records for concurrent workers sharing one store
+instance in one process. <code>SqliteArtifactStore</code> owns one connection, one
+worker thread, and one writer task per instance; sequential reopen is
+supported and a concurrently open external reader obeys the configured busy
+timeout. Neither implements distributed work claiming, leasing, or
+cross-process exactly-once execution — use one writer per artifact.</p>
+<p>On open, the JSONL store still builds an in-memory replay index over complete
+item records for constant-time resume lookup (its <code>iter_results()</code> streams
+bounded line pages instead of materializing history, as of v0.21). Very large
+audit histories are exactly what <code>SqliteArtifactStore</code> is for.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.tabs", "navigation.top", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

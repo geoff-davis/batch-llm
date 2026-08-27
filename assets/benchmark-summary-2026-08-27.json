@@ -1,0 +1,317 @@
+{
+  "generated_at": "2026-08-27T17:37:50+00:00",
+  "config": {
+    "race_items": 30,
+    "bakeoff_items": 1319,
+    "gather_chunk_size": 50
+  },
+  "methodology": {
+    "package_version": "0.23.0",
+    "dataset": {
+      "name": "GSM8K test split",
+      "file": "gsm8k_test.jsonl.gz",
+      "items": 1319
+    },
+    "models": {
+      "deepseek": "deepseek-v4-flash",
+      "gemini_flash_lite": "gemini-3.5-flash-lite",
+      "glm_openrouter": "z-ai/glm-5.3-flash",
+      "judge": "gpt-5-nano"
+    },
+    "worker_caps": {
+      "deepseek-v4-flash": 250,
+      "gemini-3.5-flash-lite": 250,
+      "z-ai/glm-5.3-flash": 250
+    },
+    "notes": [
+      "Fast passes: DeepSeek no-thinking, Gemini minimal thinking, and GLM low reasoning; the latter two models do not support fully disabled reasoning.",
+      "Escalation passes: DeepSeek thinking, Gemini high thinking, and GLM max reasoning.",
+      "DeepSeek resolves its weekday UTC peak/off-peak tier when the contestant is built.",
+      "GLM is pinned to OpenRouter's Z.AI provider with fallbacks disabled; the reported cost and serving provider come from API responses."
+    ],
+    "pricing": {
+      "as_of": "2026-08-27",
+      "usd_per_mtok": {
+        "deepseek-v4-flash": {
+          "input": 0.22,
+          "cached_input": 0.007,
+          "output": 0.66,
+          "cached_rate": 0.0318
+        },
+        "gemini-3.5-flash-lite": {
+          "input": 0.3,
+          "cached_input": 0.03,
+          "output": 2.5,
+          "cached_rate": 0.1
+        },
+        "z-ai/glm-5.3-flash": {
+          "input": 0.075,
+          "cached_input": 0.015,
+          "output": 0.25,
+          "cached_rate": 0.2
+        },
+        "gpt-5-nano": {
+          "input": 0.05,
+          "cached_input": 0.005,
+          "output": 0.5,
+          "cached_rate": 0.1
+        }
+      },
+      "deepseek_peak_usd_per_mtok": {
+        "input": 0.44,
+        "cached_input": 0.014,
+        "output": 1.32
+      },
+      "deepseek_peak_hours_utc": "Monday-Friday 01:00-04:00 and 06:00-10:00; all other times are off-peak",
+      "glm_openrouter_provider": {
+        "slug": "z-ai",
+        "allow_fallbacks": false
+      }
+    }
+  },
+  "wall_time_race": [],
+  "bakeoff": [
+    {
+      "provider": "deepseek-flash",
+      "model_id": "deepseek-v4-flash",
+      "workers": 250,
+      "accuracy_pct": 96.9,
+      "wall_s": 14.51,
+      "input_tokens": 139093,
+      "cached_tokens": 19968,
+      "output_tokens": 121384,
+      "avg_output_tokens_per_item": 92.0,
+      "cost_usd": 0.106461,
+      "cost_source": "token_estimate",
+      "pricing_basis": "DeepSeek direct API off-peak rate at 2026-08-27T17:36:37.955228+00:00",
+      "provider_reported_cost_items": 0,
+      "provider_counts": {},
+      "billable_input_tokens": 119761,
+      "cache_hit_rate_pct": 14.4,
+      "exact_correct": 1278,
+      "judge_rescued": 0,
+      "unparsed": 0,
+      "errors": 0,
+      "attempts": 1385,
+      "retries": 66,
+      "escalations": 26,
+      "parse_failures": 66,
+      "error_counts": {
+        "AnswerParseError": 66
+      }
+    },
+    {
+      "provider": "gemini-3.5-flash-lite",
+      "model_id": "gemini-3.5-flash-lite",
+      "workers": 250,
+      "accuracy_pct": 96.6,
+      "wall_s": 20.64,
+      "input_tokens": 129951,
+      "cached_tokens": 0,
+      "output_tokens": 269130,
+      "avg_output_tokens_per_item": 204.0,
+      "cost_usd": 0.71181,
+      "cost_source": "token_estimate",
+      "pricing_basis": "Gemini Developer API (AI Studio) standard rate",
+      "provider_reported_cost_items": 0,
+      "provider_counts": {},
+      "billable_input_tokens": 129951,
+      "cache_hit_rate_pct": 0.0,
+      "exact_correct": 1274,
+      "judge_rescued": 0,
+      "unparsed": 0,
+      "errors": 0,
+      "attempts": 1319,
+      "retries": 0,
+      "escalations": 0,
+      "parse_failures": 0,
+      "error_counts": {}
+    },
+    {
+      "provider": "glm-5.3-flash",
+      "model_id": "z-ai/glm-5.3-flash",
+      "workers": 250,
+      "accuracy_pct": 96.3,
+      "wall_s": 37.04,
+      "input_tokens": 140753,
+      "cached_tokens": 3456,
+      "output_tokens": 76291,
+      "avg_output_tokens_per_item": 57.8,
+      "cost_usd": 0.029422,
+      "cost_source": "provider_reported",
+      "pricing_basis": "OpenRouter pinned to Z.AI with fallbacks disabled; cost summed from response usage.cost",
+      "provider_reported_cost_items": 1319,
+      "provider_counts": {
+        "Z.AI": 1319
+      },
+      "billable_input_tokens": 137989,
+      "cache_hit_rate_pct": 2.5,
+      "exact_correct": 1270,
+      "judge_rescued": 0,
+      "unparsed": 0,
+      "errors": 0,
+      "attempts": 1319,
+      "retries": 0,
+      "escalations": 0,
+      "parse_failures": 0,
+      "error_counts": {}
+    }
+  ],
+  "samples": [
+    {
+      "item_id": "q3",
+      "question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?",
+      "gold": 540.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 540.0,
+          "output_tokens": 41,
+          "input_tokens": 74,
+          "cached_input_tokens": 0,
+          "raw": "He runs 3 sprints \u00d7 60 meters = 180 meters per session.  \nHe does this 3 times a week: 180 \u00d7 3 = 540 meters.  \n\n#### 540"
+        },
+        "gemini-3.5-flash-lite": {
+          "model_id": "gemini-3.5-flash-lite",
+          "answer": 540.0,
+          "output_tokens": 91,
+          "input_tokens": 72,
+          "cached_input_tokens": 0,
+          "raw": "Step 1: Calculate the total number of sprints James runs in a week by multiplying the number of sprints per session by the number of sessions per week: 3 sprints * 3 times a week = 9 sprints.\nStep 2: Calculate the total distance he runs by multiplying the total number of sprints by the distance of each sprint: 9 sprints * 60 meters = 540 meters.\n\n#### 540"
+        },
+        "glm-5.3-flash": {
+          "model_id": "z-ai/glm-5.3-flash",
+          "answer": 540.0,
+          "output_tokens": 32,
+          "input_tokens": 82,
+          "cached_input_tokens": 0,
+          "raw": "3 sprints \u00d7 3 times = 9 sprints per week. 9 \u00d7 60 = 540 meters.\n\n#### 540"
+        }
+      }
+    },
+    {
+      "item_id": "q1",
+      "question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?",
+      "gold": 3.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 3.0,
+          "output_tokens": 43,
+          "input_tokens": 66,
+          "cached_input_tokens": 0,
+          "raw": "We need 2 bolts of blue fiber.  \nHalf that much white fiber is half of 2, which is 1 bolt.  \nTotal = 2 + 1 = 3 bolts.\n\n#### 3"
+        },
+        "gemini-3.5-flash-lite": {
+          "model_id": "gemini-3.5-flash-lite",
+          "answer": 3.0,
+          "output_tokens": 103,
+          "input_tokens": 64,
+          "cached_input_tokens": 0,
+          "raw": "To find the total number of bolts needed for the robe, let's break it down step by step:\n\n1. The robe takes 2 bolts of blue fiber.\n2. It takes half that amount of white fiber. Half of 2 is $2 \\div 2 = 1$ bolt of white fiber.\n3. To find the total number of bolts, add the blue fiber and the white fiber together: $2 + 1 = 3$ bolts.\n\n#### 3"
+        },
+        "glm-5.3-flash": {
+          "model_id": "z-ai/glm-5.3-flash",
+          "answer": 3.0,
+          "output_tokens": 33,
+          "input_tokens": 74,
+          "cached_input_tokens": 0,
+          "raw": "Blue: 2 bolts. White: half of 2 = 1 bolt. Total: 2 + 1 = 3.\n\n#### 3"
+        }
+      }
+    },
+    {
+      "item_id": "q0",
+      "question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?",
+      "gold": 18.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 18.0,
+          "output_tokens": 74,
+          "input_tokens": 103,
+          "cached_input_tokens": 0,
+          "raw": "She gets 16 eggs per day.  \nShe uses 3 for breakfast and 4 for muffins, so that\u2019s 3 + 4 = 7 eggs used.  \nRemaining eggs = 16 - 7 = 9 eggs.  \nShe sells them for $2 each, so 9 \u00d7 2 = $18.  \n\n#### 18"
+        },
+        "gemini-3.5-flash-lite": {
+          "model_id": "gemini-3.5-flash-lite",
+          "answer": 18.0,
+          "output_tokens": 118,
+          "input_tokens": 102,
+          "cached_input_tokens": 0,
+          "raw": "Step 1: Calculate the total number of eggs laid per day, which is 16.\nStep 2: Calculate the number of eggs Janet uses for herself and baking each day (3 for breakfast + 4 for baking = 7 eggs).\nStep 3: Determine how many eggs are left to sell (16 total eggs - 7 used eggs = 9 eggs remaining).\nStep 4: Calculate the daily earnings by multiplying the remaining eggs by the price per egg (9 eggs * $2/egg = $18).\n\n#### 18"
+        },
+        "glm-5.3-flash": {
+          "model_id": "z-ai/glm-5.3-flash",
+          "answer": 18.0,
+          "output_tokens": 27,
+          "input_tokens": 111,
+          "cached_input_tokens": 64,
+          "raw": "16 - 3 - 4 = 9 eggs sold. 9 \u00d7 2 = 18.\n\n#### 18"
+        }
+      }
+    },
+    {
+      "item_id": "q4",
+      "question": "Every day, Wendi feeds each of her chickens three cups of mixed chicken feed, containing seeds, mealworms and vegetables to help keep them healthy.  She gives the chickens their feed in three separate meals. In the morning, she gives her flock of chickens 15 cups of feed.  In the afternoon, she gives her chickens another 25 cups of feed.  How many cups of feed does she need to give her chickens in the final meal of the day if the size of Wendi's flock is 20 chickens?",
+      "gold": 20.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 20.0,
+          "output_tokens": 69,
+          "input_tokens": 147,
+          "cached_input_tokens": 128,
+          "raw": "We know each chicken gets 3 cups per day.  \nWith 20 chickens, total feed needed per day = 20 \u00d7 3 = 60 cups.  \nShe has already given 15 + 25 = 40 cups.  \nSo the final meal must be 60 \u2212 40 = 20 cups.  \n\n#### 20"
+        },
+        "gemini-3.5-flash-lite": {
+          "model_id": "gemini-3.5-flash-lite",
+          "answer": 20.0,
+          "output_tokens": 222,
+          "input_tokens": 149,
+          "cached_input_tokens": 0,
+          "raw": "To find out how many cups of feed Wendi needs to give her chickens in the final meal of the day, we can follow these steps:\n\n1. **Calculate the total amount of feed needed for the entire day:**\n   Each chicken gets 3 cups of feed per day, and Wendi has 20 chickens.\n   $$\\text{Total feed} = 20 \\text{ chickens} \\times 3 \\text{ cups/chicken} = 60 \\text{ cups}$$\n\n2. **Calculate the amount of feed already given:**\n   Wendi gives 15 cups in the morning and 25 cups in the afternoon.\n   $$\\text{Feed given so far} = 15 + 25 = 40 \\text{ cups}$$\n\n3. **Calculate the remaining feed needed for the final meal:**\n   Subtract the feed already given from the total daily requirement.\n   $$\\text{Final meal feed} = 60 - 40 = 20 \\text{ cups}$$\n\n#### 20"
+        },
+        "glm-5.3-flash": {
+          "model_id": "z-ai/glm-5.3-flash",
+          "answer": 20.0,
+          "output_tokens": 43,
+          "input_tokens": 156,
+          "cached_input_tokens": 0,
+          "raw": "Total needed: 20 \u00d7 3 = 60 cups. Morning + afternoon = 15 + 25 = 40. Final meal: 60 \u2212 40 = 20.\n\n#### 20"
+        }
+      }
+    },
+    {
+      "item_id": "q2",
+      "question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?",
+      "gold": 70000.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 70000.0,
+          "output_tokens": 118,
+          "input_tokens": 89,
+          "cached_input_tokens": 0,
+          "raw": "He bought the house for $80,000 and spent $50,000 on repairs, so his total cost is $80,000 + $50,000 = $130,000.  \nThe repairs increased the value by 150%, meaning the new value is 250% of the original purchase price (100% + 150%).  \nSo the new value is 2.5 \u00d7 $80,000 = $200,000.  \nProfit = new value \u2212 total cost = $200,000 \u2212 $130,000 = $70,000.  \n\n#### 70000"
+        },
+        "gemini-3.5-flash-lite": {
+          "model_id": "gemini-3.5-flash-lite",
+          "answer": 70000.0,
+          "output_tokens": 1560,
+          "input_tokens": 95,
+          "cached_input_tokens": 0,
+          "raw": "To find the profit Josh made, we need to calculate the total cost, the new value of the house, and then subtract the total cost from the new value.\n\n1. **Calculate the total investment (cost):**\n   - Purchase price = $80,000\n   - Repair costs = $50,000\n   - Total cost = $80,000 + $50,000 = $130,000\n\n2. **Calculate the increase in value:**\n   - The repairs increased the value of the house by 150% of the *repair cost* (or purchase price? Usually, \"puts in $50,000 in repairs. This increased the value of the house by 150%\" means the increase in value is 150% of the repair amount, or the new value is calculated based on the increase). Let's re-read carefully: \"puts in $50,000 in repairs. This increased the value of the house by 150%.\" \n   - Typically, spending $50,000 adds an amount equal to 150% of that spent, meaning the increase in value is $50,000 * 1.50 = $75,000. \n   - Alternatively, if it means the value increased *by* 150% of the original price, that would be 1.5 * 80,000 = $120,000. Standard phrasing for \"puts in $X in repairs. This increased the value...\" means the value increased by 150% of the repair cost, or the new value is simply determined by the return. Let's check standard interpretations: \n     - Increase in value = 150% of $50,000 = $75,000. \n     - Wait, let's re-read: \"puts in $50,000 in repairs. This increased the value of the house by 150%.\" Often, this means the value increased by $50,000 * 1.5 = $75,000. But wait, if you spend $50,000 and it increases the value by 150% of the *cost*, the increase is $75,000. Profit = Increase - Repairs = $75,000 - $50,000 = $25,000? No.\n     - Let's reconsider standard math word problems: \"puts in $50,000 in repairs. This increased the value of the house by 150%.\" This means the new value is the original price plus 150% of the original price? No, \"This\" refers to the repairs. Repairs of $50,000 increased the value by 150% of the repair cost? Or does it mean the total value became 150%? \"increased *by* 150%\" means Increase = 1.5 * (something). Usually, repairs of $50,000 increase the value by 150% of the repair cost? No, usually people say \"increased the value by 150%\" meaning the value went up by 1.5 times the purchase price? No, $50,000 is the repair. \n     - Let's calculate: Increase in value = 150% of the purchase price? \"He buys a house for $80,000 and then puts in $50,000 in repairs. This increased the value...\" \"This\" refers to the action of repairs, or the $50,000. If it increased the value by 150% of the purchase price: $80,000 * 1.5 = $120,000. Then profit = Increase ($120,000) - Repairs ($50,000) = $70,000.\n     - Let's check another common interpretation: The total value of the house became 150% of the total cost? No, \"increased *by* 150%\". \n     - Let's test: Increase = $50,000 * 150% = $75,000. If the value increased by $75,000, and repairs cost $50,000, profit is $75,000 - $50,000 = $25,000. But usually, house flipping problems define profit as: Selling Price - Total Cost. \n     - Selling Price = Purchase ($80,000) + Increase. If the increase is 150% of the purchase price: $80,000 * 1.50 = $120,000. So Selling Price = $80,000 + $120,000 = $200,000. \n     - Total Cost = $80,000 + $50,000 = $130,000.\n     - Profit = $200,000 - $130,000 = $70,000.\n     - Let's check if \"increased the value of the house by 150%\" means the *total* new value is 150% of something, or the increase is 150% of the repair cost ($50,000 * 1.5 = $75,000). If increase is $75,000, Selling Price = $80,000 + $75,000 = $155,000. Profit = $155,000 - $130,000 = $25,000.\n     - Wait! \"puts in $50,000 in repairs. This increased the value of the house by 150%.\" In many middle/high school problems, \"increases the value by 150%\" means the value is multiplied by 1.5 or goes up by 150% of the purchase price. Let's re-read carefully: \n       - Purchase = 80,000\n       - Repairs = 50,000\n       - Increase = 150% of 80,000 = 120,000.\n       - New value = 80,000 + 120,000 = 200,000.\n       - Profit = New value - Total cost = 200,000 - (80,000 + 50,000) = 200,000 - 130,000 = 70,000.\n\n#### 70000"
+        },
+        "glm-5.3-flash": {
+          "model_id": "z-ai/glm-5.3-flash",
+          "answer": 70000.0,
+          "output_tokens": 93,
+          "input_tokens": 97,
+          "cached_input_tokens": 0,
+          "raw": "Value increase: 150% of $80,000 = $120,000, so new value = $200,000.\nTotal cost: $80,000 + $50,000 = $130,000.\nProfit: $200,000 \u2212 $130,000 = $70,000.\n\n#### 70000"
+        }
+      }
+    }
+  ]
+}

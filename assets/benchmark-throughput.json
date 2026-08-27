@@ -1,0 +1,52 @@
+{
+  "generated_at": "2026-06-10T11:58:09+00:00",
+  "package_version": "0.12.0",
+  "items": 1000,
+  "gather_chunk_size": 50,
+  "rows": [
+    {
+      "provider": "deepseek-flash",
+      "workers": 250,
+      "chunked_gather": {
+        "wall_s": 34.17,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 29.3
+      },
+      "semaphore_pool": {
+        "wall_s": 17.12,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 58.4
+      },
+      "async_batch_llm": {
+        "wall_s": 13.87,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 72.1
+      }
+    },
+    {
+      "provider": "gemini-3.1",
+      "workers": 250,
+      "chunked_gather": {
+        "wall_s": 49.02,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 20.4
+      },
+      "semaphore_pool": {
+        "wall_s": 18.11,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 55.2
+      },
+      "async_batch_llm": {
+        "wall_s": 9.23,
+        "ok": 1000,
+        "rate_limit_hits": 0,
+        "items_per_s": 108.4
+      }
+    }
+  ]
+}

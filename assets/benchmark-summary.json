@@ -1,0 +1,332 @@
+{
+  "generated_at": "2026-06-10T11:51:28+00:00",
+  "config": {
+    "race_items": 30,
+    "bakeoff_items": 1319,
+    "gather_chunk_size": 50
+  },
+  "methodology": {
+    "package_version": "0.12.0",
+    "dataset": {
+      "name": "GSM8K test split",
+      "file": "gsm8k_test.jsonl.gz",
+      "items": 1319
+    },
+    "models": {
+      "deepseek": "deepseek-v4-flash",
+      "gemini_3.1": "gemini-3.1-flash-lite",
+      "gemini_2.5": "gemini-2.5-flash-lite",
+      "judge": "gpt-5-nano"
+    },
+    "worker_caps": {
+      "deepseek-v4-flash": 250,
+      "gemini-3.1-flash-lite": 250,
+      "gemini-2.5-flash-lite": 5
+    },
+    "notes": [
+      "Gemini 2.5 Flash-Lite is throttle-capped at 5 workers (503s / rate-limits even at 10); other providers run at their full pool."
+    ],
+    "pricing": {
+      "as_of": "2026-06-01",
+      "usd_per_mtok": {
+        "deepseek-v4-flash": {
+          "input": 0.14,
+          "cached_input": 0.0028,
+          "output": 0.28,
+          "cached_rate": 0.02
+        },
+        "gemini-3.1-flash-lite": {
+          "input": 0.25,
+          "cached_input": 0.025,
+          "output": 1.5,
+          "cached_rate": 0.1
+        },
+        "gemini-2.5-flash-lite": {
+          "input": 0.1,
+          "cached_input": 0.01,
+          "output": 0.4,
+          "cached_rate": 0.1
+        },
+        "gpt-5-nano": {
+          "input": 0.05,
+          "cached_input": 0.005,
+          "output": 0.5,
+          "cached_rate": 0.1
+        }
+      }
+    }
+  },
+  "wall_time_race": [
+    {
+      "provider": "deepseek-flash",
+      "workers": 250,
+      "sequential_s": 64.99,
+      "gather_s": 4.98,
+      "async_batch_llm_s": 4.15,
+      "speedup_seq_to_abl": 15.6,
+      "ok": 30
+    },
+    {
+      "provider": "gemini-3.1",
+      "workers": 250,
+      "sequential_s": 39.07,
+      "gather_s": 2.56,
+      "async_batch_llm_s": 2.05,
+      "speedup_seq_to_abl": 19.1,
+      "ok": 30
+    },
+    {
+      "provider": "gemini-2.5",
+      "workers": 5,
+      "sequential_s": 40.59,
+      "gather_s": 2.86,
+      "async_batch_llm_s": 8.06,
+      "speedup_seq_to_abl": 5.0,
+      "ok": 30
+    }
+  ],
+  "bakeoff": [
+    {
+      "provider": "deepseek-flash",
+      "model_id": "deepseek-v4-flash",
+      "workers": 250,
+      "accuracy_pct": 97.0,
+      "wall_s": 18.31,
+      "input_tokens": 131083,
+      "cached_tokens": 17024,
+      "output_tokens": 135468,
+      "avg_output_tokens_per_item": 102.7,
+      "cost_usd": 0.0539,
+      "billable_input_tokens": 114400,
+      "cache_hit_rate_pct": 13.0,
+      "exact_correct": 1279,
+      "judge_rescued": 0,
+      "unparsed": 0,
+      "errors": 0,
+      "attempts": 1328,
+      "retries": 9,
+      "escalations": 2,
+      "parse_failures": 9,
+      "error_counts": {
+        "AnswerParseError": 9
+      }
+    },
+    {
+      "provider": "gemini-3.1",
+      "model_id": "gemini-3.1-flash-lite",
+      "workers": 250,
+      "accuracy_pct": 96.6,
+      "wall_s": 43.51,
+      "input_tokens": 129951,
+      "cached_tokens": 0,
+      "output_tokens": 267258,
+      "avg_output_tokens_per_item": 202.6,
+      "cost_usd": 0.4334,
+      "billable_input_tokens": 129951,
+      "cache_hit_rate_pct": 0.0,
+      "exact_correct": 1274,
+      "judge_rescued": 0,
+      "unparsed": 0,
+      "errors": 0,
+      "attempts": 1319,
+      "retries": 0,
+      "escalations": 0,
+      "parse_failures": 0,
+      "error_counts": {}
+    },
+    {
+      "provider": "gemini-2.5",
+      "model_id": "gemini-2.5-flash-lite",
+      "workers": 5,
+      "accuracy_pct": 95.4,
+      "wall_s": 1293.15,
+      "input_tokens": 133759,
+      "cached_tokens": 0,
+      "output_tokens": 618428,
+      "avg_output_tokens_per_item": 468.9,
+      "cost_usd": 0.2607,
+      "billable_input_tokens": 133759,
+      "cache_hit_rate_pct": 0.0,
+      "exact_correct": 1258,
+      "judge_rescued": 0,
+      "unparsed": 1,
+      "errors": 2,
+      "attempts": 1439,
+      "retries": 120,
+      "escalations": 41,
+      "parse_failures": 37,
+      "error_counts": {
+        "AnswerParseError": 36,
+        "FrameworkTimeoutError": 29,
+        "ServerError": 57
+      }
+    }
+  ],
+  "samples": [
+    {
+      "item_id": "q3",
+      "question": "James decides to run 3 sprints 3 times a week.  He runs 60 meters each sprint.  How many total meters does he run a week?",
+      "gold": 540.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 540.0,
+          "output_tokens": 57,
+          "input_tokens": 74,
+          "cached_input_tokens": 0,
+          "raw": "He runs 3 sprints per session, each 60 meters, so per session that's 3 \u00d7 60 = 180 meters.  \nHe does this 3 times a week, so total per week is 180 \u00d7 3 = 540 meters.\n\n#### 540"
+        },
+        "gemini-3.1": {
+          "model_id": "gemini-3.1-flash-lite",
+          "answer": 540.0,
+          "output_tokens": 115,
+          "input_tokens": 72,
+          "cached_input_tokens": 0,
+          "raw": "To find the total number of meters James runs in a week, follow these steps:\n\n1.  **Calculate the distance per session:** James runs 3 sprints, and each sprint is 60 meters.\n    3 sprints \u00d7 60 meters/sprint = 180 meters per session.\n\n2.  **Calculate the total distance per week:** He runs these sessions 3 times a week.\n    180 meters/session \u00d7 3 sessions/week = 540 meters per week.\n\n#### 540"
+        },
+        "gemini-2.5": {
+          "model_id": "gemini-2.5-flash-lite",
+          "answer": 540.0,
+          "output_tokens": 185,
+          "input_tokens": 72,
+          "cached_input_tokens": 0,
+          "raw": "Here's how to solve the problem step-by-step:\n\n1.  **Meters per sprint:** James runs 60 meters per sprint.\n2.  **Sprints per session:** He runs 3 sprints each time he exercises.\n3.  **Meters per session:** To find the meters he runs in one session, multiply the meters per sprint by the number of sprints: 60 meters/sprint * 3 sprints/session = 180 meters/session.\n4.  **Sessions per week:** He exercises 3 times a week.\n5.  **Total meters per week:** To find the total meters he runs in a week, multiply the meters per session by the number of sessions per week: 180 meters/session * 3 sessions/week = 540 meters/week.\n\n#### 540"
+        }
+      }
+    },
+    {
+      "item_id": "q1",
+      "question": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?",
+      "gold": 3.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 3.0,
+          "output_tokens": 53,
+          "input_tokens": 66,
+          "cached_input_tokens": 0,
+          "raw": "Let\u2019s break it down:  \n\n- Blue fiber: 2 bolts  \n- White fiber: half of the blue fiber, so 2 \u00f7 2 = 1 bolt  \n- Total: 2 + 1 = 3 bolts  \n\n#### 3"
+        },
+        "gemini-3.1": {
+          "model_id": "gemini-3.1-flash-lite",
+          "answer": 3.0,
+          "output_tokens": 109,
+          "input_tokens": 64,
+          "cached_input_tokens": 0,
+          "raw": "To solve the problem, follow these steps:\n\n1.  **Identify the amount of blue fiber:** The problem states it takes 2 bolts of blue fiber.\n2.  **Calculate the amount of white fiber:** The problem states it takes \"half that much\" white fiber as blue fiber. Half of 2 is 1 (2 \u00f7 2 = 1).\n3.  **Calculate the total:** Add the blue fiber and the white fiber together: 2 + 1 = 3.\n\n#### 3"
+        },
+        "gemini-2.5": {
+          "model_id": "gemini-2.5-flash-lite",
+          "answer": 3.0,
+          "output_tokens": 125,
+          "input_tokens": 64,
+          "cached_input_tokens": 0,
+          "raw": "The problem asks for the total number of bolts of fiber needed for a robe.\nFirst, identify the amount of blue fiber needed. The problem states it takes 2 bolts of blue fiber.\nNext, determine the amount of white fiber needed. The problem states it takes half the amount of blue fiber.\nHalf of 2 bolts is 2 / 2 = 1 bolt of white fiber.\nFinally, calculate the total number of bolts by adding the blue fiber and the white fiber.\nTotal bolts = blue fiber + white fiber = 2 + 1 = 3 bolts.\n\n#### 3"
+        }
+      }
+    },
+    {
+      "item_id": "q4",
+      "question": "Every day, Wendi feeds each of her chickens three cups of mixed chicken feed, containing seeds, mealworms and vegetables to help keep them healthy.  She gives the chickens their feed in three separate meals. In the morning, she gives her flock of chickens 15 cups of feed.  In the afternoon, she gives her chickens another 25 cups of feed.  How many cups of feed does she need to give her chickens in the final meal of the day if the size of Wendi's flock is 20 chickens?",
+      "gold": 20.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 20.0,
+          "output_tokens": 94,
+          "input_tokens": 147,
+          "cached_input_tokens": 128,
+          "raw": "We know each chicken gets 3 cups of feed per day, and there are 20 chickens.  \nTotal feed needed per day = 20 \u00d7 3 = 60 cups.  \n\nShe has already given 15 cups in the morning and 25 cups in the afternoon.  \nTotal given so far = 15 + 25 = 40 cups.  \n\nFeed needed for the final meal = 60 \u2212 40 = 20 cups.  \n\n#### 20"
+        },
+        "gemini-3.1": {
+          "model_id": "gemini-3.1-flash-lite",
+          "answer": 20.0,
+          "output_tokens": 177,
+          "input_tokens": 149,
+          "cached_input_tokens": 0,
+          "raw": "To solve this problem, we follow these steps:\n\n1.  **Calculate the total amount of feed needed for the day:**\n    Wendi has 20 chickens, and each chicken needs 3 cups of feed per day.\n    Total feed = 20 chickens \u00d7 3 cups/chicken = 60 cups.\n\n2.  **Calculate the amount of feed already given:**\n    Wendi gives 15 cups in the morning and 25 cups in the afternoon.\n    Total given so far = 15 cups + 25 cups = 40 cups.\n\n3.  **Calculate the amount needed for the final meal:**\n    Final meal = Total feed needed - Total feed already given\n    Final meal = 60 cups - 40 cups = 20 cups.\n\n#### 20"
+        },
+        "gemini-2.5": {
+          "model_id": "gemini-2.5-flash-lite",
+          "answer": 20.0,
+          "output_tokens": 784,
+          "input_tokens": 149,
+          "cached_input_tokens": 0,
+          "raw": "The problem states that Wendi feeds each of her 20 chickens three cups of mixed chicken feed per day. This means the total amount of feed per chicken per day is 3 cups.\n\nThe total amount of feed Wendi needs to give her flock of 20 chickens per day is the number of chickens multiplied by the amount of feed per chicken.\nTotal feed per day = 20 chickens * 3 cups/chicken = 60 cups.\n\nWendi gives the chickens their feed in three separate meals.\nShe gives 15 cups in the morning.\nShe gives 25 cups in the afternoon.\n\nLet 'x' be the number of cups of feed she needs to give in the final meal of the day.\nThe total feed given in the three meals must equal the total feed needed for the day.\nMorning meal + Afternoon meal + Final meal = Total feed per day\n15 cups + 25 cups + x cups = 60 cups\n\nFirst, calculate the total feed given in the morning and afternoon meals.\n15 cups + 25 cups = 40 cups.\n\nNow, subtract the feed already given from the total feed needed to find the amount for the final meal.\n40 cups + x cups = 60 cups\nx cups = 60 cups - 40 cups\nx cups = 20 cups.\n\nSo, Wendi needs to give her chickens 20 cups of feed in the final meal of the day.\n\nLet's re-read the problem to ensure all information is used correctly.\n\"Every day, Wendi feeds each of her chickens three cups of mixed chicken feed...\" - This implies 3 cups per chicken per day.\n\"...her flock of chickens is 20 chickens.\" - This is the number of chickens.\nTotal feed per day = 20 chickens * 3 cups/chicken = 60 cups. This is correct.\n\n\"She gives the chickens their feed in three separate meals.\"\n\"In the morning, she gives her flock of chickens 15 cups of feed.\"\n\"In the afternoon, she gives her chickens another 25 cups of feed.\"\n\"How many cups of feed does she need to give her chickens in the final meal of the day...\"\n\nThe total feed for the day is 60 cups.\nFeed given so far = 15 cups (morning) + 25 cups (afternoon) = 40 cups.\nFeed needed for the final meal = Total feed - Feed given so far\nFeed needed for the final meal = 60 cups - 40 cups = 20 cups.\n\nThe information about the composition of the feed (seeds, mealworms, vegetables) is extra information and not needed for the calculation.\n\nThe question is straightforward: find the remaining amount of feed for the last meal.\n\nStep 1: Calculate the total amount of feed needed for the entire flock per day.\nNumber of chickens = 20\nFeed per chicken per day = 3 cups\nTotal feed per day = 20 chickens * 3 cups/chicken = 60 cups\n\nStep 2: Calculate the total amount of feed given in the first two meals.\nMorning meal = 15 cups\nAfternoon meal = 25 cups\nTotal feed in first two meals = 15 cups + 25 cups = 40 cups\n\nStep 3: Calculate the amount of feed needed for the final meal.\nFeed for final meal = Total feed per day - Total feed in first two meals\nFeed for final meal = 60 cups - 40 cups = 20 cups\n\nThe answer is 20 cups.\n\n#### 20"
+        }
+      }
+    },
+    {
+      "item_id": "q0",
+      "question": "Janet\u2019s ducks lay 16 eggs per day. She eats three for breakfast every morning and bakes muffins for her friends every day with four. She sells the remainder at the farmers' market daily for $2 per fresh duck egg. How much in dollars does she make every day at the farmers' market?",
+      "gold": 18.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 18.0,
+          "output_tokens": 73,
+          "input_tokens": 103,
+          "cached_input_tokens": 0,
+          "raw": "She starts with 16 eggs per day.  \nShe eats 3 and uses 4 for muffins, so that's 3 + 4 = 7 eggs used.  \nRemaining eggs: 16 - 7 = 9 eggs.  \nShe sells these at $2 each: 9 \u00d7 2 = 18 dollars.  \n\n#### 18"
+        },
+        "gemini-3.1": {
+          "model_id": "gemini-3.1-flash-lite",
+          "answer": 18.0,
+          "output_tokens": 173,
+          "input_tokens": 102,
+          "cached_input_tokens": 0,
+          "raw": "To solve this problem, we follow these steps:\n\n1.  **Determine the total number of eggs laid per day:** Janet's ducks lay 16 eggs per day.\n2.  **Subtract the eggs used by Janet:**\n    *   She eats 3 eggs for breakfast.\n    *   She uses 4 eggs for baking muffins.\n    *   Total eggs used = 3 + 4 = 7 eggs.\n3.  **Calculate the number of eggs remaining to sell:**\n    *   16 (total) - 7 (used) = 9 eggs remaining.\n4.  **Calculate the daily earnings:**\n    *   She sells the 9 eggs for $2 each.\n    *   9 eggs * $2/egg = $18.\n\n#### 18"
+        },
+        "gemini-2.5": {
+          "model_id": "gemini-2.5-flash-lite",
+          "answer": 18.0,
+          "output_tokens": 103,
+          "input_tokens": 102,
+          "cached_input_tokens": 0,
+          "raw": "Janet's ducks lay 16 eggs per day.\nShe eats 3 eggs for breakfast.\nShe uses 4 eggs for muffins.\nTotal eggs used by Janet = 3 + 4 = 7 eggs.\nNumber of eggs remaining to sell = 16 - 7 = 9 eggs.\nShe sells the remaining eggs for $2 per egg.\nMoney made from selling eggs = 9 eggs * $2/egg = $18.\n\n#### 18"
+        }
+      }
+    },
+    {
+      "item_id": "q2",
+      "question": "Josh decides to try flipping a house.  He buys a house for $80,000 and then puts in $50,000 in repairs.  This increased the value of the house by 150%.  How much profit did he make?",
+      "gold": 70000.0,
+      "providers": {
+        "deepseek-flash": {
+          "model_id": "deepseek-v4-flash",
+          "answer": 70000.0,
+          "output_tokens": 105,
+          "input_tokens": 89,
+          "cached_input_tokens": 0,
+          "raw": "First, find the total cost: $80,000 + $50,000 = $130,000.  \n\nThe value increased by 150%, so the new value is 100% + 150% = 250% of the original purchase price.  \n250% of $80,000 = 2.5 \u00d7 $80,000 = $200,000.  \n\nProfit = new value - total cost = $200,000 - $130,000 = $70,000.  \n\n#### 70000"
+        },
+        "gemini-3.1": {
+          "model_id": "gemini-3.1-flash-lite",
+          "answer": 70000.0,
+          "output_tokens": 263,
+          "input_tokens": 95,
+          "cached_input_tokens": 0,
+          "raw": "To solve this problem, we follow these steps:\n\n1.  **Calculate the total investment:**\n    Josh bought the house for $80,000 and spent $50,000 on repairs.\n    Total investment = $80,000 + $50,000 = $130,000.\n\n2.  **Calculate the increase in value:**\n    The value of the house increased by 150% of the original purchase price ($80,000).\n    Increase = 150% of $80,000 = 1.5 * $80,000 = $120,000.\n\n3.  **Calculate the new value of the house:**\n    New value = Original price + Increase\n    New value = $80,000 + $120,000 = $200,000.\n\n4.  **Calculate the profit:**\n    Profit = New value - Total investment\n    Profit = $200,000 - $130,000 = $70,000.\n\n#### 70000"
+        },
+        "gemini-2.5": {
+          "model_id": "gemini-2.5-flash-lite",
+          "answer": 70000.0,
+          "output_tokens": 280,
+          "input_tokens": 95,
+          "cached_input_tokens": 0,
+          "raw": "Here's how to solve the problem step-by-step:\n\n1.  **Calculate the total cost:** Josh's total cost is the purchase price plus the repair costs.\n    $80,000 (purchase) + $50,000 (repairs) = $130,000\n\n2.  **Calculate the increase in value:** The repairs increased the *value* of the house by 150%. This means the increase is 150% of the *original purchase price*.\n    150% of $80,000 = 1.50 * $80,000 = $120,000\n\n3.  **Calculate the new value of the house:** The new value is the original purchase price plus the increase in value.\n    $80,000 (original value) + $120,000 (increase) = $200,000\n\n4.  **Calculate the profit:** Profit is the selling price (the new value) minus the total cost.\n    $200,000 (new value) - $130,000 (total cost) = $70,000\n\n#### 70000"
+        }
+      }
+    }
+  ],
+  "judge": {
+    "model_id": "gpt-5-nano",
+    "wall_s": 2.08,
+    "input_tokens": 0,
+    "cached_tokens": 0,
+    "output_tokens": 0,
+    "cost_usd": 0.0,
+    "judged": 1,
+    "judge_correct": 0
+  }
+}
