@@ -393,7 +393,8 @@ def llm(
   strategy (see [GeminiStrategy](#geministrategy) for their semantics).
 - `**model_kwargs`: Forwarded to the model constructor — `api_key`,
   `system_instruction`, `max_connections` / `json_mode` / `extra_headers` /
-  `extra_body` (OpenAI-compatible providers), `thinking` (DeepSeek),
+  `extra_body` (OpenAI-compatible providers), `thinking` / `api_surface` /
+  `response_schema` (DeepSeek),
   `safety_settings` (Gemini).
 
 **Returns** the same objects the two-object form builds (`GeminiStrategy`,
@@ -863,6 +864,56 @@ A recovered `WorkItemResult` exposes typed recovery properties backed by
 metadata. Processor stats and `MetricsObserver` include
 `structured_output_recoveries`, `structured_output_retries_avoided`, and counts
 by `structured_output_recovery_reasons`.
+
+### DeepSeek strict JSON Schema output
+
+DeepSeek's Responses API can enforce a JSON Schema before ABL parses the
+result. Pass a Pydantic model class to get that model back directly:
+
+```python
+from pydantic import BaseModel
+
+from async_batch_llm import DeepSeekModel, DeepSeekStrategy
+
+
+class Verdict(BaseModel):
+    valid: bool
+    reason: str
+
+
+model = DeepSeekModel.from_api_key(
+    "deepseek-v4-flash",
+    api_surface="responses",
+    response_schema=Verdict,
+    thinking=False,
+    max_connections=64,
+)
+strategy = DeepSeekStrategy(
+    model,
+    generation_config={"max_tokens": 256},  # mapped to max_output_tokens
+)
+```
+
+A JSON Schema mapping is also accepted; the default strategy output is then
+the decoded JSON value. `schema_name=` overrides the Pydantic class name or
+schema `title` used in the provider request.
+
+This mode runs through the ordinary `LLMGateway` and batch strategy path, so
+capacity admission, proactive quotas, retries, timing, token/cache accounting,
+and cost calculation remain active. Result metadata includes `api_surface`,
+`provider_request_id`, and `response_schema` (`name`, Python/schema identity,
+and canonical SHA-256). The same API/schema fields participate in inferred
+JSONL/SQLite artifact identity, preventing Chat JSON-mode or different-schema
+results from being replayed as compatible strict outputs.
+
+DeepSeek currently documents Responses support only for
+`deepseek-v4-flash`. ABL detects other model ids locally and raises instead of
+silently weakening the guarantee. The explicit fallback is Chat Completions
+with `json_mode=True` plus `pydantic_json_parser(...)`; it requests valid JSON
+but does not enforce the schema and therefore cannot safely repair malformed
+JSON inside the object. Provider/schema rejection is non-retryable under
+`structured_output_schema_rejected`; an accepted response that fails local
+validation is retryable under `structured_output_validation_error`.
 
 ---
 

@@ -589,6 +589,52 @@ class DeepSeekStrategy(ModelStrategy[TOutput]):
         >>> strategy = DeepSeekStrategy(model)
     """
 
+    def __init__(
+        self,
+        model: "LLMModel",
+        response_parser: Callable[[LLMResponse], TOutput] | None = None,
+        *,
+        temperature: float | None = 0.0,
+        generation_config: dict[str, Any] | None = None,
+        quota_scope: object | None = None,
+        token_estimator: TokenEstimator | None = None,
+    ) -> None:
+        """Use the model's strict-schema parser when one is configured."""
+        if response_parser is None and getattr(model, "response_schema", None) is not None:
+            parser = getattr(model, "parse_structured_response", None)
+            if callable(parser):
+                response_parser = parser
+        if response_parser is None:
+
+            def default_response_parser(response: LLMResponse) -> TOutput:
+                return cast(TOutput, response.text)
+
+            response_parser = default_response_parser
+        super().__init__(
+            model,
+            response_parser,
+            temperature=temperature,
+            generation_config=generation_config,
+            quota_scope=quota_scope,
+            token_estimator=token_estimator,
+        )
+
+    @property
+    def artifact_identity(self) -> Any:
+        """Include DeepSeek API surface/schema in automatic replay identity."""
+        from .artifacts import ArtifactIdentity
+
+        model_id = getattr(self.model, "_model", None)
+        extra = getattr(self.model, "artifact_identity_extra", {})
+        return ArtifactIdentity(
+            provider="deepseek",
+            model=model_id if isinstance(model_id, str) and model_id else "unknown",
+            prompt_version="unversioned",
+            parser_version="unversioned",
+            application_version="unversioned",
+            extra=extra if isinstance(extra, dict) else {},
+        )
+
     def recommended_error_classifier(self) -> "ErrorClassifier":
         # DeepSeek is OpenAI-compatible; reuse the OpenAI classifier.
         from .classifiers.openai import OpenAIErrorClassifier

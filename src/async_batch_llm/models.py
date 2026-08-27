@@ -7,14 +7,22 @@ without knowing about provider-specific details.
 Added in v0.6.0.
 """
 
+import hashlib
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, NoReturn, TypeVar
 
+from pydantic import BaseModel, ValidationError
+
 from .base import LLMResponse
-from .strategies.errors import EmptyResponseError, ProviderResponseError
+from .strategies.errors import (
+    EmptyResponseError,
+    ProviderResponseError,
+    StructuredOutputSchemaError,
+    StructuredOutputValidationError,
+)
 
 # A user-supplied hook that maps a raw provider response onto extra metadata
 # keys. Returns None (or an empty dict) to contribute nothing. Extractors run
@@ -1215,6 +1223,7 @@ class OpenAICompatibleModel:
         json_mode: bool = False,
         max_connections: int | None = None,
         metadata_extractors: list[MetadataExtractor] | None = None,
+        _instance_kwargs: dict[str, Any] | None = None,
         **client_kwargs: Any,
     ) -> TM:
         """Build the model with a freshly-constructed AsyncOpenAI client.
@@ -1312,6 +1321,7 @@ class OpenAICompatibleModel:
             extra_headers=extra_headers,
             extra_body=extra_body,
             metadata_extractors=metadata_extractors,
+            **(_instance_kwargs or {}),
         )
         instance.max_concurrency = max_connections
         instance._owns_client = True
@@ -1473,6 +1483,93 @@ def _merge_thinking(
     return merged
 
 
+def _schema_name(value: str) -> str:
+    """Validate the portable Responses API schema-name subset."""
+    if not value or len(value) > 64 or any(not (char.isalnum() or char in "_-") for char in value):
+        raise ValueError(
+            "schema_name must be 1-64 alphanumeric, underscore, or hyphen characters "
+            f"(got {value!r})."
+        )
+    return value
+
+
+def _prepare_response_schema(
+    response_schema: type[BaseModel] | Mapping[str, Any],
+    schema_name: str | None,
+) -> tuple[dict[str, Any], str, str, str]:
+    """Return a JSON-safe schema, request name, identity, and canonical hash."""
+    if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+        schema = response_schema.model_json_schema()
+        name = _schema_name(schema_name or response_schema.__name__)
+        identity = f"{response_schema.__module__}.{response_schema.__qualname__}"
+    elif isinstance(response_schema, Mapping):
+        schema = dict(response_schema)
+        title = schema.get("title")
+        default_name = title if isinstance(title, str) and title else "structured_output"
+        name = _schema_name(schema_name or default_name)
+        identity = name
+    else:
+        raise TypeError("response_schema must be a Pydantic BaseModel class or JSON Schema mapping")
+
+    try:
+        canonical = json.dumps(
+            schema,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"response_schema must be JSON-serializable: {exc}") from exc
+    normalized = json.loads(canonical)
+    if not isinstance(normalized, dict):  # Defensive; ``schema`` starts as a mapping.
+        raise TypeError("response_schema must serialize to a JSON object")
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return normalized, name, identity, digest
+
+
+def _responses_thinking(
+    extra_body: dict[str, Any] | None,
+    thinking: bool | None,
+) -> dict[str, Any] | None:
+    """Map DeepSeek's chat ``thinking`` toggle to Responses ``reasoning``."""
+    merged = dict(extra_body) if extra_body else {}
+    chat_thinking = merged.pop("thinking", None)
+    if "reasoning" not in merged:
+        if thinking is not None:
+            merged["reasoning"] = {"effort": "high" if thinking else "none"}
+        elif isinstance(chat_thinking, Mapping):
+            kind = chat_thinking.get("type")
+            if kind == "enabled":
+                merged["reasoning"] = {"effort": "high"}
+            elif kind == "disabled":
+                merged["reasoning"] = {"effort": "none"}
+    return merged or None
+
+
+def _response_error_text(error: Any) -> tuple[str | None, str]:
+    """Extract a provider response error code and human-readable message."""
+    if isinstance(error, Mapping):
+        raw_code = error.get("code")
+        raw_message = error.get("message")
+    else:
+        raw_code = getattr(error, "code", None)
+        raw_message = getattr(error, "message", None)
+    code = str(raw_code) if raw_code is not None else None
+    message = str(raw_message) if raw_message is not None else str(error)
+    return code, message
+
+
+def _looks_like_schema_rejection(exception: Exception) -> bool:
+    """Recognize a provider's deterministic JSON Schema request rejection."""
+    status = getattr(exception, "status_code", None)
+    if status not in (400, 422):
+        return False
+    body = getattr(exception, "body", None)
+    text = f"{exception} {body}".lower()
+    return any(marker in text for marker in ("json_schema", "json schema", "text.format", "schema"))
+
+
 class DeepSeekModel(OpenAICompatibleModel):
     """LLM model backed by DeepSeek's OpenAI-compatible API.
 
@@ -1498,7 +1595,15 @@ class DeepSeekModel(OpenAICompatibleModel):
     Pass ``thinking=False`` to force non-thinking mode explicitly rather than
     relying on the ``deepseek-chat`` (non-thinking) / ``deepseek-reasoner``
     (thinking) aliases, which DeepSeek is deprecating. Under the hood this sends
-    ``extra_body={"thinking": {"type": "disabled"}}``.
+    ``extra_body={"thinking": {"type": "disabled"}}`` for Chat Completions,
+    or ``reasoning={"effort": "none"}`` on the Responses API.
+
+    **Strict structured output.** Set ``api_surface="responses"`` and pass a
+    Pydantic model class or JSON Schema mapping as ``response_schema``. The
+    schema is sent through ``text.format.type="json_schema"`` and
+    :class:`DeepSeekStrategy` parses successful output automatically. DeepSeek
+    currently exposes Responses only for ``deepseek-v4-flash``; unsupported
+    models fail locally instead of silently falling back to weaker JSON mode.
 
     Example:
         >>> model = DeepSeekModel.from_api_key(
@@ -1513,6 +1618,7 @@ class DeepSeekModel(OpenAICompatibleModel):
     _default_base_url: str | None = "https://api.deepseek.com"
     _install_extras: str = "deepseek"
     _api_key_env_var: str | None = "DEEPSEEK_API_KEY"
+    _responses_models = frozenset({"deepseek-v4-flash"})
 
     def __init__(
         self,
@@ -1523,17 +1629,88 @@ class DeepSeekModel(OpenAICompatibleModel):
         extra_headers: dict[str, str] | None = None,
         extra_body: dict[str, Any] | None = None,
         thinking: bool | None = None,
+        api_surface: str = "chat_completions",
+        response_schema: type[BaseModel] | Mapping[str, Any] | None = None,
+        schema_name: str | None = None,
+        json_mode: bool = False,
         metadata_extractors: list[MetadataExtractor] | None = None,
     ):
         """See :class:`OpenAICompatibleModel`; adds the DeepSeek ``thinking``
-        toggle (``True``/``False`` to force thinking on/off, ``None`` for the
-        model default)."""
+        toggle and opt-in Responses API structured output."""
+        if api_surface not in {"chat_completions", "responses"}:
+            raise ValueError(
+                f"api_surface must be 'chat_completions' or 'responses' (got {api_surface!r})."
+            )
+        if response_schema is not None and api_surface != "responses":
+            raise ValueError(
+                "response_schema requires api_surface='responses'; Chat Completions only "
+                "supports json_mode=True without schema enforcement."
+            )
+        if response_schema is not None and json_mode:
+            raise ValueError("Pass response_schema or json_mode=True, not both.")
+        if api_surface == "responses" and model not in self._responses_models:
+            raise ValueError(
+                "DeepSeek Responses API currently supports only 'deepseek-v4-flash' "
+                f"(got {model!r}). Use Chat Completions without response_schema as the "
+                "explicit fallback."
+            )
+
+        self.api_surface = api_surface
+        self.response_schema: dict[str, Any] | None = None
+        self.response_schema_name: str | None = None
+        self.response_schema_identity: str | None = None
+        self.response_schema_hash: str | None = None
+        self._response_model: type[BaseModel] | None = None
+        if response_schema is not None:
+            (
+                self.response_schema,
+                self.response_schema_name,
+                self.response_schema_identity,
+                self.response_schema_hash,
+            ) = _prepare_response_schema(response_schema, schema_name)
+            if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+                self._response_model = response_schema
+
+        if api_surface == "responses":
+            configured_body = _responses_thinking(extra_body, thinking)
+            configured_body = dict(configured_body) if configured_body else {}
+            if self.response_schema is not None:
+                requested_format = {
+                    "type": "json_schema",
+                    "name": self.response_schema_name,
+                    "schema": self.response_schema,
+                }
+                text_config = configured_body.get("text")
+                if text_config is not None and not isinstance(text_config, Mapping):
+                    raise TypeError("extra_body['text'] must be a mapping")
+                existing_format = text_config.get("format") if text_config else None
+                if existing_format is not None and existing_format != requested_format:
+                    raise ValueError("extra_body['text']['format'] conflicts with response_schema")
+                configured_body["text"] = {**dict(text_config or {}), "format": requested_format}
+            elif json_mode:
+                text_config = configured_body.get("text")
+                if text_config is not None and not isinstance(text_config, Mapping):
+                    raise TypeError("extra_body['text'] must be a mapping")
+                configured_body["text"] = {
+                    "format": {"type": "json_object"},
+                    **dict(text_config or {}),
+                }
+            effective_extra_body = configured_body or None
+        else:
+            effective_extra_body = _merge_thinking(extra_body, thinking)
+            if json_mode:
+                configured_body = {
+                    "response_format": {"type": "json_object"},
+                    **dict(effective_extra_body or {}),
+                }
+                effective_extra_body = configured_body
+
         super().__init__(
             model,
             client,
             system_instruction=system_instruction,
             extra_headers=extra_headers,
-            extra_body=_merge_thinking(extra_body, thinking),
+            extra_body=effective_extra_body,
             metadata_extractors=metadata_extractors,
         )
 
@@ -1550,24 +1727,275 @@ class DeepSeekModel(OpenAICompatibleModel):
         json_mode: bool = False,
         max_connections: int | None = None,
         thinking: bool | None = None,
+        api_surface: str = "chat_completions",
+        response_schema: type[BaseModel] | Mapping[str, Any] | None = None,
+        schema_name: str | None = None,
         metadata_extractors: list[MetadataExtractor] | None = None,
         **client_kwargs: Any,
     ) -> "DeepSeekModel":
         """Build a DeepSeekModel; reads ``DEEPSEEK_API_KEY`` when ``api_key`` is
-        None. Adds the ``thinking`` toggle (see the class docstring) on top of
-        the shared :meth:`OpenAICompatibleModel.from_api_key` arguments."""
+        None. Adds the ``thinking`` toggle and Responses API structured-output
+        options (see the class docstring) on top of the shared constructor."""
         return super().from_api_key(
             model,
             api_key,
             base_url=base_url,
             system_instruction=system_instruction,
             extra_headers=extra_headers,
-            extra_body=_merge_thinking(extra_body, thinking),
-            json_mode=json_mode,
+            extra_body=extra_body,
+            # DeepSeekModel applies JSON mode according to the selected API
+            # surface; suppress the base class's Chat-only injection.
+            json_mode=False,
             max_connections=max_connections,
             metadata_extractors=metadata_extractors,
+            _instance_kwargs={
+                "thinking": thinking,
+                "api_surface": api_surface,
+                "response_schema": response_schema,
+                "schema_name": schema_name,
+                "json_mode": json_mode,
+            },
             **client_kwargs,
         )
+
+    @property
+    def artifact_identity_extra(self) -> dict[str, Any]:
+        """Replay identity fields that distinguish transport/output contracts."""
+        extra: dict[str, Any] = {"api_surface": self.api_surface}
+        if self.response_schema_hash is not None:
+            extra["response_schema"] = {
+                "name": self.response_schema_name,
+                "identity": self.response_schema_identity,
+                "sha256": self.response_schema_hash,
+            }
+        elif self._uses_json_mode:
+            extra["output_format"] = "json_object"
+        return extra
+
+    @property
+    def _uses_json_mode(self) -> bool:
+        body = self._default_extra_body or {}
+        if self.api_surface == "responses":
+            text_config = body.get("text")
+            output_format = text_config.get("format") if isinstance(text_config, Mapping) else None
+        else:
+            output_format = body.get("response_format")
+        return isinstance(output_format, Mapping) and output_format.get("type") == "json_object"
+
+    def parse_structured_response(self, response: LLMResponse) -> Any:
+        """Parse provider-enforced output into its Pydantic type or JSON value."""
+        try:
+            if self._response_model is not None:
+                return self._response_model.model_validate_json(response.text)
+            return json.loads(response.text)
+        except (ValidationError, json.JSONDecodeError) as exc:
+            raise StructuredOutputValidationError(
+                f"DeepSeek returned output that did not validate against "
+                f"{self.response_schema_name!r}: {exc}"
+            ) from exc
+
+    async def generate(
+        self,
+        prompt: str | list[Any],
+        *,
+        temperature: float | None = 0.0,
+        system_instruction: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        """Call the selected DeepSeek API surface and normalize its response."""
+        if self.api_surface == "chat_completions":
+            result = await super().generate(
+                prompt,
+                temperature=temperature,
+                system_instruction=system_instruction,
+                config=config,
+            )
+            metadata = dict(result.metadata or {})
+            metadata["api_surface"] = self.api_surface
+            request_id = getattr(result.raw, "id", None)
+            if isinstance(request_id, str) and request_id:
+                metadata["provider_request_id"] = request_id
+            if self._uses_json_mode:
+                metadata["output_format"] = "json_object"
+            result.metadata = metadata
+            return result
+        return await self._generate_responses(
+            prompt,
+            temperature=temperature,
+            system_instruction=system_instruction,
+            config=config,
+        )
+
+    async def _generate_responses(
+        self,
+        prompt: str | list[Any],
+        *,
+        temperature: float | None,
+        system_instruction: str | None,
+        config: dict[str, Any] | None,
+    ) -> LLMResponse:
+        input_value: str | list[Any] = prompt if isinstance(prompt, str) else list(prompt)
+        si = system_instruction or self._default_system_instruction
+        has_system = isinstance(input_value, list) and _has_system_message(input_value)
+
+        request_config = dict(self._default_extra_body or {})
+        if config:
+            request_config.update(config)
+        if "max_tokens" in request_config:
+            request_config.setdefault("max_output_tokens", request_config["max_tokens"])
+            request_config.pop("max_tokens")
+
+        call_kwargs: dict[str, Any] = {"model": self._model, "input": input_value}
+        if si is not None and not has_system:
+            call_kwargs["instructions"] = si
+        if temperature is not None:
+            call_kwargs["temperature"] = temperature
+        response_parameters = {
+            "max_output_tokens",
+            "max_tool_calls",
+            "parallel_tool_calls",
+            "reasoning",
+            "text",
+            "tool_choice",
+            "tools",
+            "top_logprobs",
+            "top_p",
+            "user",
+        }
+        for key in response_parameters:
+            if key in request_config:
+                call_kwargs[key] = request_config.pop(key)
+        if request_config:
+            call_kwargs["extra_body"] = request_config
+        if self._default_extra_headers:
+            call_kwargs["extra_headers"] = self._default_extra_headers
+
+        try:
+            response = await self._client.responses.create(**call_kwargs)
+        except Exception as exc:
+            if self.response_schema is not None and _looks_like_schema_rejection(exc):
+                raise StructuredOutputSchemaError(
+                    f"DeepSeek rejected response schema {self.response_schema_name!r} "
+                    f"({self.response_schema_hash}): {exc}"
+                ) from exc
+            raise
+
+        tokens = self._extract_responses_tokens(response)
+        status = getattr(response, "status", None)
+        provider_error = getattr(response, "error", None)
+        if provider_error is not None or status == "failed":
+            code, message = _response_error_text(provider_error)
+            error_text = f"{code or ''} {message}".lower()
+            if self.response_schema is not None and "schema" in error_text:
+                schema_error = StructuredOutputSchemaError(
+                    f"DeepSeek rejected response schema {self.response_schema_name!r}: {message}",
+                    token_usage=self._tokens_dict(tokens),
+                )
+                raise schema_error
+            response_error = ProviderResponseError(
+                f"DeepSeek Responses API failed ({code or 'unknown'}): {message}",
+                provider_error=provider_error,
+                token_usage=self._tokens_dict(tokens),
+            )
+            raise response_error
+        if status == "incomplete":
+            details = getattr(response, "incomplete_details", None)
+            reason = getattr(details, "reason", None)
+            _raise_empty_response(
+                f"Incomplete DeepSeek Responses output (reason={reason or 'unknown'}).",
+                tokens,
+            )
+
+        text = getattr(response, "output_text", None)
+        if not isinstance(text, str) or not text:
+            parts: list[str] = []
+            for item in getattr(response, "output", None) or ():
+                if getattr(item, "type", None) != "message":
+                    continue
+                for content in getattr(item, "content", None) or ():
+                    value = getattr(content, "text", None)
+                    if getattr(content, "type", None) == "output_text" and isinstance(value, str):
+                        parts.append(value)
+            text = "".join(parts)
+        if not text:
+            _raise_empty_response("No text returned from DeepSeek Responses API.", tokens)
+
+        input_tokens, output_tokens, total_tokens, cached_tokens = tokens
+        return LLMResponse(
+            text=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            cached_input_tokens=cached_tokens,
+            metadata=self._responses_metadata(response),
+            raw=response,
+        )
+
+    @staticmethod
+    def _tokens_dict(tokens: tuple[int, int, int, int]) -> dict[str, int]:
+        input_tokens, output_tokens, total_tokens, cached_tokens = tokens
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cached_input_tokens": cached_tokens,
+        }
+
+    def _extract_responses_tokens(self, response: Any) -> tuple[int, int, int, int]:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return 0, 0, 0, 0
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", 0) or 0)
+        details = getattr(usage, "input_tokens_details", None)
+        cached_tokens = int(getattr(details, "cached_tokens", 0) or 0) if details else 0
+        return input_tokens, output_tokens, total_tokens, cached_tokens
+
+    def _responses_metadata(self, response: Any) -> dict[str, Any] | None:
+        metadata: dict[str, Any] = {"api_surface": "responses"}
+        request_id = getattr(response, "id", None)
+        if isinstance(request_id, str) and request_id:
+            metadata["provider_request_id"] = request_id
+        model = getattr(response, "model", None)
+        if isinstance(model, str) and model:
+            metadata["model"] = model
+        status = getattr(response, "status", None)
+        if isinstance(status, str) and status:
+            metadata["finish_reason"] = status
+        if self.response_schema_hash is not None:
+            metadata["response_schema"] = {
+                "name": self.response_schema_name,
+                "identity": self.response_schema_identity,
+                "sha256": self.response_schema_hash,
+            }
+
+        reasoning: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        for item in getattr(response, "output", None) or ():
+            item_type = getattr(item, "type", None)
+            if item_type == "reasoning":
+                for content in getattr(item, "content", None) or ():
+                    value = getattr(content, "text", None)
+                    if isinstance(value, str) and value:
+                        reasoning.append(value)
+            elif item_type == "function_call":
+                name = getattr(item, "name", None)
+                if isinstance(name, str) and name:
+                    call_id = getattr(item, "call_id", None)
+                    arguments = getattr(item, "arguments", None)
+                    tool_calls.append(
+                        {
+                            "id": call_id if isinstance(call_id, str) else None,
+                            "name": name,
+                            "arguments": arguments if isinstance(arguments, str) else "",
+                        }
+                    )
+        if reasoning:
+            metadata["reasoning"] = "".join(reasoning)
+        if tool_calls:
+            metadata["tool_calls"] = tool_calls
+        return _run_extractors(response, self._metadata_extractors, metadata)
 
     def _extract_tokens(self, response: Any) -> tuple[int, int, int, int]:
         """Extract tokens, preferring DeepSeek's native cache-hit field.
