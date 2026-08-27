@@ -205,9 +205,9 @@ These figures are historical evidence, not current provider guarantees. See the
 [methodology, model IDs, pricing snapshot, and complete tables](https://geoff-davis.github.io/async-batch-llm/benchmarks/).
 
 An **August 27, 2026** follow-up kept the original results and added a fresh
-1,319-item provider bake-off: DeepSeek V4 Flash scored 96.9% at $0.1065, Gemini
-3.5 Flash-Lite scored 96.6% at $0.7118, and GLM 5.3 Flash scored 96.3% at
-$0.0294. The GLM run was pinned through OpenRouter to Z.AI with fallbacks
+1,319-item provider bake-off: DeepSeek V4 Flash scored 96.9% at **$0.1065**,
+Gemini 3.5 Flash-Lite scored 96.6% at **$0.7118**, and GLM 5.3 Flash scored 96.3%
+at **$0.0294**. The GLM run was pinned through OpenRouter to Z.AI with fallbacks
 disabled; all 1,319 responses confirmed that route, and its cost is the sum of
 provider-reported `usage.cost` values rather than a catalog estimate.
 
