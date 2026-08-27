@@ -19,171 +19,13 @@ strategy, the classifier pitfall, gzip streaming, the judge — see the
     a dated, machine-readable summary so the original and updated bake-offs can
     coexist without rewriting history.
 
-## Methodology
+## Latest provider bake-off — August 27, 2026
 
-| Field | Value |
-| --- | --- |
-| Date | 2026-06-10 |
-| `async-batch-llm` version | 0.12.0 + this release's pre-merge changes (streaming API, 503 per-item backoff) |
-| Dataset | GSM8K **test split**, 1,319 problems |
-| Models | `deepseek-v4-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash-lite`; judge `gpt-5-nano` |
-| Worker pools | DeepSeek 250, Gemini 3.1 250, **Gemini 2.5 Flash-Lite 5** (throttle-capped — 503s/rate-limits even at 10) |
-| Pricing snapshot | 2026-06-01 (USD/Mtok; confirm against each provider's current page) |
-| Hardware/network | single client host; results bounded by provider latency, not local CPU |
-
-**Estimated cost to reproduce:** ~**$1–2** total in API spend (full 1,319-item
-bake-off across three providers + a 1,000-item throughput run + a handful of
-judge calls), plus ~30–35 minutes of wall time — dominated by Gemini 2.5's
-~21-minute bake-off at its 5-worker ceiling, the sequential race leg, and the
-60s inter-leg throughput pauses.
-
-## Wall-time race
-
-The same 30-item workload run three ways per provider — a one-at-a-time
-sequential loop, a naive `asyncio.gather`, and async-batch-llm — to show how much
-concurrency collapses wall time.
-
-![Wall time per orchestration, per provider](assets/benchmark-wall-time.png)
-
-| Provider | Workers | Sequential (s) | `gather` (s) | async-batch-llm (s) | Speedup (seq→abl) |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| deepseek-flash | 250 | 65.0 | 5.0 | 4.2 | 15.6× |
-| gemini-3.1 | 250 | 39.1 | 2.6 | 2.1 | 19.1× |
-| gemini-2.5 | 5 | 40.6 | 2.9 | 8.1 | 5.0× |
-
-Concurrency collapses wall time (≈16–19× on the unthrottled providers). The race
-runs only 30 items, so a 250-worker pool never fills — every call fires at once
-regardless of orchestration, which is why `gather` and async-batch-llm are
-neck-and-neck here. Gemini 2.5 is the exception: the framework respects its
-5-worker cap (and retried a few transient 503s with backoff), while the bare
-`gather` ignores the cap, fires all 30 at once, and got away with it on this
-small batch — so the `abl` leg trails. That's the throttle ceiling plus the
-framework playing it safe, not orchestration overhead. The pool's real advantage
-shows up at scale, below.
-
-## Throughput at scale
-
-To see what the worker pool buys you once it *does* fill, `--throughput` runs a
-large batch (1,000 items) three ways at the **same** concurrency: a chunked
-`asyncio.gather` (per-chunk barriers), a semaphore-bounded `gather` (continuous
-refill — the fair hand-rolled baseline), and async-batch-llm.
-
-![Throughput at the same concurrency, per provider](assets/benchmark-throughput.png)
-
-| Provider | Workers | chunked gather (it/s) | semaphore pool (it/s) | async-batch-llm (it/s) | RL hits (g / s / a) |
-| --- | ---: | ---: | ---: | ---: | :---: |
-| deepseek-flash | 250 | 29.3 | 58.4 | **72.1** | 0 / 0 / 0 |
-| gemini-3.1 | 250 | 20.4 | 55.2 | **108.4** | 0 / 0 / 0 |
-
-With **zero** rate limits on any leg (`RL = 0`), this is a clean comparison — and
-async-batch-llm comes out **ahead of even the fair semaphore pool** (≈1.2× on
-DeepSeek, ≈2× on Gemini 3.1), with the chunked baseline trailing both. Why the
-worker pool wins: a `Semaphore`-over-`gather` still *schedules all 1,000
-coroutines up front* and lets them contend on the semaphore, whereas the worker
-pool runs a fixed N tasks pulling from a bounded queue — fewer tasks, less
-event-loop churn, and backpressure for free. It's the optimized version of the
-pattern you'd otherwise hand-roll.
-
-!!! warning "Read the multiple with a grain of salt"
-    The legs run back-to-back (with a 60s gap to reset quota), so connection
-    warmth and ordering can move the exact ratio. The robust takeaway is the
-    *direction*: the bounded worker pool is at least as fast as a fair semaphore
-    pool, and the chunked-barrier baseline is the one that actually loses. And
-    against a provider that throttles you, the framework is the only leg that
-    survives it (the `RL` columns) rather than shedding results.
-
-## Provider bake-off
-
-Same framework, one strategy swap per provider, over the full test split.
-
-![Cost per provider for the full test split, labelled with accuracy](assets/benchmark-cost.png)
-
-| Provider (model) | Accuracy | Wall (s) | Input | Cached | Output | Avg out/item | Cost ($) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| deepseek-flash (`deepseek-v4-flash`) | 97.0% | 18.3 | 131,083 | 17,024 | 135,468 | 103 | **0.0539** |
-| gemini-2.5 (`gemini-2.5-flash-lite`) | 95.4% | 1,293.2 | 133,759 | 0 | 618,428 | 469 | 0.2607 |
-| gemini-3.1 (`gemini-3.1-flash-lite`) | 96.6% | 43.5 | 129,951 | 0 | 267,258 | 203 | 0.4334 |
-
-**Accuracy is 95–97% across all three; cost spans ~8× ($0.054 → $0.43).** The
-cost gap isn't only sticker price — it decomposes into three multiplicative
-factors, all visible in the table:
-
-1. **Output price/token** — DeepSeek's output rate ($0.28/Mtok) is the lowest here.
-2. **Output *length*** — DeepSeek is dramatically terser: **103** output
-   tokens/item vs Gemini 2.5's **469** and Gemini 3.1's **203**, for the *same*
-   accuracy. Fewer tokens, same answer (see below).
-3. **Caching** — DeepSeek is the only provider with cache hits in this workload
-   (**13%**), and its discount is steeper (`CachedTokenRates.DEEPSEEK` = 2% of
-   normal input vs Gemini's 10%).
-
-### Terse vs. verbose: same answer, very different bills
-
-> *James decides to run 3 sprints 3 times a week. He runs 60 meters each sprint.
-> How many total meters does he run a week?* (gold: **540**)
-
-**DeepSeek — 57 output tokens:**
-
-```text
-He runs 3 sprints per session, each 60 meters, so per session that's 3 × 60 = 180 meters.
-He does this 3 times a week, so total per week is 180 × 3 = 540 meters.
-
-#### 540
-```
-
-**Gemini 2.5 Flash-Lite — 185 output tokens (3.2× more, identical answer):**
-
-```text
-Here's how to solve the problem step-by-step:
-
-1.  **Meters per sprint:** James runs 60 meters per sprint.
-2.  **Sprints per session:** He runs 3 sprints each time he exercises.
-3.  **Meters per session:** ... 60 meters/sprint * 3 sprints/session = 180 meters/session.
-4.  **Sessions per week:** He exercises 3 times a week.
-5.  **Total meters per week:** ... 180 meters/session * 3 sessions/week = 540 meters/week.
-
-#### 540
-```
-
-Across the bake-off that ~3–5× verbosity multiplier — not the per-token price —
-is the largest single driver of Gemini 2.5's cost over DeepSeek.
-
-## Error & retry resilience
-
-The same run, counting what the framework *absorbed*:
-
-- **deepseek-flash** — 97.0%, **0 permanent errors, 0 items reaching the judge**.
-  1,328 attempts (9 retries, 2 thinking escalations); 9 `AnswerParseError`
-  occurrences, all recovered on retry. Only provider with cache hits (13%).
-- **gemini-3.1** — 96.6%, a clean run: 1,319 attempts, **0 retries, 0
-  escalations, 0 errors**.
-- **gemini-2.5** — 95.4% over a rough session at its 5-worker ceiling: 1,439
-  attempts (**120 retries, 41 escalations**), with exception occurrences (across
-  attempts, incl. recovered) of `AnswerParseError=36, FrameworkTimeoutError=29,
-  ServerError=57`. Transient 503s are now retried per-item with backoff (not a
-  global cooldown); the framework absorbed the churn and still landed 95.4% with
-  exactly **1** output reaching the fallback judge. A bare `gather` would have
-  dropped every one of those 503s/timeouts as lost results.
-
-The LLM-as-judge fired on exactly the 1 item the free regex grader couldn't parse.
-
-## Caveats
-
-- **Worker counts differ**, so "Wall (s)" in the bake-off is **not** an
-  apples-to-apples speed race — Gemini 2.5 runs at 5 workers (its rate-limit
-  ceiling — hence the ~21-minute wall), the others at 250. Worker count doesn't
-  affect accuracy/token/cost.
-- **The two Gemini fast passes aren't a matched "no-thinking" setup** (2.5's
-  `budget=0` is fully off; 3.1's `minimal` still thinks a little) — don't read
-  the 3.1-vs-2.5 accuracy gap as pure model quality.
-- **The throughput multiple has ordering/warmth caveats** (see the warning
-  above); the direction (worker pool ≥ semaphore pool ≫ chunked) is the point.
-
-## Updated provider bake-off — August 27, 2026
-
-The original benchmark above is preserved as a historical snapshot. This newer
-run replaces the two older Gemini generations with the latest Gemini Flash-Lite
-and adds GLM Flash through OpenRouter. It reruns the complete 1,319-problem test
-split, but skips the separate wall-time and throughput races.
+The latest run replaces the two older Gemini generations with Gemini 3.5
+Flash-Lite and adds GLM 5.3 Flash through OpenRouter. It reruns the complete
+1,319-problem test split, but skips the separate wall-time and throughput races.
+The original June benchmark and its orchestration measurements follow this
+section unchanged.
 
 | Field | Value |
 | --- | --- |
@@ -221,7 +63,7 @@ Paired exact tests on the models' disagreements produced p-values of 0.58
 (DeepSeek/Gemini), 0.28 (DeepSeek/GLM), and 0.65 (Gemini/GLM). The defensible
 reading is therefore “approximately tied on GSM8K,” not a durable leaderboard.
 
-### Updated pricing and cost provenance
+### Pricing and cost provenance
 
 | Model/API | Input | Cached input | Output | Cost source in this run |
 | --- | ---: | ---: | ---: | --- |
@@ -249,7 +91,7 @@ catalog headline. See OpenRouter's
 [provider-routing controls](https://openrouter.ai/docs/guides/routing/provider-selection)
 and [usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
 
-### Updated reliability result
+### Reliability result
 
 All three providers completed every item with **zero terminal errors**:
 
@@ -262,7 +104,7 @@ All three providers completed every item with **zero terminal errors**:
 DeepSeek's retries were `AnswerParseError` events from the benchmark's strict
 `#### <number>` output contract, not provider transport failures.
 
-### Updated-run caveats
+### Caveats
 
 - This is one exact-match dataset and one run. It does not measure instruction
   following, long context, tool use, safety, or quality in other domains.
@@ -277,6 +119,170 @@ DeepSeek's retries were `AnswerParseError` events from the benchmark's strict
 The full updated result, including sample outputs, token counts, pricing basis,
 and provider routing counts, is in
 [`benchmark-summary-2026-08-27.json`](assets/benchmark-summary-2026-08-27.json).
+
+## Original benchmark — June 10, 2026
+
+The original run is preserved below with its wall-time race, throughput
+comparison, provider bake-off, and contemporary pricing snapshot.
+
+### Methodology
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-06-10 |
+| `async-batch-llm` version | 0.12.0 + this release's pre-merge changes (streaming API, 503 per-item backoff) |
+| Dataset | GSM8K **test split**, 1,319 problems |
+| Models | `deepseek-v4-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash-lite`; judge `gpt-5-nano` |
+| Worker pools | DeepSeek 250, Gemini 3.1 250, **Gemini 2.5 Flash-Lite 5** (throttle-capped — 503s/rate-limits even at 10) |
+| Pricing snapshot | 2026-06-01 (USD/Mtok; confirm against each provider's current page) |
+| Hardware/network | single client host; results bounded by provider latency, not local CPU |
+
+**Estimated cost to reproduce:** ~**$1–2** total in API spend (full 1,319-item
+bake-off across three providers + a 1,000-item throughput run + a handful of
+judge calls), plus ~30–35 minutes of wall time — dominated by Gemini 2.5's
+~21-minute bake-off at its 5-worker ceiling, the sequential race leg, and the
+60s inter-leg throughput pauses.
+
+### Wall-time race
+
+The same 30-item workload run three ways per provider — a one-at-a-time
+sequential loop, a naive `asyncio.gather`, and async-batch-llm — to show how much
+concurrency collapses wall time.
+
+![Wall time per orchestration, per provider](assets/benchmark-wall-time.png)
+
+| Provider | Workers | Sequential (s) | `gather` (s) | async-batch-llm (s) | Speedup (seq→abl) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| deepseek-flash | 250 | 65.0 | 5.0 | 4.2 | 15.6× |
+| gemini-3.1 | 250 | 39.1 | 2.6 | 2.1 | 19.1× |
+| gemini-2.5 | 5 | 40.6 | 2.9 | 8.1 | 5.0× |
+
+Concurrency collapses wall time (≈16–19× on the unthrottled providers). The race
+runs only 30 items, so a 250-worker pool never fills — every call fires at once
+regardless of orchestration, which is why `gather` and async-batch-llm are
+neck-and-neck here. Gemini 2.5 is the exception: the framework respects its
+5-worker cap (and retried a few transient 503s with backoff), while the bare
+`gather` ignores the cap, fires all 30 at once, and got away with it on this
+small batch — so the `abl` leg trails. That's the throttle ceiling plus the
+framework playing it safe, not orchestration overhead. The pool's real advantage
+shows up at scale, below.
+
+### Throughput at scale
+
+To see what the worker pool buys you once it *does* fill, `--throughput` runs a
+large batch (1,000 items) three ways at the **same** concurrency: a chunked
+`asyncio.gather` (per-chunk barriers), a semaphore-bounded `gather` (continuous
+refill — the fair hand-rolled baseline), and async-batch-llm.
+
+![Throughput at the same concurrency, per provider](assets/benchmark-throughput.png)
+
+| Provider | Workers | chunked gather (it/s) | semaphore pool (it/s) | async-batch-llm (it/s) | RL hits (g / s / a) |
+| --- | ---: | ---: | ---: | ---: | :---: |
+| deepseek-flash | 250 | 29.3 | 58.4 | **72.1** | 0 / 0 / 0 |
+| gemini-3.1 | 250 | 20.4 | 55.2 | **108.4** | 0 / 0 / 0 |
+
+With **zero** rate limits on any leg (`RL = 0`), this is a clean comparison — and
+async-batch-llm comes out **ahead of even the fair semaphore pool** (≈1.2× on
+DeepSeek, ≈2× on Gemini 3.1), with the chunked baseline trailing both. Why the
+worker pool wins: a `Semaphore`-over-`gather` still *schedules all 1,000
+coroutines up front* and lets them contend on the semaphore, whereas the worker
+pool runs a fixed N tasks pulling from a bounded queue — fewer tasks, less
+event-loop churn, and backpressure for free. It's the optimized version of the
+pattern you'd otherwise hand-roll.
+
+!!! warning "Read the multiple with a grain of salt"
+    The legs run back-to-back (with a 60s gap to reset quota), so connection
+    warmth and ordering can move the exact ratio. The robust takeaway is the
+    *direction*: the bounded worker pool is at least as fast as a fair semaphore
+    pool, and the chunked-barrier baseline is the one that actually loses. And
+    against a provider that throttles you, the framework is the only leg that
+    survives it (the `RL` columns) rather than shedding results.
+
+### Provider bake-off
+
+Same framework, one strategy swap per provider, over the full test split.
+
+![Cost per provider for the full test split, labelled with accuracy](assets/benchmark-cost.png)
+
+| Provider (model) | Accuracy | Wall (s) | Input | Cached | Output | Avg out/item | Cost ($) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| deepseek-flash (`deepseek-v4-flash`) | 97.0% | 18.3 | 131,083 | 17,024 | 135,468 | 103 | **0.0539** |
+| gemini-2.5 (`gemini-2.5-flash-lite`) | 95.4% | 1,293.2 | 133,759 | 0 | 618,428 | 469 | 0.2607 |
+| gemini-3.1 (`gemini-3.1-flash-lite`) | 96.6% | 43.5 | 129,951 | 0 | 267,258 | 203 | 0.4334 |
+
+**Accuracy is 95–97% across all three; cost spans ~8× ($0.054 → $0.43).** The
+cost gap isn't only sticker price — it decomposes into three multiplicative
+factors, all visible in the table:
+
+1. **Output price/token** — DeepSeek's output rate ($0.28/Mtok) is the lowest here.
+2. **Output *length*** — DeepSeek is dramatically terser: **103** output
+   tokens/item vs Gemini 2.5's **469** and Gemini 3.1's **203**, for the *same*
+   accuracy. Fewer tokens, same answer (see below).
+3. **Caching** — DeepSeek is the only provider with cache hits in this workload
+   (**13%**), and its discount is steeper (`CachedTokenRates.DEEPSEEK` = 2% of
+   normal input vs Gemini's 10%).
+
+#### Terse vs. verbose: same answer, very different bills
+
+> *James decides to run 3 sprints 3 times a week. He runs 60 meters each sprint.
+> How many total meters does he run a week?* (gold: **540**)
+
+**DeepSeek — 57 output tokens:**
+
+```text
+He runs 3 sprints per session, each 60 meters, so per session that's 3 × 60 = 180 meters.
+He does this 3 times a week, so total per week is 180 × 3 = 540 meters.
+
+#### 540
+```
+
+**Gemini 2.5 Flash-Lite — 185 output tokens (3.2× more, identical answer):**
+
+```text
+Here's how to solve the problem step-by-step:
+
+1.  **Meters per sprint:** James runs 60 meters per sprint.
+2.  **Sprints per session:** He runs 3 sprints each time he exercises.
+3.  **Meters per session:** ... 60 meters/sprint * 3 sprints/session = 180 meters/session.
+4.  **Sessions per week:** He exercises 3 times a week.
+5.  **Total meters per week:** ... 180 meters/session * 3 sessions/week = 540 meters/week.
+
+#### 540
+```
+
+Across the bake-off that ~3–5× verbosity multiplier — not the per-token price —
+is the largest single driver of Gemini 2.5's cost over DeepSeek.
+
+### Error & retry resilience
+
+The same run, counting what the framework *absorbed*:
+
+- **deepseek-flash** — 97.0%, **0 permanent errors, 0 items reaching the judge**.
+  1,328 attempts (9 retries, 2 thinking escalations); 9 `AnswerParseError`
+  occurrences, all recovered on retry. Only provider with cache hits (13%).
+- **gemini-3.1** — 96.6%, a clean run: 1,319 attempts, **0 retries, 0
+  escalations, 0 errors**.
+- **gemini-2.5** — 95.4% over a rough session at its 5-worker ceiling: 1,439
+  attempts (**120 retries, 41 escalations**), with exception occurrences (across
+  attempts, incl. recovered) of `AnswerParseError=36, FrameworkTimeoutError=29,
+  ServerError=57`. Transient 503s are now retried per-item with backoff (not a
+  global cooldown); the framework absorbed the churn and still landed 95.4% with
+  exactly **1** output reaching the fallback judge. A bare `gather` would have
+  dropped every one of those 503s/timeouts as lost results.
+
+The LLM-as-judge fired on exactly the 1 item the free regex grader couldn't parse.
+
+### Caveats
+
+- **Worker counts differ**, so "Wall (s)" in the bake-off is **not** an
+  apples-to-apples speed race — Gemini 2.5 runs at 5 workers (its rate-limit
+  ceiling — hence the ~21-minute wall), the others at 250. Worker count doesn't
+  affect accuracy/token/cost.
+- **The two Gemini fast passes aren't a matched "no-thinking" setup** (2.5's
+  `budget=0` is fully off; 3.1's `minimal` still thinks a little) — don't read
+  the 3.1-vs-2.5 accuracy gap as pure model quality.
+- **The throughput multiple has ordering/warmth caveats** (see the warning
+  above); the direction (worker pool ≥ semaphore pool ≫ chunked) is the point.
 
 ## Choosing a provider: beyond cost
 
