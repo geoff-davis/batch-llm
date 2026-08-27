@@ -5,12 +5,12 @@ Reads the artifacts produced by ``example_batch_benchmark.py``:
     examples/data/benchmark_results/summary.json      (bake-off + wall-time race)
     examples/data/benchmark_results/throughput.json   (--throughput parity)
 
-and writes, into ``docs/assets/``:
+and writes, into ``docs/assets/`` (``YYYY-MM-DD`` comes from ``generated_at``):
 
-    benchmark-summary.json        (committed copy, cited by the docs)
+    benchmark-summary-YYYY-MM-DD.json
     benchmark-throughput.json     (committed copy)
-    benchmark-wall-time.png       (wall-time race: sequential vs gather vs abl)
-    benchmark-cost.png            (per-provider cost bars, labelled with accuracy)
+    benchmark-wall-time-YYYY-MM-DD.png  (when the run includes the race)
+    benchmark-cost-YYYY-MM-DD.png       (cost bars, labelled with accuracy)
     benchmark-throughput.png      (throughput it/s: gather vs semaphore vs abl)
 
 Accuracy is intentionally NOT charted — it's 95–97% across providers, too tight
@@ -114,8 +114,10 @@ def cost_chart(summary: dict, out: Path) -> None:
             ha="center",
             fontsize=8,
         )
-    ax.set_ylabel("estimated cost for the full test split (USD)")
-    ax.set_title("Cost for 1,319 problems — accuracy ~flat (95–97%), cost spans ~8×")
+    positive_costs = [cost for cost in costs if cost > 0]
+    cost_span = max(positive_costs) / min(positive_costs) if positive_costs else 1.0
+    ax.set_ylabel("cost for the full test split (USD)")
+    ax.set_title(f"Cost for 1,319 problems — accuracy ~flat, cost spans {cost_span:.1f}×")
     ax.margins(y=0.18)
     fig.tight_layout()
     fig.savefig(out, dpi=_DPI)
@@ -161,12 +163,16 @@ def throughput_chart(throughput: dict, out: Path) -> None:
 def main() -> None:
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     summary = _load("summary.json")
+    run_date = str(summary.get("generated_at", "unknown"))[:10]
 
-    # Commit a copy of the source data the docs cite.
-    shutil.copyfile(RESULTS_DIR / "summary.json", ASSETS_DIR / "benchmark-summary.json")
+    # Use dated names so publishing a new run does not overwrite historical
+    # benchmark evidence and its charts.
+    summary_out = ASSETS_DIR / f"benchmark-summary-{run_date}.json"
+    shutil.copyfile(RESULTS_DIR / "summary.json", summary_out)
+    print(f"wrote {summary_out}")
 
-    wall_time_chart(summary, ASSETS_DIR / "benchmark-wall-time.png")
-    cost_chart(summary, ASSETS_DIR / "benchmark-cost.png")
+    wall_time_chart(summary, ASSETS_DIR / f"benchmark-wall-time-{run_date}.png")
+    cost_chart(summary, ASSETS_DIR / f"benchmark-cost-{run_date}.png")
 
     throughput_path = RESULTS_DIR / "throughput.json"
     if throughput_path.exists():

@@ -15,11 +15,9 @@ strategy, the classifier pitfall, gzip streaming, the judge — see the
 
 !!! note "Reproducibility"
     Numbers shift run-to-run with network latency, model sampling, and your
-    account's rate limits — treat them as illustrative, not a spec. Every table
-    here is dumped to a machine-readable
-    [`summary.json`](assets/benchmark-summary.json) /
-    [`throughput.json`](assets/benchmark-throughput.json) so a run can be cited
-    (and the charts regenerated) without re-running it.
+    account's rate limits — treat them as illustrative, not a spec. Each run has
+    a dated, machine-readable summary so the original and updated bake-offs can
+    coexist without rewriting history.
 
 ## Methodology
 
@@ -180,6 +178,106 @@ The LLM-as-judge fired on exactly the 1 item the free regex grader couldn't pars
 - **The throughput multiple has ordering/warmth caveats** (see the warning
   above); the direction (worker pool ≥ semaphore pool ≫ chunked) is the point.
 
+## Updated provider bake-off — August 27, 2026
+
+The original benchmark above is preserved as a historical snapshot. This newer
+run replaces the two older Gemini generations with the latest Gemini Flash-Lite
+and adds GLM Flash through OpenRouter. It reruns the complete 1,319-problem test
+split, but skips the separate wall-time and throughput races.
+
+| Field | Value |
+| --- | --- |
+| `async-batch-llm` version | 0.23.0 |
+| Dataset | GSM8K **test split**, 1,319 problems |
+| Models | `deepseek-v4-flash`, `gemini-3.5-flash-lite`, `z-ai/glm-5.3-flash` |
+| API paths | DeepSeek direct; Gemini Developer API (AI Studio); GLM through OpenRouter |
+| OpenRouter route | Z.AI only (`provider.only=["z-ai"]`), fallbacks disabled |
+| Worker pools | 250 for every contestant |
+| Run mode | `--skip-race`; identical prompts, retry policy, and exact-match scorer |
+| Pricing snapshot | 2026-08-27; USD per million tokens |
+
+The three batches cost **$0.847693 total**. No fallback judge calls were needed.
+
+![Updated cost per provider, labelled with accuracy](assets/benchmark-cost-2026-08-27.png)
+
+| Provider (model) | Correct | Accuracy | Wall (s) | Input | Cached | Output | Avg out/item | Cost ($) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| DeepSeek (`deepseek-v4-flash`) | 1,278 | **96.9%** | **14.5** | 139,093 | 19,968 | 121,384 | 92.0 | 0.106461 |
+| Gemini (`gemini-3.5-flash-lite`) | 1,274 | 96.6% | 20.6 | 129,951 | 0 | 269,130 | 204.0 | 0.711810 |
+| GLM / Z.AI (`z-ai/glm-5.3-flash`) | 1,270 | 96.3% | 37.0 | 140,753 | 3,456 | 76,291 | **57.8** | **0.029422** |
+
+Three tradeoffs stand out:
+
+- **DeepSeek led this run on accuracy and wall time.** It answered four more
+  problems correctly than Gemini and eight more than GLM.
+- **GLM was cheapest by a wide margin.** The pinned Z.AI route cost about 3.6×
+  less than DeepSeek and 24.2× less than Gemini, while finishing within 0.6
+  percentage points of the best score.
+- **Gemini used the most output tokens and cost the most.** Its 204 output
+  tokens per item were 2.2× DeepSeek's and 3.5× GLM's.
+
+The accuracy ordering is not statistically persuasive on this single split.
+Paired exact tests on the models' disagreements produced p-values of 0.58
+(DeepSeek/Gemini), 0.28 (DeepSeek/GLM), and 0.65 (Gemini/GLM). The defensible
+reading is therefore “approximately tied on GSM8K,” not a durable leaderboard.
+
+### Updated pricing and cost provenance
+
+| Model/API | Input | Cached input | Output | Cost source in this run |
+| --- | ---: | ---: | ---: | --- |
+| DeepSeek direct, off-peak | $0.22 | $0.007 | $0.66 | Estimate using the active off-peak tier |
+| Gemini Developer API | $0.30 | $0.03 | $2.50 | Estimate using standard AI Studio rates |
+| GLM through OpenRouter/Z.AI | $0.075 | $0.015 | $0.25 | Sum of `usage.cost` from 1,319 responses |
+
+DeepSeek's weekday peak windows double all three rates; this run began outside
+those windows. See the current
+[DeepSeek pricing and peak schedule](https://api-docs.deepseek.com/quick_start/pricing/),
+[Gemini Developer API pricing](https://ai.google.dev/gemini-api/docs/pricing),
+and OpenRouter's live
+[GLM endpoint listing](https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints).
+
+OpenRouter normally has permission to select among upstream providers. For a
+reproducible comparison, the harness sends this on every GLM request:
+
+```python
+{"provider": {"only": ["z-ai"], "allow_fallbacks": False}}
+```
+
+All 1,319 responses reported `Z.AI` as the serving provider. The benchmark sums
+OpenRouter's per-response `usage.cost` instead of estimating GLM spend from a
+catalog headline. See OpenRouter's
+[provider-routing controls](https://openrouter.ai/docs/guides/routing/provider-selection)
+and [usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+
+### Updated reliability result
+
+All three providers completed every item with **zero terminal errors**:
+
+- **DeepSeek:** 1,385 attempts, 66 validation retries, and 26 escalations to
+  thinking mode. Every malformed answer recovered within the attempt budget.
+- **Gemini:** 1,319 attempts, no retries, and no escalations.
+- **GLM/Z.AI:** 1,319 attempts, no retries, no escalations, and no routing
+  fallbacks.
+
+DeepSeek's retries were `AnswerParseError` events from the benchmark's strict
+`#### <number>` output contract, not provider transport failures.
+
+### Updated-run caveats
+
+- This is one exact-match dataset and one run. It does not measure instruction
+  following, long context, tool use, safety, or quality in other domains.
+- The lowest reasoning modes differ: DeepSeek thinking is off, Gemini uses
+  `minimal`, and GLM uses `low`. Gemini and GLM cannot fully disable reasoning
+  for these models.
+- All models had 250 client workers, but backend capacity, caching, and network
+  paths differ. Wall time is observed end-to-end latency, not pure model speed.
+- DeepSeek and Gemini costs are estimates from published token rates. GLM cost
+  is provider-reported and therefore has stronger billing provenance.
+
+The full updated result, including sample outputs, token counts, pricing basis,
+and provider routing counts, is in
+[`benchmark-summary-2026-08-27.json`](assets/benchmark-summary-2026-08-27.json).
+
 ## Choosing a provider: beyond cost
 
 Cost and accuracy are the easy axes; for production the **data-governance** delta
@@ -199,12 +297,19 @@ This table is a *starting checklist*, not legal advice or a current statement of
 any provider's policy — confirm against the live terms and your own compliance
 requirements before committing a workload.
 
+For the updated GLM path, treat OpenRouter and Z.AI as separate services in that
+review: the request passes through the gateway to the pinned upstream. Provider
+pinning makes routing reproducible; it does not collapse the two services' data
+handling, retention, compliance, or contractual terms into one.
+
 ---
 
-*Tables and charts are generated from the committed
+*The original tables and charts use
 [`benchmark-summary.json`](assets/benchmark-summary.json) and
-[`benchmark-throughput.json`](assets/benchmark-throughput.json); regenerate the
-charts with `python examples/generate_benchmark_charts.py`.*
+[`benchmark-throughput.json`](assets/benchmark-throughput.json). The follow-up
+uses [`benchmark-summary-2026-08-27.json`](assets/benchmark-summary-2026-08-27.json).
+Regenerate new dated assets with
+`uv run python examples/generate_benchmark_charts.py`.*
 
 ## Scale-soak harness
 

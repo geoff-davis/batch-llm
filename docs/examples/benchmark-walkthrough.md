@@ -8,16 +8,16 @@ The demo runs the [GSM8K](https://github.com/openai/grade-school-math) math
 benchmark through several providers and shows, in one run:
 
 1. A **wall-time race** — the same workload three ways, per provider.
-2. A **provider bake-off** — DeepSeek Flash vs Gemini 3.1 Flash-Lite vs Gemini
-   2.5 Flash-Lite on accuracy, tokens, and cost.
-3. **No-thinking → thinking escalation** driven by the retry path.
+2. A **provider bake-off** — DeepSeek V4 Flash vs Gemini 3.5 Flash-Lite vs GLM
+   5.3 Flash through OpenRouter on accuracy, tokens, and cost.
+3. **Fast → high-reasoning escalation** driven by the retry path.
 4. **Streaming gzip I/O** with lock-free concurrent writes (stdlib `gzip`).
 5. **LLM-as-judge** as a fallback grader.
 
 ## Install and fetch data
 
 ```bash
-uv sync --extra deepseek --extra gemini --extra openai
+uv sync --extra deepseek --extra gemini --extra openrouter --extra openai
 uv run python examples/download_gsm8k.py
 ```
 
@@ -31,9 +31,10 @@ Set the keys for whichever contestants you want — each is skipped gracefully i
 its key is absent:
 
 ```bash
-export DEEPSEEK_API_KEY=sk-...   # DeepSeek contestant + the wall-time race
-export GOOGLE_API_KEY=...        # Gemini contestant (GEMINI_API_KEY also works)
-export OPENAI_API_KEY=sk-...     # optional: ChatGPT fallback grader
+export DEEPSEEK_API_KEY=sk-...      # DeepSeek contestant + wall-time race
+export OPENROUTER_API_KEY=sk-or-... # GLM contestant, pinned to Z.AI
+export GOOGLE_API_KEY=...           # Gemini (GEMINI_API_KEY also works)
+export OPENAI_API_KEY=sk-...        # optional ChatGPT fallback grader
 ```
 
 For Gemini you can use the Vertex AI backend with Application Default
@@ -43,7 +44,7 @@ Credentials instead of an API key:
 gcloud auth application-default login
 export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=your-project
-export GOOGLE_CLOUD_LOCATION=us-central1
+export GOOGLE_CLOUD_LOCATION=global
 ```
 
 ## Run
@@ -51,13 +52,15 @@ export GOOGLE_CLOUD_LOCATION=us-central1
 ```bash
 uv run python examples/example_batch_benchmark.py              # race + bake-off
 uv run python examples/example_batch_benchmark.py --skip-race  # bake-off only (faster)
+uv run python examples/example_batch_benchmark.py --skip-race --items 10
 uv run python examples/example_batch_benchmark.py --throughput # throughput parity only
 ```
 
-`--skip-race` skips the wall-time race (whose sequential leg dominates runtime).
-`--throughput` runs *only* the throughput benchmark. The bake-off writes
-`summary.json` and `--throughput` writes `throughput.json` under
-`examples/data/benchmark_results/`, plus a per-provider `<provider>_results.jsonl.gz`.
+`--skip-race` skips the wall-time race (whose sequential leg dominates runtime),
+and `--items` makes an inexpensive smoke test. `--throughput` runs *only* the
+throughput benchmark. The bake-off writes `summary.json` and `--throughput`
+writes `throughput.json` under `examples/data/benchmark_results/`, plus a
+per-provider `<provider>_results.jsonl.gz`.
 
 ## The architecture
 
@@ -99,10 +102,10 @@ recoverable downstream (sort by id).
 ### 2. Validation-gated thinking escalation
 
 `EscalatingStrategy` picks the model off the **attempt number** — attempts 1–2
-use the cheap non-thinking mode, attempt 3 escalates to thinking. The escalation
-is *validation-gated*: an answer with no parseable `#### <number>` raises, which
-is what triggers the retry. The already-spent tokens are attached to the
-exception so they still show up in the totals.
+use the model's lowest reasoning mode, and attempt 3 escalates to its highest.
+The escalation is *validation-gated*: an answer with no parseable
+`#### <number>` raises, which triggers the retry. The already-spent tokens are
+attached to the exception so they still show up in the totals.
 
 ```python
 async def execute(self, prompt, attempt, timeout, state=None):
@@ -141,14 +144,27 @@ Providers differ only in how "thinking" is selected, hidden behind a small
 `ModelCall` wrapper:
 
 - **DeepSeek** — two `DeepSeekModel` objects, `thinking=False` / `thinking=True`.
-- **Gemini 3.1** — one `GeminiModel`, per-call `thinking_level` (`minimal` vs `high`).
-- **Gemini 2.5** — one `GeminiModel`, per-call `thinking_budget` (`0` vs a positive budget).
+- **Gemini 3.5 Flash-Lite** — one `GeminiModel`, per-call `thinking_level`
+  (`minimal` vs `high`).
+- **GLM 5.3 Flash** — one `OpenRouterModel`, per-call `reasoning.effort`
+  (`low` vs `max`).
 
-**Caveat — the two Gemini fast passes aren't a matched "no thinking" setup.**
-Gemini 2.5's `thinking_budget=0` turns thinking **fully off**, but Gemini 3.1's
-level enum has no "off" — `minimal` is the floor and still does a little
-thinking. So 3.1 carries a small thinking advantage 2.5 doesn't, and the
-3.1-vs-2.5 accuracy gap shouldn't be read as pure model quality.
+**Caveat — these are not matched "no thinking" passes.** DeepSeek can disable
+thinking, but Gemini's `minimal` and GLM's `low` are reasoning floors rather
+than off switches. Do not read small accuracy gaps as pure model quality.
+
+The OpenRouter model is pinned at construction time so both GLM passes use the
+same upstream and cannot silently fall back:
+
+```python
+GLM_PROVIDER_ROUTING = {
+    "provider": {"only": ["z-ai"], "allow_fallbacks": False}
+}
+model = OpenRouterModel.from_api_key(
+    "z-ai/glm-5.3-flash",
+    extra_body=GLM_PROVIDER_ROUTING,
+)
+```
 
 ### 3. Token counting and cost
 
@@ -161,9 +177,12 @@ billable = batch_result.effective_input_tokens(pricing.cached_rate)
 ```
 
 where `pricing.cached_rate` is the cache-hit price as a fraction of normal input
-price (e.g. DeepSeek V4 Flash bills cache hits at ~2% of the cache-miss rate).
-The `PRICING` table at the top of the example is dated — confirm against each
-provider's current pricing page before quoting numbers.
+price. DeepSeek's rate is resolved as peak or off-peak when its contestant is
+built. Gemini uses the configured AI Studio or Vertex pricing basis. OpenRouter
+is different: the demo captures `usage.cost` from every successful GLM response
+and sums the provider-reported charges, while retaining token-based pricing as a
+fallback. The dated `PRICING` table should still be checked before quoting a new
+run.
 
 ### 4. LLM-as-judge fallback grader
 
