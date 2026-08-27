@@ -108,7 +108,7 @@ def test_release_history_and_migration_are_coherent() -> None:
 def test_release_version_and_tag_workflow_agree() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
-    assert re.search(r'^version = "0\.22\.0"$', pyproject, re.MULTILINE)
+    assert re.search(r'^version = "0\.23\.0"$', pyproject, re.MULTILINE)
     assert '"v${PKG_VERSION}" != "${GITHUB_REF_NAME}"' in workflow
 
 
