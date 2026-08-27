@@ -47,6 +47,43 @@ async with ParallelBatchProcessor(config=config) as processor:
     ...
 ```
 
+## DeepSeek Strict Structured Output
+
+For schema-constrained output on `deepseek-v4-flash`, select DeepSeek's
+Responses API and pass either a Pydantic model class or JSON Schema mapping:
+
+```python
+from pydantic import BaseModel
+
+
+class Verdict(BaseModel):
+    valid: bool
+    reason: str
+
+
+model = DeepSeekModel.from_api_key(
+    "deepseek-v4-flash",
+    api_surface="responses",
+    response_schema=Verdict,
+    thinking=False,
+    max_connections=64,
+    max_retries=0,
+)
+strategy = DeepSeekStrategy(model, generation_config={"max_tokens": 256})
+```
+
+The strategy returns `Verdict` instances automatically. Requests still pass
+through the same gateway/batch admission, retry, timing, and accounting path.
+Metadata and inferred artifact identity record the Responses surface plus a
+canonical schema hash, so a frozen Chat JSON-mode result or a result from a
+different schema cannot be reused accidentally.
+
+DeepSeek currently supports this Responses surface only for
+`deepseek-v4-flash`; ABL fails locally for another model rather than silently
+falling back. If schema enforcement is unavailable, choose Chat Completions
+explicitly with `json_mode=True` and `pydantic_json_parser(...)`. That fallback
+validates locally but cannot guarantee or repair malformed provider JSON.
+
 Set `max_workers` to the amount of useful application concurrency and
 `max_connections` to the provider-call capacity. They are often equal. A larger
 worker count can still help when middleware or post-processing occupies workers;

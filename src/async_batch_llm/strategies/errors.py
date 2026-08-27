@@ -166,10 +166,47 @@ class ProviderResponseError(Exception):
     Added in v0.16.0.
     """
 
-    def __init__(self, message: str, *, code: int | None = None, provider_error: Any = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int | None = None,
+        provider_error: Any = None,
+        token_usage: TokenUsage | dict[str, int] | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.provider_error = provider_error
+        if token_usage:
+            self._failed_token_usage = dict(token_usage)
+
+
+class StructuredOutputSchemaError(ValueError):
+    """A provider rejected a requested structured-output schema.
+
+    This is a deterministic request/schema compatibility failure, distinct
+    from a model response that was accepted by the provider but failed local
+    output validation. Classifiers do not retry it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        token_usage: TokenUsage | dict[str, int] | None = None,
+    ) -> None:
+        super().__init__(message)
+        if token_usage:
+            self._failed_token_usage = dict(token_usage)
+
+
+class StructuredOutputValidationError(ValueError):
+    """A provider returned output that failed local structured validation.
+
+    Provider-enforced output should normally make this impossible, but a
+    malformed or schema-invalid successful response is retryable because a
+    subsequent model attempt may be usable.
+    """
 
 
 class FrameworkTimeoutError(TimeoutError):
@@ -341,6 +378,22 @@ class DefaultErrorClassifier(ErrorClassifier):
                 is_rate_limit=False,
                 is_timeout=False,
                 error_category="batch_aborted",
+            )
+
+        if isinstance(exception, StructuredOutputSchemaError):
+            return ErrorInfo(
+                is_retryable=False,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="structured_output_schema_rejected",
+            )
+
+        if isinstance(exception, StructuredOutputValidationError):
+            return ErrorInfo(
+                is_retryable=True,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="structured_output_validation_error",
             )
 
         # Detect rate limit errors from message patterns (works for simple Exception mocks)

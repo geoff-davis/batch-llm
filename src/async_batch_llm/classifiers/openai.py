@@ -17,6 +17,8 @@ from ..strategies.errors import (
     ErrorInfo,
     FrameworkTimeoutError,
     ItemDeadlineExceeded,
+    StructuredOutputSchemaError,
+    StructuredOutputValidationError,
     _retry_after_seconds,
     matches_any_pattern,
 )
@@ -77,6 +79,22 @@ class OpenAIErrorClassifier(ErrorClassifier):
                 is_rate_limit=False,
                 is_timeout=True,
                 error_category="framework_timeout",
+            )
+
+        if isinstance(exception, StructuredOutputSchemaError):
+            return ErrorInfo(
+                is_retryable=False,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="structured_output_schema_rejected",
+            )
+
+        if isinstance(exception, StructuredOutputValidationError):
+            return ErrorInfo(
+                is_retryable=True,
+                is_rate_limit=False,
+                is_timeout=False,
+                error_category="structured_output_validation_error",
             )
 
         # Try to dispatch on the openai SDK's exception types when available.
