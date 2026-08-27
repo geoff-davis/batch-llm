@@ -12,7 +12,7 @@ here.
 **strategy pattern** — provider-agnostic at the framework level, with
 first-class support for several providers built in.
 
-**Current version:** v0.22.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
+**Current version:** v0.23.0 (see `CHANGELOG.md`; `pyproject.toml` is bumped
 by the release-prep flow, so it may briefly lag `main` between releases).
 
 **Key features:**
