@@ -16,6 +16,7 @@ from async_batch_llm.models import (
     DeepSeekModel,
     OpenAICompatibleModel,
     OpenAIModel,
+    _build_openai_http_client,
     _coerce_to_messages,
     _has_system_message,
 )
@@ -449,22 +450,46 @@ class TestImportError:
 
 
 class TestConnectionPoolSizing:
-    """max_connections sizes the underlying httpx pool (issue #25)."""
+    """max_connections sizes the OpenAI SDK's matching HTTP pool (issue #25)."""
+
+    class LegacyHttpxLimits:
+        def __init__(
+            self,
+            *,
+            max_connections: int = 100,
+            max_keepalive_connections: int = 20,
+        ) -> None:
+            self.max_connections = max_connections
+            self.max_keepalive_connections = max_keepalive_connections
+
+    class Httpx2Limits(LegacyHttpxLimits):
+        pass
+
+    @pytest.mark.parametrize("limits_type", [LegacyHttpxLimits, Httpx2Limits])
+    def test_http_client_uses_sdk_transport_limits(self, limits_type):
+        default_limits = limits_type()
+        with (
+            patch("openai.DEFAULT_CONNECTION_LIMITS", default_limits),
+            patch("openai.DefaultAsyncHttpxClient") as mock_http_client,
+        ):
+            result = _build_openai_http_client(150)
+
+        limits = mock_http_client.call_args.kwargs["limits"]
+        assert type(limits) is limits_type
+        assert limits.max_connections == 150
+        assert limits.max_keepalive_connections == 150
+        assert result is mock_http_client.return_value
 
     def test_max_connections_builds_sized_http_client(self):
         with (
             patch("async_batch_llm.models.AsyncOpenAI") as mock_client_cls,
-            patch("httpx.Limits") as mock_limits,
-            patch("httpx.AsyncClient") as mock_async_client,
+            patch("async_batch_llm.models._build_openai_http_client") as mock_http_client,
         ):
             OpenAIModel.from_api_key("gpt-4o-mini", api_key="sk-x", max_connections=150)
 
-        # Pool limits sized symmetrically from max_connections...
-        mock_limits.assert_called_once_with(max_connections=150, max_keepalive_connections=150)
-        # ...and the resulting http_client handed to the SDK constructor.
-        mock_async_client.assert_called_once_with(limits=mock_limits.return_value)
+        mock_http_client.assert_called_once_with(150)
         _, kwargs = mock_client_cls.call_args
-        assert kwargs["http_client"] is mock_async_client.return_value
+        assert kwargs["http_client"] is mock_http_client.return_value
 
     def test_no_max_connections_leaves_http_client_unset(self):
         with patch("async_batch_llm.models.AsyncOpenAI") as mock_client_cls:
@@ -490,10 +515,9 @@ class TestConnectionPoolSizing:
     def test_deepseek_max_connections_forwarded(self):
         with (
             patch("async_batch_llm.models.AsyncOpenAI") as mock_client_cls,
-            patch("httpx.Limits") as mock_limits,
-            patch("httpx.AsyncClient"),
+            patch("async_batch_llm.models._build_openai_http_client") as mock_http_client,
         ):
             DeepSeekModel.from_api_key("deepseek-chat", api_key="sk-x", max_connections=300)
-        mock_limits.assert_called_once_with(max_connections=300, max_keepalive_connections=300)
+        mock_http_client.assert_called_once_with(300)
         _, kwargs = mock_client_cls.call_args
-        assert "http_client" in kwargs
+        assert kwargs["http_client"] is mock_http_client.return_value

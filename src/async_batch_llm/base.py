@@ -848,13 +848,10 @@ class BatchResult(Generic[TOutput, TContext]):
                 f"{len(missing)} result(s) lack submission_index ({preview}{suffix})."
             )
         ordered = sorted(self.results, key=lambda result: cast(int, result.submission_index))
-        return cast(
-            "BatchResult[TOutput, TContext]",
-            BatchResult(
-                results=ordered,
-                termination=self.termination,
-                wall_time_seconds=self.wall_time_seconds,
-            ),
+        return BatchResult(
+            results=ordered,
+            termination=self.termination,
+            wall_time_seconds=self.wall_time_seconds,
         )
 
     def to_dict(self, *, encoder: "ValueEncoder | None" = None) -> dict[str, Any]:

@@ -110,6 +110,42 @@ jobs:
     - name: Run type checker (ty)
       run: uv run ty check src/
 
+  openai-compat:
+    # The locked SDK exercises the current httpx2 transport in the main test
+    # matrix. Keep focused coverage for current releases in both older,
+    # httpx-backed SDK major lines allowed by openai>=1.50.0.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - label: "1.x"
+          requirement: "openai>=1.50,<2"
+        - label: "2.x"
+          requirement: "openai>=2,<3"
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Test OpenAI SDK ${{ matrix.label }} transport compatibility
+      run: |
+        uv run --isolated --no-project \
+          --with-editable . \
+          --with "${{ matrix.requirement }}" \
+          --with pytest \
+          --with pytest-asyncio \
+          --with pytest-timeout \
+          pytest tests/test_openai_compatible.py tests/test_concurrency_knob.py -q
+
   scale-smoke:
     # Reduced deterministic scale-soak profile (benchmarks/scale_soak): exact
     # item accounting, bounded queues, replay elimination, retry isolation,

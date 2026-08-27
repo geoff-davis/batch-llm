@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenAI-compatible models now size connection pools through the HTTP transport
+  bundled with the installed OpenAI SDK, supporting both the SDK 1.x/2.x
+  ``httpx`` transport and the SDK 3.x ``httpx2`` transport.
+
 ## [0.22.0] - 2026-08-17
 
 ### Added
