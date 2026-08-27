@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated the locked optional dependency graph to `cryptography` 50.0.1 and
+  `click` 8.5.0, resolving high-severity CVE-2026-69247 /
+  GHSA-g6cj-pr64-35w5 and PYSEC-2026-2132.
 - OpenAI-compatible models now size connection pools through the HTTP transport
   bundled with the installed OpenAI SDK, supporting both the SDK 1.x/2.x
   ``httpx`` transport and the SDK 3.x ``httpx2`` transport.
