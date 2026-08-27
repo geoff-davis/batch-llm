@@ -458,19 +458,11 @@ class ProcessorConfig:
         # cumulative retry waits — that comparison was conceptually wrong and
         # confusing.)
 
-        # Validate proactive rate limit vs workers
-        if self.max_requests_per_minute is not None:
-            requests_per_second = self.max_requests_per_minute / 60.0
-            if requests_per_second < self.max_workers:
-                logger.warning(
-                    f"max_requests_per_minute ({self.max_requests_per_minute}) is less than "
-                    f"max_workers ({self.max_workers}). "
-                    f"At {requests_per_second:.2f} requests/second with {self.max_workers} workers, "
-                    f"workers may frequently wait for rate limit tokens. "
-                    f"Consider reducing max_workers to {max(1, int(requests_per_second))} "
-                    f"or increasing "
-                    f"max_requests_per_minute."
-                )
+        # ``max_requests_per_minute`` is a throughput limit while
+        # ``max_workers`` is a concurrency limit. Comparing them requires an
+        # expected request duration, which ProcessorConfig does not have. A
+        # deliberately low RPM is therefore valid and quiet; the admission
+        # gate will pace workers as configured (issue #147).
 
 
 def _get_timeout_per_item(self: ProcessorConfig) -> float | None:
