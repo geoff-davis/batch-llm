@@ -53,14 +53,8 @@ repos:
     hooks:
       - id: ty
         name: ty
-        entry: ty check src
-        language: python
-        additional_dependencies:
-          - "ty>=0.0.1a16"
-          - "pydantic>=2.0.0"
-          - "google-genai>=1.49.0"
-          - "pydantic-ai>=0.0.1"
-          - "aiolimiter>=1.2.1"
+        entry: uv run ty check src
+        language: system
         pass_filenames: false
 
   # General code quality checks

@@ -52,6 +52,25 @@ logger = logging.getLogger(__name__)
 TM = TypeVar("TM", bound="OpenAICompatibleModel")
 
 
+def _build_openai_http_client(max_connections: int) -> Any:
+    """Build a sized client using the transport bundled with the OpenAI SDK.
+
+    OpenAI SDK releases before 3.x use ``httpx`` while 3.x uses ``httpx2``.
+    Both expose their matching limits instance and default async client at the
+    package root, so deriving the limits class from the SDK supports both
+    transport generations without taking a direct dependency on either one.
+    """
+    from openai import DEFAULT_CONNECTION_LIMITS, DefaultAsyncHttpxClient
+
+    limits_type = type(DEFAULT_CONNECTION_LIMITS)
+    return DefaultAsyncHttpxClient(
+        limits=limits_type(
+            max_connections=max_connections,
+            max_keepalive_connections=max_connections,
+        )
+    )
+
+
 def _encode_tags_to_display_name(tags: dict[str, str]) -> str:
     """Encode cache_tags as a deterministic string for the CachedContent display_name.
 
@@ -1136,15 +1155,8 @@ class OpenAICompatibleModel:
             or self._rebuild_client_kwargs is None
         ):
             return False
-        import httpx
-
         new_client = AsyncOpenAI(
-            http_client=httpx.AsyncClient(
-                limits=httpx.Limits(
-                    max_connections=concurrency,
-                    max_keepalive_connections=concurrency,
-                )
-            ),
+            http_client=_build_openai_http_client(concurrency),
             **self._rebuild_client_kwargs,
         )
         old_client = self._client
@@ -1262,14 +1274,7 @@ class OpenAICompatibleModel:
                 )
             if max_connections < 1:
                 raise ValueError(f"max_connections must be >= 1; got {max_connections}.")
-            import httpx
-
-            client_kwargs["http_client"] = httpx.AsyncClient(
-                limits=httpx.Limits(
-                    max_connections=max_connections,
-                    max_keepalive_connections=max_connections,
-                )
-            )
+            client_kwargs["http_client"] = _build_openai_http_client(max_connections)
         effective_base_url = base_url or cls._default_base_url
         if effective_base_url is not None:
             client_kwargs.setdefault("base_url", effective_base_url)
